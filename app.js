@@ -5718,6 +5718,15 @@ function renderLeagueCareer() {
     }).join('');
 }
 
+// Rellotge final d'una jornada amb rellotge, en una línia: «◷ Tu 0:12.40 · Gambit 0:35».
+function leagueRoundClockText(h) {
+    const c = h && h.clock;
+    if (!c || !Number.isFinite(c.white) || !Number.isFinite(c.black)) return '';
+    const mine = h.color === 'b' ? c.black : c.white;
+    const theirs = h.color === 'b' ? c.white : c.black;
+    return `<span class="lh-clock">◷ Tu ${formatClock(mine)} · ${escapeHtml(h.oppName || 'Rival')} ${formatClock(theirs)}</span>`;
+}
+
 function renderLeagueHistory() {
     const container = document.getElementById('league-history');
     if (!container) return;
@@ -5741,7 +5750,7 @@ function renderLeagueHistory() {
         const rowCls = h.outcome === 'win' ? ' lh-row-win' : (h.outcome === 'loss' ? ' lh-row-loss' : (h.outcome === 'draw' ? ' lh-row-draw' : ''));
         html += `<div class="league-history-row${rowCls}${gameId ? ' lh-openable' : ''}"${attrs}>
             <span class="lh-round">J${h.round}</span>
-            <span class="lh-opp">vs ${escapeHtml(h.oppName)}${h.oppElo ? ` · ${h.oppElo}` : ''}</span>
+            <span class="lh-opp">vs ${escapeHtml(h.oppName)}${h.oppElo ? ` · ${h.oppElo}` : ''}${leagueRoundClockText(h)}</span>
             <span class="lh-result ${cls[h.outcome] || ''}">${label[h.outcome] || '—'}</span>
             ${gameId ? '<span class="lh-go" aria-hidden="true">›</span>' : ''}
         </div>`;
@@ -5794,7 +5803,7 @@ function leagueInterludeWanted() {
         && ElTaulerCore.leagueAutoChains(getLeagueTimeControlId()));
 }
 
-function showLeagueInterlude(resultText, outcome) {
+function showLeagueInterlude(resultText, outcome, clockInfo) {
     const overlay = document.getElementById('league-interlude');
     if (!overlay || !leagueInterludeWanted()) return false;
     stopLeagueInterludeTimer();
@@ -5809,6 +5818,8 @@ function showLeagueInterlude(resultText, outcome) {
     const me = standings[myRank - 1];
     const resultCls = outcome === 'win' ? 'lgc-green' : (outcome === 'loss' ? 'lgc-red' : (outcome === 'draw' ? 'lgc-gold' : 'lgc-silver'));
     $('#li-result').text(resultText || '').attr('class', `li-result lg-chip ${resultCls}`);
+    const ci = clockInfo || {};
+    $('#li-clock').html(resultFinalClockHtml(ci.clock, ci.playerColor, ci.oppName));
     $('#li-round').text(`Jornada ${round}/9 · ${ElTaulerCore.leagueDivision(currentLeague.division).name}`);
     const look = leagueStyleLook(opp.style);
     $('#li-opp-name').text(`${look.icon} ${opp.name}`);
@@ -5938,11 +5949,15 @@ function applyLeagueAfterGame(myOutcome) {
     // Desa el resultat de la meva ronda per a l'historial de la lliga
     const oppForHist = getLeaguePlayer(oppId);
     if (!Array.isArray(currentLeague.history)) currentLeague.history = [];
+    // Amb rellotge, el rellotge final de la jornada (es veu a «Les teves jornades»).
+    let finalClock = null;
+    try { finalClock = snapshotFinalClock(); } catch (e) { finalClock = null; }
     currentLeague.history.push({
         round: roundNumber,
         oppName: oppForHist ? oppForHist.name : 'Rival',
         oppElo: oppForHist ? oppForHist.elo : null,
-        outcome: myOutcome
+        outcome: myOutcome,
+        ...(finalClock ? { clock: finalClock, color: leagueActiveMatch.playerColor || playerColor } : {})
     });
     // La partida encara no és a l'historial: recordGameHistory ve després i és
     // qui inventa l'id. Es deixa apuntat quina jornada l'espera perquè la
@@ -12085,6 +12100,21 @@ function historyFinalClockHtml(entry) {
         <span class="history-final-clock-title">◷ Rellotge final</span>
         <span class="history-clock-side history-clock-white"><span>Blanques</span><strong>${formatClock(entry.finalClock.white)}</strong></span>
         <span class="history-clock-side history-clock-black"><span>Negres</span><strong>${formatClock(entry.finalClock.black)}</strong></span>
+    </div>`;
+}
+
+// Rellotge final d'una partida que s'acaba de jugar, amb «Tu» i el rival en
+// lloc de blanques i negres (la capsa blanca és qui duia blanques). clock:
+// { white, black } en ms (snapshotFinalClock); sense rellotge, res.
+function resultFinalClockHtml(clock, playerColor, oppName) {
+    if (!clock || !Number.isFinite(clock.white) || !Number.isFinite(clock.black)) return '';
+    const me = playerColor === 'b' ? 'b' : 'w';
+    const opp = escapeHtml(oppName || 'Rival');
+    const label = side => side === me ? 'Tu' : opp;
+    return `<div class="history-final-clock result-final-clock" role="group" aria-label="Rellotge final">
+        <span class="history-final-clock-title">◷ Rellotge final</span>
+        <span class="history-clock-side history-clock-white"><span>${label('w')}</span><strong>${formatClock(clock.white)}</strong></span>
+        <span class="history-clock-side history-clock-black"><span>${label('b')}</span><strong>${formatClock(clock.black)}</strong></span>
     </div>`;
 }
 
@@ -25789,7 +25819,8 @@ function setupEvents() {
             lastReviewSnapshot.finalPrecision,
             lastReviewSnapshot.counts,
             null,
-            { showCheckmate: lastReviewSnapshot.showCheckmate }
+            { showCheckmate: lastReviewSnapshot.showCheckmate, finalClock: lastReviewSnapshot.finalClock,
+                playerColor: lastReviewSnapshot.playerColor, oppName: lastReviewSnapshot.oppName }
         );
     });
 
@@ -26138,7 +26169,8 @@ function setupEvents() {
                     lastReviewSnapshot.finalPrecision,
                     lastReviewSnapshot.counts,
                     null,
-                    { showCheckmate: lastReviewSnapshot.showCheckmate }
+                    { showCheckmate: lastReviewSnapshot.showCheckmate, finalClock: lastReviewSnapshot.finalClock,
+                        playerColor: lastReviewSnapshot.playerColor, oppName: lastReviewSnapshot.oppName }
                 );
             }
             $('#blunder-alert').hide();
@@ -34441,6 +34473,8 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
         }
     
         $('#review-result-text').text(msg);
+        // Partida amb rellotge: el rellotge final sota el resultat.
+        $('#review-final-clock').html(resultFinalClockHtml(options.finalClock, options.playerColor, options.oppName));
         $('#review-precision-value').text(finalPrecision ? `${finalPrecision}%` : '—');
         renderReviewBreakdown(counts || summarizeReview(currentReview));
         renderGameDebrief(options.entry);
@@ -35969,6 +36003,10 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     // posicional), s'anul·la: la partida ja s'ha tancat tal com està.
     clearPositionalRetryTimer();
     stopGameClock();
+    // Rellotge final (null sense rellotge): surt amb el resultat a la revisió,
+    // al compte enrere de la lliga ràpida i a les jornades de la lliga.
+    const finalClockSnapshot = snapshotFinalClock();
+    const finalClockOppName = (currentOpponent && currentOpponent.name) || null;
     let msg = ""; let change = 0; let playerWon = false; let resultScore = 0.5;
     const wasLeagueMatch = (currentGameMode === 'league') && !!leagueActiveMatch;
     let leagueOutcome = 'draw';
@@ -36252,6 +36290,9 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         finalPrecision: finalPrecision,
         counts: reviewCounts,
         showCheckmate: showCheckmate,
+        finalClock: finalClockSnapshot,
+        playerColor: playerColor,
+        oppName: finalClockOppName
     };
     
     let onClose = () => {
@@ -36338,7 +36379,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     const showFullReview = () => {
         if (leagueChainNext) {
             hidePostGameStatusChip();
-            if (showLeagueInterlude(msg, leagueOutcome)) {
+            if (showLeagueInterlude(msg, leagueOutcome, { clock: finalClockSnapshot, playerColor, oppName: finalClockOppName })) {
                 persistPostGameAfterPaint('league-interlude');
                 return;
             }
@@ -36353,6 +36394,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
             }
         }
         showPostGameReview(reviewHeader, finalPrecision, reviewCounts, onClose, {
+            finalClock: finalClockSnapshot, playerColor: playerColor, oppName: finalClockOppName,
             showCheckmate: showCheckmate,
             quickReveal: quickResolve,
             growthTask: growthTask,

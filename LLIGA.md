@@ -252,6 +252,11 @@ novena, que acaba amb la revisió normal i el resum de la temporada. La
 partida es desa a l'historial igualment i es pot revisar des de la llista de
 jornades.
 
+Si la partida era amb rellotge, el resultat porta el **rellotge final** dels
+dos jugadors («Tu» i el rival, cadascun a la capsa del color amb què jugava),
+aquí, a la finestra de revisió de qualsevol partida amb rellotge i a la llista
+«Les teves jornades» (`resultFinalClockHtml`, `leagueRoundClockText`).
+
 El compte enrere només corre amb l'app a la vista (amb la pestanya amagada
 s'atura) i, si una altra pantalla tanca la finestra, s'atura sense començar
 cap partida d'amagat.
@@ -356,7 +361,8 @@ tothom) i el Sonneborn-Berger (que és al quadre i a la llegenda).
   aturat amb l'app amagada o la finestra tancada, mostrat en lloc de la
   revisió i aturat per «Anar a l'inici»); i la pantalla (§9): les quatre
   rajoles i la franja del rival, colors de posició i d'estil, textos curts i
-  la taula que cap al mòbil.
+  la taula que cap al mòbil; el rellotge final amb el resultat (revisió,
+  compte enrere i jornades), i res sense rellotge.
 
 ## 12. Com refer-ho
 

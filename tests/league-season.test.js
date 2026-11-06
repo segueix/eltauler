@@ -379,7 +379,7 @@ describe('partides consecutives a les lligues de 30s i 1+0', () => {
     test('en acabar una jornada es mostra en lloc de la revisió; «Anar a l\'inici» l\'atura', () => {
         const hgo = fnSource('handleGameOver');
         expect(hgo).toMatch(/const leagueChainNext = wasLeagueMatch && !blunderMode && leagueInterludeWanted\(\);/);
-        expect(hgo).toMatch(/if \(leagueChainNext\) \{\s*hidePostGameStatusChip\(\);\s*if \(showLeagueInterlude\(msg, leagueOutcome\)\) \{\s*persistPostGameAfterPaint\('league-interlude'\);\s*return;/);
+        expect(hgo).toMatch(/if \(leagueChainNext\) \{\s*hidePostGameStatusChip\(\);\s*if \(showLeagueInterlude\(msg, leagueOutcome, \{ clock: finalClockSnapshot, playerColor, oppName: finalClockOppName \}\)\) \{\s*persistPostGameAfterPaint\('league-interlude'\);\s*return;/);
         expect(fnSource('leaveLeagueInterludeHome')).toMatch(/hideLeagueInterlude\(\);[\s\S]*goToHomeScreen\(\);/);
         expect(fnSource('returnToMainMenuImmediate')).toMatch(/hideLeagueInterlude\(\)/);
     });
@@ -437,5 +437,46 @@ describe('pantalla de la lliga: rajoles i colors', () => {
 
     test('al mòbil la taula hi cap: s\'amaguen PJ i SB', () => {
         expect(html).toMatch(/@media \(max-width: 520px\) \{\s*table\.league-table, body\.device-mobile table\.league-table \{ min-width: 0; \}\s*\.league-table \.lg-col-pj, \.league-table \.lg-col-sb \{ display: none; \}/);
+    });
+});
+
+describe('rellotge final amb el resultat', () => {
+    function clockCtx() {
+        const ctx = vm.createContext({ CLOCK_CENTIS_MS: 10000 });
+        vm.runInContext(fnSource('escapeHtml'), ctx);
+        vm.runInContext(source.slice(source.indexOf('function formatClock('), source.indexOf('// Quant ha de trigar el pròxim tic')), ctx);
+        ['resultFinalClockHtml', 'leagueRoundClockText'].forEach(n => vm.runInContext(fnSource(n), ctx));
+        return ctx;
+    }
+
+    test('amb rellotge: «Tu» i el rival, cadascun a la capsa del seu color', () => {
+        const ctx = clockCtx();
+        const html = ctx.resultFinalClockHtml({ white: 12400, black: 35000 }, 'b', 'Gambit');
+        expect(html).toMatch(/history-clock-white"><span>Gambit<\/span><strong>0:12.4<\/strong>/);
+        expect(html).toMatch(/history-clock-black"><span>Tu<\/span><strong>0:35.0<\/strong>/);
+        expect(ctx.resultFinalClockHtml({ white: 0, black: 61000 }, 'w', null)).toMatch(/<span>Tu<\/span><strong>0:00.00<\/strong>[\s\S]*<span>Rival<\/span><strong>1:01<\/strong>/);
+    });
+
+    test('sense rellotge no surt res', () => {
+        const ctx = clockCtx();
+        expect(ctx.resultFinalClockHtml(null, 'w', 'X')).toBe('');
+        expect(ctx.resultFinalClockHtml({ white: 100 }, 'w', 'X')).toBe('');
+        expect(ctx.leagueRoundClockText({ oppName: 'X', outcome: 'loss' })).toBe('');
+    });
+
+    test('a «Les teves jornades», el temps del jugador primer', () => {
+        const ctx = clockCtx();
+        expect(ctx.leagueRoundClockText({ oppName: 'Gambit', color: 'b', clock: { white: 21300, black: 0 } }))
+            .toBe('<span class="lh-clock">◷ Tu 0:00.00 · Gambit 0:21.3</span>');
+    });
+
+    test('es mostra a la revisió, al compte enrere i es desa a la jornada', () => {
+        expect(fnSource('showPostGameReview')).toMatch(/\$\('#review-final-clock'\)\.html\(resultFinalClockHtml\(options\.finalClock, options\.playerColor, options\.oppName\)\)/);
+        expect(fnSource('showLeagueInterlude')).toMatch(/\$\('#li-clock'\)\.html\(resultFinalClockHtml\(ci\.clock, ci\.playerColor, ci\.oppName\)\)/);
+        expect(fnSource('handleGameOver')).toMatch(/const finalClockSnapshot = snapshotFinalClock\(\);/);
+        expect(fnSource('applyLeagueAfterGame')).toMatch(/finalClock = snapshotFinalClock\(\)/);
+        const html = fs.readFileSync(require.resolve('../index.html'), 'utf8');
+        expect(html).toContain('<div id="review-final-clock"></div>');
+        expect(html).toContain('<div class="li-clock" id="li-clock"></div>');
     });
 });

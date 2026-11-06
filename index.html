@@ -5673,6 +5673,11 @@
         .li-opp-name { font-size: 1.3rem; font-weight: 800; }
         .li-result.lg-chip { font-size: 0.85rem; padding: 4px 12px; margin-bottom: 10px; white-space: normal; }
         .li-strip { margin-top: 8px; text-align: left; }
+        /* Rellotge final amb el resultat (revisió, compte enrere i jornades) */
+        .result-final-clock { grid-template-columns: 1fr 1fr; margin: 4px 0 12px; text-align: left; }
+        .result-final-clock .history-final-clock-title { grid-column: 1 / -1; text-align: center; color: var(--text-secondary); }
+        .li-clock .result-final-clock { margin: 0 0 10px; }
+        .league-history-row .lh-clock { display: block; font-size: 0.75rem; color: var(--text-secondary); margin-top: 2px; font-variant-numeric: tabular-nums; }
         .li-opp-meta, .li-me { color: var(--text-secondary); font-size: 0.85rem; margin-top: 4px; line-height: 1.35; }
         .li-actions { display: flex; gap: 8px; margin-top: 14px; }
         .li-actions .btn { flex: 1; padding: 10px; font-size: 0.88rem; }
@@ -8761,6 +8766,7 @@
         <div class="modal-overlay league-interlude" id="league-interlude" role="dialog" aria-modal="true" aria-labelledby="li-label">
             <div class="modal-content li-card">
                 <div class="li-result" id="li-result">—</div>
+                <div class="li-clock" id="li-clock"></div>
                 <div class="li-label" id="li-label">Següent partida en</div>
                 <div class="li-count" id="li-count" aria-live="polite">30</div>
                 <div class="li-round" id="li-round">Jornada 2/9</div>
@@ -8874,6 +8880,7 @@
                 <div class="modal-title">📈 Revisió de la partida</div>
                 <img src="checkmate.svg" alt="Escac i mat" id="checkmate-image" class="checkmate-image">
                 <div class="review-modal-result" id="review-result-text">—</div>
+                <div id="review-final-clock"></div>
                 <div class="review-precision">Precisió final: <strong id="review-precision-value">—</strong></div>
                 <div class="review-highlight">Com han estat les teves jugades?</div>
                 <div class="review-legend" id="review-breakdown"></div>
