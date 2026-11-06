@@ -480,3 +480,15 @@ describe('rellotge final amb el resultat', () => {
         expect(html).toContain('<div class="li-clock" id="li-clock"></div>');
     });
 });
+
+describe('rellotge final: hi cap també amb la lletra gran del mòbil', () => {
+    const html = fs.readFileSync(require.resolve('../index.html'), 'utf8');
+    test('dues columnes que poden encongir-se, nom a dalt i temps a sota', () => {
+        expect(html).toContain('.result-final-clock { grid-template-columns: repeat(2, minmax(0, 1fr));');
+        expect(html).toMatch(/\.result-final-clock \.history-clock-side \{\s*flex-direction: column;[^}]*min-width: 0;/);
+        expect(html).toMatch(/\.result-final-clock \.history-clock-side > span \{[^}]*text-overflow: ellipsis;/);
+    });
+    test('al compte enrere, la icona i el nom del rival no se separen', () => {
+        expect(html).toMatch(/\.li-opp-name \{[^}]*white-space: nowrap;/);
+    });
+});
