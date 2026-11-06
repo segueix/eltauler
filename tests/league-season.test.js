@@ -559,7 +559,9 @@ describe('pantalla entre partides: poc text i les dues posicions marcades', () =
         // La jornada que toca, en un requadre i gran.
         expect(block).toMatch(/<div class="li-round-box" id="li-round-box">\s*<small>JORNADA<\/small>\s*<span class="li-round-num"><b id="li-round-num">/);
         expect(html).toMatch(/\.li-round-box \{[^}]*border: 3px solid var\(--accent-gold\)/);
-        expect(html).toMatch(/\.li-round-num b \{ font-size: 2\.6rem;/);
+        expect(html).toMatch(/\.li-round-num b \{ font-size: 2\.2rem;/);
+        // Els segons que falten, més grans que el número de la jornada.
+        expect(html).toMatch(/\.li-count \{ font-size: clamp\(3\.2rem, 10vh, 4\.8rem\);/);
         expect(fnSource('showLeagueInterlude')).not.toMatch(/describeLeagueOpponent/);
     });
 });
