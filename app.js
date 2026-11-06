@@ -2167,10 +2167,11 @@ function updateReviewTtsButtons() {
         const playLabel = REVIEW_TTS_STATE.isPaused ? 'Reprèn' : (REVIEW_TTS_STATE.isSpeaking ? 'Llegint…' : 'Escolta');
         playBtn.html(`<svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg>${playLabel}`);
     });
+    // Sense comentaris sobre quina veu llegeix (Matxa o la d'emergència): el
+    // botó ja diu si llegeix; només s'avisa si no es pot llegir o si està pausat.
     if (!supported) setReviewTtsStatus('Cal un navegador amb reproducció d’àudio.');
-    else if (REVIEW_TTS_STATE.isSpeaking) setReviewTtsStatus('Lectura amb Matxa o Google Cloud de reserva, amb música de fons si està activada.');
     else if (REVIEW_TTS_STATE.isPaused) setReviewTtsStatus('Lectura pausada.');
-    else setReviewTtsStatus('Veu principal Matxa. Emergència: Google ca-ES-Standard-B, si el servei segur està configurat.');
+    else setReviewTtsStatus('');
 }
 
 function resetReviewTtsState(keepPaused = false) {

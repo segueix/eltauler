@@ -160,3 +160,23 @@ describe('perfil Matxa i emergència Google sense cap veu del sistema', () => {
         expect(app.synth.speak).not.toHaveBeenCalled();
     });
 });
+
+describe('sense comentaris sobre els tipus de veus al costat dels botons d\'escoltar', () => {
+    const fs = require('fs');
+    const src = fs.readFileSync(require.resolve('../app.js'), 'utf8');
+    const html = fs.readFileSync(require.resolve('../index.html'), 'utf8');
+    test('ni «Veu principal Matxa...» ni «Lectura amb Matxa o Google...» ni «Lectura local del dispositiu»', () => {
+        expect(src).not.toContain('Veu principal Matxa. Emergència');
+        expect(src).not.toContain('Lectura amb Matxa o Google Cloud de reserva');
+        expect(html).not.toContain('Lectura local del dispositiu');
+        expect(html).toContain('<span class="review-tts-status" id="history-tts-status"></span>');
+        expect(html).toContain('<span class="review-tts-status" id="coach-tts-status"></span>');
+    });
+    test('es manté l\'avís de lectura pausada i el de navegador sense àudio', () => {
+        const a = src.indexOf('function updateReviewTtsButtons(');
+        const fn = src.slice(a, src.indexOf('\n}\n', a));
+        expect(fn).toContain("setReviewTtsStatus('Lectura pausada.')");
+        expect(fn).toContain("setReviewTtsStatus('Cal un navegador amb reproducció d’àudio.')");
+        expect(fn).toContain("setReviewTtsStatus('')");
+    });
+});
