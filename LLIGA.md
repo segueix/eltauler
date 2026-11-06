@@ -240,12 +240,12 @@ divisió en obrir-les (`ensureLeaguePersonality`).
 
 A les lligues de 30s i 1+0 (`leagueAutoChains`), en acabar una jornada no surt
 la revisió: surt una pantalla amb poc text. El resultat en curt
-(«Victòria per temps · +13», `leagueShortResult`), el rellotge final, «La
-jornada 3/9 comença en» i el compte enrere de 30 a 0. A sota, **les dues
-posicions a la classificació, cara a cara**: la teva (insígnia verd aigua, punts
-i color amb què jugaràs) contra la del proper rival (insígnia del color del seu
-estil, amb la icona a la cantonada, punts i ROC), i una escala de deu caselles
-amb les dues posicions pintades i el podi i el descens marcats a sota. L'estil,
+(«Victòria per temps · +13», `leagueShortResult`), el rellotge final, la
+**jornada que toca, gran i en un requadre** («JORNADA 3/9»), «comença en» i el
+compte enrere de 30 a 0. A sota, **les dues posicions a la classificació, cara
+a cara**: la teva (insígnia verd aigua, punts i color amb què jugaràs) contra
+la del proper rival (insígnia del color del seu estil, amb la icona a la
+cantonada, punts i ROC). L'estil,
 l'obertura i la divisió ja no hi surten en text (són a la pantalla de la lliga).
 A zero comença sola la jornada següent; «Juga ara» no espera i «Inici»
 l'atura.

@@ -5813,10 +5813,10 @@ function leagueShortResult(outcome, info) {
     return word + how + elo;
 }
 
-// Pantalla entre partides: resultat, rellotge final, compte enrere i les dues
-// posicions a la classificació (la teva i la del proper rival), marcades també
-// en una escala de deu caselles. info: { clock, playerColor, oppName,
-// eloChange, reason }.
+// Pantalla entre partides: resultat, rellotge final, la jornada que toca (gran,
+// en un requadre), el compte enrere i les dues posicions a la classificació (la
+// teva i la del proper rival). info: { clock, playerColor, oppName, eloChange,
+// reason }.
 function showLeagueInterlude(resultText, outcome, info) {
     const overlay = document.getElementById('league-interlude');
     if (!overlay || !leagueInterludeWanted()) return false;
@@ -5828,7 +5828,6 @@ function showLeagueInterlude(resultText, outcome, info) {
     if (!opp) return false;
     const ci = info || {};
     const standings = leagueSort(currentLeague.players);
-    const total = standings.length;
     const oppRank = standings.findIndex(p => p.id === opp.id) + 1;
     const myRank = standings.findIndex(p => p.id === 'me') + 1;
     const me = standings[myRank - 1];
@@ -5836,7 +5835,8 @@ function showLeagueInterlude(resultText, outcome, info) {
     const resultCls = outcome === 'win' ? 'lgc-green' : (outcome === 'loss' ? 'lgc-red' : (outcome === 'draw' ? 'lgc-gold' : 'lgc-silver'));
     $('#li-result').text(outcome ? leagueShortResult(outcome, ci) : (resultText || '')).attr('class', `li-result lg-chip ${resultCls}`);
     $('#li-clock').html(resultFinalClockHtml(ci.clock, ci.playerColor, ci.oppName));
-    $('#li-label').text(`La jornada ${round}/9 comença en`);
+    $('#li-round-num').text(String(round));
+    $('#li-label').text('comença en');
     const look = leagueStyleLook(opp.style);
     const color = getLeagueRoundColor(round);
     $('#li-me-pos').text(leagueOrdinal(myRank));
@@ -5848,14 +5848,6 @@ function showLeagueInterlude(resultText, outcome, info) {
     $('#li-opp-name').text(opp.name);
     $('#li-opp-sub').html(bits([leaguePointsLabel(oppRow ? oppRow.pts : 0), `ROC ${opp.elo}`]));
     $('#league-interlude .li-card').css('border-top', `6px solid ${look.color}`);
-    // Escala de la classificació: la teva casella i la del rival, acolorides.
-    let ladder = '';
-    for (let r = 1; r <= total; r++) {
-        const zone = r <= 3 ? ' up' : (r > total - 3 ? ' down' : '');
-        const who = r === myRank ? ' me lgc-teal' : (r === oppRank ? ` opp ${look.cls}` : '');
-        ladder += `<span class="li-step${zone}${who}">${r}</span>`;
-    }
-    $('#li-ladder').html(ladder);
     leagueInterlude = { remainingMs: ElTaulerCore.LEAGUE_INTERLUDE_SECONDS * 1000, lastTs: nowMs(), timer: null };
     renderLeagueInterludeCount();
     overlay.style.display = 'flex';

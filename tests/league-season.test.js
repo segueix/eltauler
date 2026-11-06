@@ -490,8 +490,6 @@ describe('rellotge final: hi cap també amb la lletra gran del mòbil', () => {
     });
     test('al compte enrere, la icona i el nom del rival no se separen', () => {
         expect(html).toMatch(/\.li-side-name \{[^}]*white-space: nowrap;/);
-        // Les dues caselles marcades de l'escala no queden tapades pel fons per defecte.
-        expect(html).toContain('.li-step:not(.me):not(.opp) { background: var(--lg-tint);');
     });
 });
 
@@ -533,12 +531,13 @@ describe('pantalla entre partides: poc text i les dues posicions marcades', () =
         expect(ctx.leagueShortResult('draw', {})).toBe('Taules');
     });
 
-    test('les dues posicions, els punts, el color i l\'escala amb les dues caselles marcades', () => {
+    test('la jornada gran, les dues posicions, els punts i el color', () => {
         const { ctx, els, overlay } = interCtx();
         expect(ctx.showLeagueInterlude('Victòria per temps! (+13 · Bullet 1+0)', 'win', { eloChange: 13, reason: 'time' })).toBe(true);
         expect(overlay.style.display).toBe('flex');
         expect(els['#li-result'].text).toBe('Victòria per temps · +13');
-        expect(els['#li-label'].text).toBe('La jornada 3/9 comença en');
+        expect(els['#li-round-num'].text).toBe('3');
+        expect(els['#li-label'].text).toBe('comença en');
         // Tu ets el primer (9 punts); el rival bot4, el cinquè (5 punts).
         expect(els['#li-me-pos'].text).toBe('1r');
         expect(els['#li-me-sub'].html).toBe('<span class="li-nw">9 punts</span> · <span class="li-nw">negres</span>');
@@ -546,11 +545,8 @@ describe('pantalla entre partides: poc text i les dues posicions marcades', () =
         expect(els['#li-opp-pos'].attrs.class).toBe('li-pos lgc-blue');   // el Mur: blau
         expect(els['#li-opp-name'].text).toBe('Rival4');
         expect(els['#li-opp-sub'].html).toBe('<span class="li-nw">5 punts</span> · <span class="li-nw">ROC 1004</span>');
-        const ladder = els['#li-ladder'].html;
-        expect(ladder.match(/class="li-step/g)).toHaveLength(10);
-        expect(ladder).toContain('<span class="li-step up me lgc-teal">1</span>');
-        expect(ladder).toContain('<span class="li-step opp lgc-blue">5</span>');
-        expect(ladder).toContain('<span class="li-step down">10</span>');
+        // Ja no hi ha l'escala dels deu números.
+        expect(els['#li-ladder']).toBeUndefined();
     });
 
     test('ja no hi ha les frases llargues (estil, obertura, divisió, nota final)', () => {
@@ -559,7 +555,11 @@ describe('pantalla entre partides: poc text i les dues posicions marcades', () =
         const block = html.slice(a, html.indexOf('id="promotion-modal"', a));
         expect(block).not.toContain('li-opp-meta');
         expect(block).not.toContain('Lliga ràpida: les jornades');
-        expect(block).toContain('id="li-ladder"');
+        expect(block).not.toContain('li-ladder');
+        // La jornada que toca, en un requadre i gran.
+        expect(block).toMatch(/<div class="li-round-box" id="li-round-box">\s*<small>JORNADA<\/small>\s*<span class="li-round-num"><b id="li-round-num">/);
+        expect(html).toMatch(/\.li-round-box \{[^}]*border: 3px solid var\(--accent-gold\)/);
+        expect(html).toMatch(/\.li-round-num b \{ font-size: 2\.6rem;/);
         expect(fnSource('showLeagueInterlude')).not.toMatch(/describeLeagueOpponent/);
     });
 });
