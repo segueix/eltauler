@@ -5091,8 +5091,10 @@ function getLeagueBaseRating(tcId) {
 
 // D'on surt la puntuació de referència d'una lliga, per als textos de pantalla i
 // de confirmació: de l'ELO del ritme, o del principal si el ritme encara no en té.
-function describeLeagueRatingSource(tcId) {
-    const base = getLeagueBaseRating(tcId);
+function describeLeagueRatingSource(tcId, sortedBase) {
+    // sortedBase: la referència amb què es va sortejar una lliga ja començada
+    // (la graella queda congelada encara que la puntuació es mogui després).
+    const base = (typeof sortedBase === 'number' && !isNaN(sortedBase)) ? sortedBase : getLeagueBaseRating(tcId);
     const timed = (tcId && tcId !== 'none') ? getTimeControlRating(tcId) : null;
     if (timed !== null) return { base, timed: true, text: `el teu ELO de ${getTimeControlLabel(tcId)} (${base})` };
     if (tcId && tcId !== 'none') {
@@ -5121,11 +5123,17 @@ function createNewLeague(force = false, options = {}) {
     ];
     shuffleArray(baseNames);
 
+    // Rivals repartits entre 200 punts per sota i 200 per sobre de la
+    // referència (core.js: leagueOpponentOffsets, LLIGA.md §3), dins del rang
+    // que el motor juga de debò (ROC 200-2000). El desplaçament es desa per
+    // poder-los tornar a col·locar si el rellotge canvia abans de començar.
+    const offsets = ElTaulerCore.leagueOpponentOffsets();
     const bots = [];
     for (let i = 0; i < 9; i++) {
         const name = baseNames[i] || `Rival${i + 1}`;
-        const elo = Math.max(50, baseRating + randInt(-25, 25));
-        bots.push({ id: `bot${i + 1}`, name: name, elo: elo, pj: 0, pg: 0, pp: 0, pe: 0, pts: 0 });
+        const offset = offsets[i];
+        const elo = ElTaulerCore.leagueOpponentRating(baseRating, offset, ELO_MIN, ELO_MAX);
+        bots.push({ id: `bot${i + 1}`, name: name, elo: elo, offset: offset, pj: 0, pg: 0, pp: 0, pe: 0, pts: 0 });
     }
 
     const me = { id: 'me', name: 'Tu', elo: baseRating, pj: 0, pg: 0, pp: 0, pe: 0, pts: 0 };
@@ -5170,9 +5178,33 @@ function getCurrentUserLeagueRoc() {
 function syncLeagueUserRoc() {
     const me = getLeaguePlayer('me');
     if (!me) return;
-    // La lliga congela el ROC dels rivals quan es crea, però el jugador ha de
-    // mostrar sempre el seu ROC actual si ha pujat o baixat fora de la lliga.
-    me.elo = getCurrentUserLeagueRoc();
+    // La lliga es crea sola (bàner de l'inici) i pot passar dies abans de la
+    // primera jornada. Mentre no ha començat, la graella segueix la puntuació
+    // actual del jugador, com quan se'n canvia el rellotge; si no, quedava
+    // sortejada amb la puntuació del dia que es va crear (sovint just després
+    // del calibratge) i el text «Graella generada amb...» en mostrava una altra.
+    const base = getCurrentUserLeagueRoc();
+    if (!isLeagueTimeControlLocked() && !leagueRoundUnderway()
+            && typeof currentLeague.baseRating === 'number' && currentLeague.baseRating !== base) {
+        currentLeague.players = ElTaulerCore.rebasedLeagueRatings(currentLeague.players,
+            currentLeague.baseRating, base, ELO_MIN, ELO_MAX);
+        currentLeague.baseRating = base;
+        saveStorage();
+    }
+    // Un cop començada, la lliga congela el ROC dels rivals, però el jugador ha
+    // de mostrar sempre el seu ROC actual si ha pujat o baixat fora de la lliga.
+    me.elo = base;
+}
+
+// Hi ha una jornada en joc (o pausada) d'aquesta lliga: el rival ja té el ROC
+// amb què juga i la graella no s'ha de moure.
+function leagueRoundUnderway() {
+    if (!currentLeague) return false;
+    if (leagueActiveMatch && leagueActiveMatch.leagueId === currentLeague.id) return true;
+    try {
+        return loadUntimedGames().some(snap => snap && snap.mode === 'league'
+            && snap.league && snap.league.leagueId === currentLeague.id);
+    } catch (e) { return false; }
 }
 
 // Canvi de rellotge d'una lliga que encara no ha començat: a més del ritme
@@ -5187,7 +5219,7 @@ function setLeagueTimeControl(tcId) {
         : getCurrentUserLeagueRoc();
     currentLeague.timeControl = id;
     const newBase = getLeagueBaseRating(id);
-    currentLeague.players = ElTaulerCore.rebasedLeagueRatings(currentLeague.players, oldBase, newBase, 50);
+    currentLeague.players = ElTaulerCore.rebasedLeagueRatings(currentLeague.players, oldBase, newBase, ELO_MIN, ELO_MAX);
     currentLeague.baseRating = newBase;
     saveStorage();
     return true;
@@ -5198,11 +5230,6 @@ function getLeagueOpponentRoc(match = leagueActiveMatch) {
     const opponent = match ? getLeaguePlayer(match.opponentId) : null;
     if (opponent && typeof opponent.elo === 'number') return opponent.elo;
     return (currentOpponent && typeof currentOpponent.elo === 'number') ? currentOpponent.elo : currentElo;
-}
-
-function getLeaguePlayerElo(id) {
-    const player = getLeaguePlayer(id);
-    return player && typeof player.elo === 'number' ? player.elo : userELO;
 }
 
 function formatPts(v) {
@@ -5316,6 +5343,9 @@ function openLeague() {
         return;
     }
     createNewLeague(false);
+    // El rival de lliga cerca amb Stockfish 19 (amb rellotge o sense): es
+    // prepara ja, perquè la jornada no hagi d'esperar el WASM.
+    void prewarmTimedRivalEngine();
     $('#start-screen').hide(); $('#stats-screen').hide(); $('#settings-screen').hide(); $('#game-screen').removeClass('active').hide();
     $('#league-screen').show();
     renderLeague();
@@ -5351,7 +5381,7 @@ function renderLeagueTimeControl() {
     // text canvia amb ell (la lliga es reajusta al ROC/ELO del rellotge triat).
     if (noteEl.length) {
         if (isCalibrationActive()) noteEl.hide();
-        else noteEl.text(`Graella generada amb ${describeLeagueRatingSource(id).text}`).show();
+        else noteEl.text(`Graella generada amb ${describeLeagueRatingSource(id, locked ? currentLeague.baseRating : undefined).text}`).show();
     }
 }
 
@@ -5438,18 +5468,11 @@ function renderLeagueHistory() {
     container.innerHTML = html;
 }
 
+// Resultat d'una partida entre dos rivals de la lliga: puntuació esperada
+// d'Elo i taules mesurades a Lichess per al ritme de la temporada i el nivell
+// dels rivals (core.js: leagueSimulatedResult, LLIGA.md §4).
 function simulateOutcomeByElo(eloA, eloB) {
-    const ea = 1 / (1 + Math.pow(10, (eloB - eloA) / 400));
-    const diff = Math.abs(eloA - eloB);
-    const drawBase = 0.20;
-    const drawExtra = 0.15 * (1 - Math.min(diff / 350, 1));
-    const pDraw = Math.min(0.45, Math.max(0.10, drawBase + drawExtra));
-
-    const r = Math.random();
-    if (r < pDraw) return 'draw';
-
-    const r2 = (r - pDraw) / (1 - pDraw);
-    return r2 < ea ? 'A' : 'B';
+    return ElTaulerCore.leagueSimulatedResult(eloA, eloB, getLeagueTimeControlId());
 }
 
 function applyResult(aId, bId, outcome) {
@@ -6507,16 +6530,14 @@ function getAIDepth() {
 
     const randomness = Math.floor(Math.random() * 3) - 1;
 
-    if (isCalibrationGame || currentGameMode !== 'league') {
-        // Mateixa corba de profunditat per calibratge i joc lliure: deriva de l'ELO actiu.
-        return Math.max(1, Math.min(15, eloToSearchDepth(getActiveStrengthElo()) + randomness));
-    }
-
-    const oppElo = getOpponentElo();
-    const myLeagueElo = getLeaguePlayerElo('me');
-    const delta = (oppElo - myLeagueElo);
-    const base = 8 + Math.round(delta / 250); 
-    return Math.max(1, Math.min(15, base + randomness));
+    // Mateixa corba de profunditat per a calibratge, joc lliure i lliga: deriva
+    // del ROC actiu (a la lliga, el del rival de la jornada). La lliga en tenia
+    // una de pròpia (8 + diferència/250), que amb rivals a ±25 deixava la
+    // profunditat a 7-9 per a tots els nivells: el rival de ROC 300 hi era més
+    // fort que el de la partida lliure i el de 1900, més fluix. La força de
+    // Stockfish 19 i del model de tria humana s'ha calibrat amb aquesta corba
+    // (ANALISI_RELLOTGE.md §16, LLIGA.md §2).
+    return Math.max(1, Math.min(15, eloToSearchDepth(getActiveStrengthElo()) + randomness));
 }
 
 function calculateEloDelta(resultScore) {
@@ -9904,9 +9925,17 @@ function stopTimedRivalSearch() {
     if (r.needStop && timedRivalEngine) { try { timedRivalEngine.postMessage('stop'); } catch (e) {} }
 }
 
+// Partides on el rival cerca amb Stockfish 19: les de rellotge i totes les de
+// lliga, també les que es juguen sense rellotge (LLIGA.md §2). La resta de
+// partides sense rellotge continuen amb el motor de sempre.
+function sf19RivalWanted(clockApplies) {
+    return !!clockApplies && (getActiveTimeControlId() !== 'none' || currentGameMode === 'league');
+}
+
 // Motor que farà la cerca del rival en aquesta jugada.
 function timedRivalActive() {
-    return !!(gameClock.enabled && timedRivalInUse && timedRivalEngine && timedRivalReady);
+    return !!((gameClock.enabled || currentGameMode === 'league')
+        && timedRivalInUse && timedRivalEngine && timedRivalReady);
 }
 
 // Anàlisi robusta per a la preparació d'exercicis: handshake previ, límit de temps,
@@ -25383,7 +25412,8 @@ function setupEvents() {
         // Canviar el ritme abans de començar rebaixa o apuja tota la graella al
         // nivell que el jugador té en aquell rellotge, així que cal repintar-la.
         if (setLeagueTimeControl($(this).val() || 'none')) {
-            if (getLeagueTimeControlId() !== 'none') { void prewarmStockfish(); void prewarmTimedRivalEngine(); }
+            if (getLeagueTimeControlId() !== 'none') void prewarmStockfish();
+            void prewarmTimedRivalEngine(); // el rival de lliga sempre és Stockfish 19
             renderLeague();
         }
         else renderLeagueTimeControl();
@@ -30496,12 +30526,13 @@ blunderMode = isBundle;
         timedGameEnginePending = false;
         updateStatus();
     }
-    // El rival de les partides amb rellotge cerca amb Stockfish 19 (ANALISI
-    // §16). Es prepara abans que corri el rellotge i es decideix per a TOTA la
-    // partida, de manera que la força no canviï de motor a mig joc; si no
-    // arrenca a temps, la partida es juga amb el motor de sempre.
+    // El rival de les partides amb rellotge i de les de lliga cerca amb
+    // Stockfish 19 (ANALISI §16, LLIGA.md §2). Es prepara abans que corri el
+    // rellotge i es decideix per a TOTA la partida, de manera que la força no
+    // canviï de motor a mig joc; si no arrenca a temps, la partida es juga amb
+    // el motor de sempre.
     timedRivalInUse = false;
-    if (clockApplies && getActiveTimeControlId() !== 'none') {
+    if (sf19RivalWanted(clockApplies)) {
         const startGeneration = gameGeneration;
         const alreadyReady = !!(timedRivalEngine && timedRivalReady);
         if (!alreadyReady) {
@@ -32630,9 +32661,10 @@ function makeEngineMove(skipAntidote) {
     isEngineThinking = true;
     $('#status').text("L'adversari pensa...");
 
-    // Partida amb rellotge: el rival cerca amb Stockfish 19 (worker propi) al
-    // nivell que el fa jugar com el motor anterior a cada ROC (core.js,
-    // ANALISI §16). Si no ha arrencat, el motor de sempre amb el ROC tal qual.
+    // Partida amb rellotge o de lliga: el rival cerca amb Stockfish 19 (worker
+    // propi) al nivell que el fa jugar com el motor anterior a cada ROC
+    // (core.js, ANALISI §16, LLIGA.md §2). Si no ha arrencat, el motor de
+    // sempre amb el ROC tal qual.
     const useTimedRival = timedRivalActive();
     const searchEngine = useTimedRival ? timedRivalEngine : stockfish;
     const strengthElo = useTimedRival
@@ -32701,7 +32733,7 @@ function makeEngineMove(skipAntidote) {
     const legacyMultiPv = engineClockSlipArmed ? Math.max(baseMultiPv, ElTaulerCore.CLOCK_SLIP_MULTIPV) : baseMultiPv;
     engineComplexityPv = legacyMultiPv;
     const multiPvValue = humanChoiceElo !== null ? game.moves().length : legacyMultiPv;
-    if (gameClock.enabled) engineMoveCandidateCollector = ElTaulerCore.createMoveCandidateCollector(
+    if (gameClock.enabled || useTimedRival) engineMoveCandidateCollector = ElTaulerCore.createMoveCandidateCollector(
         Math.min(multiPvValue, game.moves().length));
     try { searchEngine.postMessage(`setoption name MultiPV value ${multiPvValue}`); } catch (e) {}
     // Sostre de temps REAL de la cerca (només amb rellotge). Mentre Stockfish
@@ -32712,10 +32744,15 @@ function makeEngineMove(skipAntidote) {
     // 1,5: el rival s'entrabancava amb el rellotge justament als nivells alts.
     // El pressupost surt del mateix model humà (core.js) i ja descompta el que
     // s'ha trigat des que l'usuari ha mogut.
-    const searchBudgetMs = ElTaulerCore.gameSearchBudgetMs({
+    // Sense rellotge (lliga) no hi ha pressupost, però la cerca de Stockfish 19
+    // té un sostre: el temps de reflexió màxim sense rellotge (core.js).
+    const clockSearchBudgetMs = ElTaulerCore.gameSearchBudgetMs({
         ...engineClockContext(),
         elapsedMs: engineReplyElapsedMs()
     });
+    const searchBudgetMs = (clockSearchBudgetMs === null && useTimedRival)
+        ? ElTaulerCore.UNTIMED_RIVAL_SEARCH_MAX_MS
+        : clockSearchBudgetMs;
     if (DEBUG_ENGINE_TIMING) {
         console.log('[engine search]', { depth, multiPvValue, humanChoiceElo, searchBudgetMs, elapsed: engineReplyElapsedMs() });
     }
@@ -33395,12 +33432,16 @@ function handleEngineMessage(rawMsg) {
             // (El Joc posicional també hi passa: la humanització treballa amb
             // l'ELO equivalent de les jugades vista, via getActiveStrengthElo.)
             const searchCaps = engineSearchUsesTimedRival ? timedRivalCaps : engineStrengthCaps;
-            const chosen = chooseHumanLikeMove(engineMoveCandidates, game, gameClock.enabled
+            // El rival de Stockfish 19 tria sempre pel mateix camí que es va
+            // calibrar (el de les partides amb rellotge), també a la lliga
+            // sense rellotge; sense rellotge no hi ha errades per pressió.
+            const nativePath = gameClock.enabled || engineSearchUsesTimedRival;
+            const chosen = chooseHumanLikeMove(engineMoveCandidates, game, nativePath
                 ? { engineBestMove: fallbackMove, clock: engineClockContext(), clockSlip: engineClockSlipArmed,
                     strengthElo: engineSearchStrengthElo, humanChoiceElo: engineSearchHumanElo,
                     nativeStrength: !!(searchCaps.skill || (searchCaps.limit && searchCaps.elo)) } : {}) || { move: null };
             engineClockSlipArmed = false;
-            const moveStr = chosen.move || (gameClock.enabled ? fallbackMove : chooseFallbackMove(fallbackMove));
+            const moveStr = chosen.move || (nativePath ? fallbackMove : chooseFallbackMove(fallbackMove));
             const fromSq = moveStr.substring(0, 2);
             const toSq = moveStr.substring(2, 4);
             const promotion = moveStr.length > 4 ? moveStr[4] : (match[3] || 'q');

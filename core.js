@@ -4272,23 +4272,134 @@
         return Math.max(floor, Math.round(timed !== null ? timed : main));
     }
 
+    // ROC dels nou rivals d'una lliga (LLIGA.md §3). Repartits de manera
+    // uniforme entre 200 punts per sota i 200 per sobre de la referència del
+    // jugador, cada 50, amb ±10 a l'atzar perquè no surtin xifres rodones
+    // (abans: tots a ±25, nou rivals pràcticament iguals):
+    //  · el ROC de cada rival torna a voler dir alguna cosa: contra el més
+    //    fluix s'espera un 76% dels punts i contra el més fort un 24% (abans,
+    //    el 50% contra tots). ±200 és la dispersió més ampla amb què cap
+    //    jornada no queda decidida d'entrada (favorit per sota del 75-76%);
+    //  · la mitjana és la del jugador: jugant al seu nivell, a mitja taula
+    //    (posició mitjana 5,5), i la taula té favorits: el campió és un rival
+    //    de +100 o més el 83% de les temporades (abans, un rival qualsevol);
+    //  · simulant 30.000 temporades (scripts/lliga-lichess/simulate_league.js),
+    //    la posició final diu tant del rendiment com abans (~1,4 posicions per
+    //    cada 100 punts de rendiment, amb una desviació de ~2): el que canvia
+    //    és que guanyar la lliga demana jugar per sobre del propi nivell
+    //    (campió el 2% de les vegades jugant al nivell, el 10% amb +100 i el
+    //    27% amb +200; podi, el 17%, el 43% i el 71%).
+    const LEAGUE_OPPONENT_OFFSETS = [-200, -150, -100, -50, 0, 50, 100, 150, 200];
+    const LEAGUE_OPPONENT_JITTER = 10;
+    // Desplaçaments respecte de la referència per a una lliga nova (un per
+    // rival, en ordre). random: font d'atzar injectable (per defecte Math.random).
+    function leagueOpponentOffsets(random) {
+        const rnd = typeof random === 'function' ? random : Math.random;
+        return LEAGUE_OPPONENT_OFFSETS.map(function (off) {
+            const j = Math.floor(rnd() * (2 * LEAGUE_OPPONENT_JITTER + 1)) - LEAGUE_OPPONENT_JITTER;
+            return off + Math.max(-LEAGUE_OPPONENT_JITTER, Math.min(LEAGUE_OPPONENT_JITTER, j));
+        });
+    }
+    // ROC d'un rival a partir del seu desplaçament. El motor només juga entre
+    // minRating i maxRating (ROC 200-2000): si la referència és a menys de
+    // 210 punts d'un extrem, els rivals d'aquell costat s'hi encabeixen en
+    // proporció (mantenen l'ordre i no se surten del rang) en lloc
+    // d'amuntegar-se a l'extrem o de mostrar un ROC que el motor no juga.
+    function leagueOpponentRating(base, offset, minRating, maxRating) {
+        const lo = Number.isFinite(minRating) ? minRating : 200;
+        const hi = Number.isFinite(maxRating) ? Math.max(lo, maxRating) : 2000;
+        const b = Number.isFinite(base) ? base : lo;
+        const off = Number.isFinite(offset) ? offset : 0;
+        const center = Math.max(lo, Math.min(hi, b));
+        const reach = LEAGUE_OPPONENT_OFFSETS[LEAGUE_OPPONENT_OFFSETS.length - 1] + LEAGUE_OPPONENT_JITTER;
+        const room = off < 0 ? center - lo : hi - center;
+        const scale = Math.min(1, room / reach);
+        return Math.max(lo, Math.min(hi, Math.round(center + off * scale)));
+    }
+
     // Reajusta la graella d'una lliga quan se'n canvia el rellotge abans de
     // començar-la: el jugador passa a la referència nova i els rivals s'hi
     // desplacen en bloc, de manera que es conserven les diferències amb què es
     // va sortejar la lliga (el rival que anava 20 punts per sobre hi continua).
-    function rebasedLeagueRatings(players, oldBase, newBase, minRating) {
+    // Els rivals que duen el desplaçament desat (offset, lligues noves) es
+    // tornen a col·locar amb leagueOpponentRating dins del rang del motor
+    // (minRating-maxRating); els de lligues velles es desplacen tal qual, sense
+    // baixar de minRating ni passar de maxRating.
+    function rebasedLeagueRatings(players, oldBase, newBase, minRating, maxRating) {
         const list = Array.isArray(players) ? players : [];
         const floor = (typeof minRating === 'number' && !isNaN(minRating)) ? minRating : 50;
+        const ceil = (typeof maxRating === 'number' && !isNaN(maxRating)) ? Math.max(floor, maxRating) : Infinity;
         const to = (typeof newBase === 'number' && !isNaN(newBase)) ? Math.round(newBase) : null;
         if (to === null) return list.slice();
         const from = (typeof oldBase === 'number' && !isNaN(oldBase)) ? Math.round(oldBase) : to;
         const delta = to - from;
         return list.map(function (p) {
             if (!p) return p;
-            if (p.id === 'me') return Object.assign({}, p, { elo: Math.max(floor, to) });
+            // El jugador porta la seva puntuació, encara que sigui per sota del
+            // rang del motor (leagueBaseRating ja hi posa el terra de l'app).
+            if (p.id === 'me') return Object.assign({}, p, { elo: to });
+            if (typeof p.offset === 'number' && !isNaN(p.offset)) {
+                return Object.assign({}, p, { elo: leagueOpponentRating(to, p.offset, floor,
+                    Number.isFinite(ceil) ? ceil : undefined) });
+            }
             const elo = (typeof p.elo === 'number' && !isNaN(p.elo)) ? p.elo : to;
-            return Object.assign({}, p, { elo: Math.max(floor, Math.round(elo + delta)) });
+            return Object.assign({}, p, { elo: Math.min(ceil, Math.max(floor, Math.round(elo + delta))) });
         });
+    }
+
+    // Partides entre rivals de la lliga (les que no juga el jugador), LLIGA.md §4.
+    //
+    // Taules mesurades a Lichess (bolcat 2026-06, 5,85 M de partides llegides i
+    // 3,62 M comptades dels ritmes de l'app; scripts/lliga-lichess): taxa de
+    // taules entre jugadors a menys de 250 punts, per ritme i franja de 200
+    // punts d'ELO mitjà (centres 700...1900). Fins a 250 punts de diferència la
+    // taxa no canvia; de 250 a 500 baixa fins a ~0,65 de la dels igualats.
+    // El 30s no té dades per sota de 1700 (s'hi fa servir la d'1+0, que hi
+    // coincideix a 1700) i la partida sense rellotge pren els clàssics de 30
+    // minuts (el 15+10 a 700 i 900, on no n'hi ha prou). El model antic posava
+    // un 35% de taules entre igualats: deu vegades més del que es veu a
+    // aquests nivells.
+    const LEAGUE_DRAW_CENTERS = [700, 900, 1100, 1300, 1500, 1700, 1900];
+    const LEAGUE_DRAW_RATES = {
+        '30s':   [0.010, 0.008, 0.011, 0.015, 0.019, 0.023, 0.033],
+        '1+0':   [0.010, 0.008, 0.011, 0.015, 0.019, 0.024, 0.029],
+        '3+2':   [0.047, 0.038, 0.031, 0.033, 0.036, 0.039, 0.049],
+        '5+0':   [0.043, 0.040, 0.038, 0.037, 0.039, 0.044, 0.049],
+        '10+0':  [0.060, 0.047, 0.041, 0.039, 0.040, 0.045, 0.053],
+        '15+10': [0.060, 0.049, 0.040, 0.042, 0.046, 0.053, 0.073],
+        'none':  [0.060, 0.049, 0.049, 0.046, 0.045, 0.052, 0.083]
+    };
+    // Probabilitat de taules entre dos rivals de la lliga. avgRoc és la mitjana
+    // dels seus ROC: com al rellotge (§15), el nivell de Lichess que hi
+    // correspon és el de la persona a qui s'assemblen jugant (clockEloForRoc).
+    function leagueDrawChance(tcId, avgRoc, rocDiff) {
+        const rates = LEAGUE_DRAW_RATES[tcId] || LEAGUE_DRAW_RATES.none;
+        const C = LEAGUE_DRAW_CENTERS;
+        const level = clockEloForRoc(Number.isFinite(avgRoc) ? avgRoc : 1200);
+        let base;
+        if (!(level > C[0])) base = rates[0];
+        else if (level >= C[C.length - 1]) base = rates[rates.length - 1];
+        else {
+            let i = 0;
+            while (level > C[i + 1]) i++;
+            base = rates[i] + (rates[i + 1] - rates[i]) * (level - C[i]) / (C[i + 1] - C[i]);
+        }
+        const d = Math.abs(Number(rocDiff) || 0);
+        const factor = d <= 250 ? 1 : Math.max(0.65, 1 - 0.35 * (d - 250) / 250);
+        return base * factor;
+    }
+    // Resultat d'una partida entre dos rivals: 'A', 'B' o 'draw'. La puntuació
+    // esperada és exactament la d'Elo (el model antic la decantava cap a les
+    // taules: un rival de 200 punts més en treia el 67% i no el 76%), i les
+    // taules, les mesurades. random: font d'atzar injectable.
+    function leagueSimulatedResult(rocA, rocB, tcId, random) {
+        const rnd = typeof random === 'function' ? random : Math.random;
+        const a = Number(rocA), b = Number(rocB);
+        const ea = 1 / (1 + Math.pow(10, ((Number.isFinite(b) ? b : 0) - (Number.isFinite(a) ? a : 0)) / 400));
+        const pd = Math.min(leagueDrawChance(tcId, (a + b) / 2, a - b), 2 * Math.min(ea, 1 - ea));
+        const r = rnd();
+        if (r < pd) return 'draw';
+        return r < pd + (ea - pd / 2) ? 'A' : 'B';
     }
 
     // Quina partida guardada correspon a cada jornada de la lliga.
@@ -5232,6 +5343,12 @@
         const [x1, y1] = pts[pts.length - 1];
         return Math.round(Math.min(r, y1 + (y1 - y0) * (r - x1) / (x1 - x0)));
     }
+    // A la lliga sense rellotge el rival també cerca amb Stockfish 19 (LLIGA.md
+    // §2), sense pressupost de rellotge. La cerca s'acaba gairebé sempre molt
+    // abans (profunditat 10 amb totes les jugades: ~0,4 s de mediana a
+    // l'escriptori), però en un mòbil lent no ha de fer esperar més que la
+    // reflexió més llarga que el rival es permet sense rellotge.
+    const UNTIMED_RIVAL_SEARCH_MAX_MS = HUMAN_TIME_PROFILES.none.maxMs;
 
     // Cerques del worker del rival: una cerca aturada (partida acabada, nova
     // resposta) encara escup línies i el seu «bestmove» abans que comenci la
@@ -9958,6 +10075,14 @@
         collectiveLadderStep,
         adaptedRivalStrength,
         leagueBaseRating,
+        LEAGUE_OPPONENT_OFFSETS,
+        LEAGUE_OPPONENT_JITTER,
+        leagueOpponentOffsets,
+        leagueOpponentRating,
+        LEAGUE_DRAW_CENTERS,
+        LEAGUE_DRAW_RATES,
+        leagueDrawChance,
+        leagueSimulatedResult,
         rebasedLeagueRatings,
         leagueRoundGameLinks,
         evaluateGameQuality,
@@ -10058,6 +10183,7 @@
         clockEloForRoc,
         TIMED_RIVAL_STRENGTH_POINTS,
         timedRivalStrengthElo,
+        UNTIMED_RIVAL_SEARCH_MAX_MS,
         HUMAN_CHOICE_FEATURES,
         humanMoveFeatures,
         humanSanKey,
