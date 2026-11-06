@@ -5803,7 +5803,21 @@ function leagueInterludeWanted() {
         && ElTaulerCore.leagueAutoChains(getLeagueTimeControlId()));
 }
 
-function showLeagueInterlude(resultText, outcome, clockInfo) {
+// Text curt del resultat per a la pantalla entre partides: «Victòria · +13»,
+// «Derrota per temps · -9», «Taules · +2».
+function leagueShortResult(outcome, info) {
+    const i = info || {};
+    const word = outcome === 'win' ? 'Victòria' : (outcome === 'loss' ? 'Derrota' : 'Taules');
+    const how = i.reason === 'time' ? ' per temps' : '';
+    const elo = Number.isFinite(i.eloChange) ? ` · ${formatEloChange(i.eloChange)}` : '';
+    return word + how + elo;
+}
+
+// Pantalla entre partides: resultat, rellotge final, compte enrere i les dues
+// posicions a la classificació (la teva i la del proper rival), marcades també
+// en una escala de deu caselles. info: { clock, playerColor, oppName,
+// eloChange, reason }.
+function showLeagueInterlude(resultText, outcome, info) {
     const overlay = document.getElementById('league-interlude');
     if (!overlay || !leagueInterludeWanted()) return false;
     stopLeagueInterludeTimer();
@@ -5812,22 +5826,36 @@ function showLeagueInterlude(resultText, outcome, clockInfo) {
     const oppId = getMyOpponentForRound(round - 1);
     const opp = oppId ? getLeaguePlayer(oppId) : null;
     if (!opp) return false;
+    const ci = info || {};
     const standings = leagueSort(currentLeague.players);
+    const total = standings.length;
     const oppRank = standings.findIndex(p => p.id === opp.id) + 1;
     const myRank = standings.findIndex(p => p.id === 'me') + 1;
     const me = standings[myRank - 1];
+    const oppRow = standings[oppRank - 1];
     const resultCls = outcome === 'win' ? 'lgc-green' : (outcome === 'loss' ? 'lgc-red' : (outcome === 'draw' ? 'lgc-gold' : 'lgc-silver'));
-    $('#li-result').text(resultText || '').attr('class', `li-result lg-chip ${resultCls}`);
-    const ci = clockInfo || {};
+    $('#li-result').text(outcome ? leagueShortResult(outcome, ci) : (resultText || '')).attr('class', `li-result lg-chip ${resultCls}`);
     $('#li-clock').html(resultFinalClockHtml(ci.clock, ci.playerColor, ci.oppName));
-    $('#li-round').text(`Jornada ${round}/9 · ${ElTaulerCore.leagueDivision(currentLeague.division).name}`);
+    $('#li-label').text(`La jornada ${round}/9 comença en`);
     const look = leagueStyleLook(opp.style);
-    $('#li-opp-name').text(`${look.icon} ${opp.name}`);
-    $('#li-opp-rank').text(`${leagueOrdinal(oppRank)} a la lliga`)
-        .attr('class', `lg-chip li-opp-rank ${leagueRankClass(oppRank, standings.length) || 'lgc-silver'}`);
+    const color = getLeagueRoundColor(round);
+    $('#li-me-pos').text(leagueOrdinal(myRank));
+    // Cada tros sencer: si no hi cap, es parteix entre trossos, no dins.
+    const bits = parts => parts.filter(Boolean).map(x => `<span class="li-nw">${escapeHtml(x)}</span>`).join(' · ');
+    $('#li-me-sub').html(bits([leaguePointsLabel(me ? me.pts : 0), color ? (color === 'w' ? 'blanques' : 'negres') : null]));
+    $('#li-opp-pos').html(`${leagueOrdinal(oppRank)}<span class="li-pos-ic" aria-hidden="true">${look.icon}</span>`)
+        .attr('class', `li-pos ${look.cls}`);
+    $('#li-opp-name').text(opp.name);
+    $('#li-opp-sub').html(bits([leaguePointsLabel(oppRow ? oppRow.pts : 0), `ROC ${opp.elo}`]));
     $('#league-interlude .li-card').css('border-top', `6px solid ${look.color}`);
-    $('#li-opp-meta').text(describeLeagueOpponent(opp, getLeagueRoundColor(round)));
-    $('#li-me').text(me ? `Tu vas ${leagueOrdinal(myRank)} amb ${leaguePointsLabel(me.pts)}` : '');
+    // Escala de la classificació: la teva casella i la del rival, acolorides.
+    let ladder = '';
+    for (let r = 1; r <= total; r++) {
+        const zone = r <= 3 ? ' up' : (r > total - 3 ? ' down' : '');
+        const who = r === myRank ? ' me lgc-teal' : (r === oppRank ? ` opp ${look.cls}` : '');
+        ladder += `<span class="li-step${zone}${who}">${r}</span>`;
+    }
+    $('#li-ladder').html(ladder);
     leagueInterlude = { remainingMs: ElTaulerCore.LEAGUE_INTERLUDE_SECONDS * 1000, lastTs: nowMs(), timer: null };
     renderLeagueInterludeCount();
     overlay.style.display = 'flex';
@@ -36379,7 +36407,8 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     const showFullReview = () => {
         if (leagueChainNext) {
             hidePostGameStatusChip();
-            if (showLeagueInterlude(msg, leagueOutcome, { clock: finalClockSnapshot, playerColor, oppName: finalClockOppName })) {
+            if (showLeagueInterlude(msg, leagueOutcome, { clock: finalClockSnapshot, playerColor, oppName: finalClockOppName,
+                eloChange: isLeagueRatedGame ? change : null, reason: timeoutColor ? 'time' : null })) {
                 persistPostGameAfterPaint('league-interlude');
                 return;
             }
