@@ -158,6 +158,23 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   diferència i ritme desconegut) i `leagueSimulatedResult` amb la puntuació
   esperada d'Elo exacta i la taxa de taules mesurada (40.000 partides amb atzar
   reproduïble).
+- **`league-season.test.js`** — la temporada de lliga (`LLIGA.md` §5-8).
+  Colors alternats (`leaguePlayerColors`, 5 i 4) i el color de la jornada a
+  `startGame`. Classificació (`leagueStandings`): punts, enfrontament directe
+  només si tots els empatats s'han enfrontat, victòries, Sonneborn-Berger i les
+  lligues velles sense resultats. Rendiment (`leaguePerformanceRating`):
+  esperança igual a la puntuació, monotonia i extrems. Divisions
+  (`leagueDivision`, `leagueNextDivision`) i el desplaçament de la graella. Una
+  temporada sencera amb el codi real d'`applyLeagueAfterGame` i
+  `finalizeLeagueSeason`: 45 resultats, cada parella un cop, colors desats,
+  campió que puja, últim que baixa i palmarès a `chess_leagueCareer`. Les
+  partides de lliga puntuen (ritme o principal) sense comptar-se dues vegades.
+  Personalitat: estils, repertori de la llista curada (totes les línies
+  legals), llibre (`leagueBookMove`, `leagueBookDepth`), estil acotat a la
+  finestra (`leagueStyledChoice`, 200 casos a l'atzar) i `tryLeagueBookMove`.
+  Partides consecutives a 30s i 1+0: compte enrere 30 → 0 que arrenca la
+  jornada, aturat amb l'app amagada o amb la finestra tancada, en lloc de la
+  revisió i aturat per «Anar a l'inici».
 - **`league-rival.test.js`** — el rival de la lliga (`LLIGA.md` §2). Quan juga
   Stockfish 19 (`sf19RivalWanted`, `timedRivalActive`): lliga amb i sense
   rellotge i partida lliure amb rellotge sí; partida lliure sense rellotge,
