@@ -379,8 +379,63 @@ describe('partides consecutives a les lligues de 30s i 1+0', () => {
     test('en acabar una jornada es mostra en lloc de la revisió; «Anar a l\'inici» l\'atura', () => {
         const hgo = fnSource('handleGameOver');
         expect(hgo).toMatch(/const leagueChainNext = wasLeagueMatch && !blunderMode && leagueInterludeWanted\(\);/);
-        expect(hgo).toMatch(/if \(leagueChainNext\) \{\s*hidePostGameStatusChip\(\);\s*if \(showLeagueInterlude\(msg\)\) \{\s*persistPostGameAfterPaint\('league-interlude'\);\s*return;/);
+        expect(hgo).toMatch(/if \(leagueChainNext\) \{\s*hidePostGameStatusChip\(\);\s*if \(showLeagueInterlude\(msg, leagueOutcome\)\) \{\s*persistPostGameAfterPaint\('league-interlude'\);\s*return;/);
         expect(fnSource('leaveLeagueInterludeHome')).toMatch(/hideLeagueInterlude\(\);[\s\S]*goToHomeScreen\(\);/);
         expect(fnSource('returnToMainMenuImmediate')).toMatch(/hideLeagueInterlude\(\)/);
+    });
+});
+
+describe('pantalla de la lliga: rajoles i colors', () => {
+    const html = fs.readFileSync(require.resolve('../index.html'), 'utf8');
+    function helpers() {
+        const ctx = vm.createContext({ ElTaulerCore: Core, window: { ElTaulerStockfishTV: TV } });
+        vm.runInContext(fnSource('formatPts'), ctx);
+        ['leagueRankClass', 'leagueDivisionShort', 'leagueRecordText', 'leaguePointsLabel', 'leagueStyleLook', 'leagueStyleLabel']
+            .forEach(n => vm.runInContext(fnSource(n), ctx));
+        vm.runInContext(source.slice(source.indexOf('const LEAGUE_STYLE_LOOK = {'), source.indexOf('};', source.indexOf('const LEAGUE_STYLE_LOOK = {')) + 2), ctx);
+        return ctx;
+    }
+
+    test('capçalera: quatre rajoles (jornada, rellotge, divisió, rendiment) i la franja del rival', () => {
+        const a = html.indexOf('<div class="league-meta lg-meta">');
+        const meta = html.slice(a, html.indexOf('<div class="league-table-wrap">', a));
+        ['JORNADA', 'RELLOTGE', 'DIVISIÓ', 'RENDIMENT'].forEach(t => expect(meta).toContain(`<small>${t}</small>`));
+        expect(meta).toContain('id="league-tc-select"');   // el selector és dins la rajola del rellotge
+        expect(meta).toContain('id="league-strip"');
+        // Ja no hi ha el «Rellotge» repetit ni la línia de punts.
+        expect(meta).not.toContain('setting-label');
+        expect(meta).not.toContain('Punts: Victòria 1');
+    });
+
+    test('colors: posició (podi i descens), estils i punts', () => {
+        const ctx = helpers();
+        expect([1, 2, 3, 5, 8, 10].map(r => ctx.leagueRankClass(r, 10))).toEqual(['lgc-gold', 'lgc-silver', 'lgc-bronze', '', 'lgc-red', 'lgc-red']);
+        expect(ctx.leagueStyleLook('attacker').cls).toBe('lgc-red');
+        expect(ctx.leagueStyleLook('wall').cls).toBe('lgc-blue');
+        expect(ctx.leagueStyleLook('hunter').cls).toBe('lgc-orange');
+        expect(ctx.leagueStyleLook('strategist').cls).toBe('lgc-purple');
+        expect(ctx.leagueStyleLook(undefined).cls).toBe('lgc-silver');
+        expect(ctx.leagueStyleLabel('wall')).toBe('El Mur');
+        // Cada classe de color té la seva regla, també en paper electrònic (grisos).
+        ['teal', 'orange', 'purple', 'green', 'red', 'blue', 'gold', 'silver', 'bronze'].forEach(c => {
+            expect(html).toContain(`.lgc-${c} { background: var(--lg-${c}); color: var(--lg-${c}-t); }`);
+        });
+        expect(html).toMatch(/body\.epaper-mode \{\s*--lg-teal: #e4e4e4/);
+    });
+
+    test('textos curts de les rajoles', () => {
+        const ctx = helpers();
+        expect(ctx.leagueDivisionShort('Segona Divisió')).toBe('Segona');
+        expect(ctx.leagueDivisionShort("Divisió d'Honor")).toBe('Honor');
+        expect(ctx.leagueRecordText([{ outcome: 'win' }, { outcome: 'loss' }])).toBe('1 victòria · 1 derrota');
+        expect(ctx.leagueRecordText([{ outcome: 'win' }, { outcome: 'win' }, { outcome: 'draw' }, { outcome: 'loss' }, { outcome: 'loss' }]))
+            .toBe('2 victòries · 1 empat · 2 derrotes');
+        expect(ctx.leaguePointsLabel(1)).toBe('1 punt');
+        expect(ctx.leaguePointsLabel(0)).toBe('0 punts');
+        expect(ctx.leaguePointsLabel(1.5)).toBe('1,5 punts');
+    });
+
+    test('al mòbil la taula hi cap: s\'amaguen PJ i SB', () => {
+        expect(html).toMatch(/@media \(max-width: 520px\) \{\s*table\.league-table, body\.device-mobile table\.league-table \{ min-width: 0; \}\s*\.league-table \.lg-col-pj, \.league-table \.lg-col-sb \{ display: none; \}/);
     });
 });

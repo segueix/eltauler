@@ -268,7 +268,30 @@ tanca amb «Puges a Primera Divisió» i la següent lliga surt +50 punts. Les
 partides reals han mogut l'ELO de 1+0 (tres derrotes: 1250 → 1202). Sense
 errors de pàgina.
 
-## 9. Límits
+## 9. La pantalla de la lliga
+
+La capçalera és un mosaic de quatre rajoles de colors —**jornada** (amb les
+victòries, empats i derrotes), **rellotge** (el selector mentre la lliga no ha
+començat; després, el ritme amb cadenat i l'ELO amb què es va sortejar la
+graella), **divisió** i **rendiment**— i una franja amb el **proper rival**,
+del color i la icona del seu estil (l'Atacant vermell ⚔️, el Mur blau 🧱, el
+Caçador taronja 🎯, l'Estratega lila 🧠). Amb la temporada acabada, la franja
+és el resum (verda si es puja, vermella si es baixa). S'han tret el
+«Rellotge» repetit, la frase de la divisió i la línia de punts per resultat
+(ara és a la llegenda de sota la taula).
+
+La mateixa paleta (colors pastel sòlids amb text fosc, `--lg-*` i classes
+`lgc-*`) es fa servir a tota la pàgina: la posició a la taula (or, plata i
+bronze al podi, vermell a la zona de descens), una franja verda o vermella a
+les zones d'ascens i descens, un punt del color de l'estil de cada rival, els
+punts, el resultat de les teves jornades, cada secció plegable amb el seu
+color, el quadre d'enfrontaments (1 verd, 0 vermell, ½ groc), els rivals, el
+palmarès i la pantalla entre partides. Es llegeix sobre els cinc fons foscos i
+en mode dia; en paper electrònic passa a grisos i les zones van amb vora. Al
+mòbil la taula hi cap sencera: s'hi amaguen les partides jugades (iguals per a
+tothom) i el Sonneborn-Berger (que és al quadre i a la llegenda).
+
+## 10. Límits
 
 - **El rival de lliga sense rellotge no s'ha comparat amb el de la partida
   lliure sense rellotge.** Stockfish 19 i el model de tria humana es van
@@ -298,7 +321,7 @@ errors de pàgina.
   començada la temporada: si el jugador puja molt durant la temporada, la
   lliga se li fa més fàcil fins a la següent.
 
-## 10. Proves
+## 11. Proves
 
 - `league-rival.test.js`: quan juga el rival de Stockfish 19 (lliga amb i
   sense rellotge, partida lliure amb rellotge sí; lliure sense rellotge,
@@ -331,9 +354,11 @@ errors de pàgina.
   finestra (200 casos a l'atzar) i `tryLeagueBookMove` a l'app; partides
   consecutives (només 30s i 1+0, compte enrere 30 → 0 que arrenca la jornada,
   aturat amb l'app amagada o la finestra tancada, mostrat en lloc de la
-  revisió i aturat per «Anar a l'inici»).
+  revisió i aturat per «Anar a l'inici»); i la pantalla (§9): les quatre
+  rajoles i la franja del rival, colors de posició i d'estil, textos curts i
+  la taula que cap al mòbil.
 
-## 11. Com refer-ho
+## 12. Com refer-ho
 
 ```bash
 # Taules i puntuació per diferència (Lichess, ~25 min; cal pip install zstandard)
