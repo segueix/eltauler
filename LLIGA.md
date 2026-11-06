@@ -212,6 +212,13 @@ sincronitza amb la resta de dades. En acabar, la pantalla de la lliga mostra
 el resum (posició, punts, rendiment, campió, si es puja o es baixa) i el
 palmarès.
 
+La finestra de revisió que surt en acabar la darrera jornada porta a dalt la
+**posició final, gran** («2n» de 10, `leagueFinalReviewHtml`), del color del
+podi (or, plata, bronze), del descens (vermell) o verd aigua a mitja taula, amb
+els punts, el rendiment, si es puja o es baixa de divisió i el campió; si n'ets
+tu, «🏆 Campió de la lliga». A la pantalla de la lliga, la franja del resum
+també posa la posició gran a la capsa del costat.
+
 ## 7. Personalitat dels rivals
 
 - **Estil**: cadascun té un dels quatre perfils de la TV (`TV_STYLES` de
