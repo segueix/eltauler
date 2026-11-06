@@ -88,6 +88,22 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   aturada amb els temporitzadors, `makeEngineMove` amb Stockfish 19 (força
   calibrada, profunditat i temps del ROC) i sense (motor de sempre), la tria
   amb el nivell del motor que ha cercat i la preparació en començar la partida.
+  Ara, per sota de ROC 872 (per sobre hi entra el model de tria humana).
+- **`humanchoice.test.js`** — model de tria humana del rival amb rellotge
+  (`ANALISI_RELLOTGE.md` §17). Trets de cada jugada (`humanMoveFeatures`):
+  pèrdua, rang, penjar la dama, salvar una peça atacada, captura de franc,
+  escac, enroc, desenvolupament, teoria, recaptura i mateixa peça. El model:
+  probabilitats que sumen 1, menys pèrdua esperada i més millors jugades com
+  més ELO, ELO retallat al rang de les dades, sorteig amb atzar injectat i la
+  teoria fent més probable la jugada de llibre. Nivell per ROC
+  (`humanChoiceEloForRoc`): punts calibrats, cap model per sota de 872, monotonia
+  i tram final. Índex de teoria i casella d'arribada com a l'ajust. A l'app:
+  `makeEngineMove` puntua totes les jugades a força màxima i a la profunditat
+  del model des de ROC 872, i no ho fa per sota ni sense Stockfish 19; la tria
+  segueix el model amb la partida com a context, l'errada per pressió hi passa
+  davant, la jugada única és la del motor, una partida començada des d'una
+  posició no té teoria i la dificultat del temps de reflexió es mira a les
+  mateixes línies que abans.
 - **`premove.test.js`** — jugada anticipada de les partides amb rellotge.
   `premoveTargets` genera els destins marcables d'una peça quan el torn ENCARA
   és del rival (chess.js no en dóna cap, i per això calia un generador propi):

@@ -175,17 +175,23 @@ describe('el rival de l’app (chooseHumanLikeMove)', () => {
     test('makeEngineMove arma l’errada amb la probabilitat de la taula i demana més línies', () => {
         // El codi de la tirada, tal com és a app.js.
         const a = source.indexOf('engineClockSlipArmed = false;\n    if (gameClock.enabled)');
-        const b = source.indexOf('const multiPvValue = engineClockSlipArmed', a);
+        const b = source.indexOf('const multiPvValue = ', a);
         expect(a).toBeGreaterThan(0);
+        expect(b).toBeGreaterThan(a);
         const tirada = source.slice(a, source.indexOf('\n', b));
-        const run = (remainingMs, n, seed) => {
+        // humanChoiceElo: amb el model de tria humana el motor puntua TOTES les
+        // jugades (aquí 20), i l'errada en tria una entre totes.
+        const run = (remainingMs, n, seed, humanChoiceElo = null) => {
             const ctx = vm.createContext({ ElTaulerCore: Core, gameClock: { enabled: true }, engineClockSlipArmed: false,
                 engineClockContext: () => ({ timeControlId: '1+0', remainingMs }), engineReplyElapsedMs: () => 0,
-                shortClock: true, requestedPv: 5, Math: Object.assign(Object.create(Math), { random: random(seed) }) });
+                shortClock: true, requestedPv: 5, humanChoiceElo, engineComplexityPv: null, game: { moves: () => new Array(20) },
+                Math: Object.assign(Object.create(Math), { random: random(seed) }) });
             let armed = 0, maxPv = 0;
             for (let i = 0; i < n; i++) {
                 vm.runInContext('{' + tirada + '\narmedOut = engineClockSlipArmed; pvOut = multiPvValue; }', ctx);
-                if (ctx.armedOut) { armed++; expect(ctx.pvOut).toBe(Core.CLOCK_SLIP_MULTIPV); } else expect(ctx.pvOut).toBe(5);
+                if (humanChoiceElo !== null) expect(ctx.pvOut).toBe(20);
+                else if (ctx.armedOut) expect(ctx.pvOut).toBe(Core.CLOCK_SLIP_MULTIPV); else expect(ctx.pvOut).toBe(5);
+                if (ctx.armedOut) armed++;
                 maxPv = Math.max(maxPv, ctx.pvOut);
             }
             return armed / n;
@@ -193,5 +199,7 @@ describe('el rival de l’app (chooseHumanLikeMove)', () => {
         expect(run(45000, 2000, 1)).toBe(0);
         const freq = run(5000, 20000, 2);
         expect(Math.abs(freq - sec('1+0', 5))).toBeLessThan(0.006);
+        // La tirada no depèn de qui tria després.
+        expect(Math.abs(run(5000, 20000, 2, 940) - freq)).toBe(0);
     });
 });

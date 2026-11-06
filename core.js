@@ -5256,6 +5256,250 @@
         return { forward: false, state: s };
     }
 
+    // ----------------------------------------------------------------------
+    // Model de tria humana (ANALISI_RELLOTGE.md §17)
+    // ----------------------------------------------------------------------
+    // Quina jugada triaria una persona d'un nivell donat entre totes les
+    // legals. Cada jugada es descriu amb trets que una persona «veu» (quant
+    // perd segons el motor, si captura, si fa escac, si penja una peça, si
+    // salva la que li ataquen, quina peça mou...), i un model logit
+    // condicional ajustat amb les jugades REALS de Lichess dóna a cada tret un
+    // pes que depèn de l'ELO. És la idea de Maia (aprendre la tria humana de
+    // les dades) en petit: uns quants pesos en lloc d'una xarxa neuronal.
+    //
+    // humanMoveFeatures fa servir chess.js (el constructor es passa per
+    // paràmetre perquè el nucli no en depengui) i és exactament la mateixa
+    // funció que ha servit per ajustar el model (scripts/rellotge-lichess).
+    const HUMAN_PIECE_VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+    const HUMAN_CHOICE_FEATURES = ['loss', 'lossSmall', 'nearBest', 'blunder', 'isBest', 'logRank',
+        'capture', 'freeGain', 'hang', 'check', 'mate', 'castle', 'promo',
+        'knight', 'bishop', 'rook', 'queen', 'king', 'pawnTwo', 'edgePawn', 'retreat',
+        'develop', 'earlyQueen', 'recapture', 'escape', 'distance', 'center', 'threat', 'samePiece', 'book'];
+    // SAN sense escac ni mat, per comparar amb les línies d'obertura.
+    function humanSanKey(san) { return String(san || '').replace(/[+#]+$/, ''); }
+
+    function humanFlippedFen(fen) {
+        const p = String(fen).trim().split(/\s+/);
+        p[1] = p[1] === 'w' ? 'b' : 'w';
+        p[3] = '-';
+        return p.join(' ');
+    }
+    // Caselles de les peces de qui mou que el rival podria capturar ara mateix.
+    function humanAttackedSquares(ChessCtor, fen) {
+        const c = new ChessCtor();
+        const set = new Set();
+        if (!c.load(humanFlippedFen(fen))) return set;
+        c.moves({ verbose: true }).forEach(m => { if (m.captured) set.add(m.to); });
+        return set;
+    }
+    // Pèrdua de material immediata d'una jugada (en peons): la pitjor captura
+    // del rival tenint en compte una recaptura simple (la mateixa regla que
+    // immediateMaterialLoss de l'app).
+    function humanHangLoss(chess, move) {
+        const played = chess.move(move);
+        if (!played) return 0;
+        let worst = 0;
+        for (const r of chess.moves({ verbose: true })) {
+            if (!r.captured) continue;
+            const gain = HUMAN_PIECE_VALUE[r.captured] || 0;
+            let recap = 0;
+            const opp = chess.move({ from: r.from, to: r.to, promotion: 'q' });
+            if (opp) {
+                if (chess.moves({ verbose: true }).some(m => m.to === r.to && m.captured)) recap = HUMAN_PIECE_VALUE[opp.piece] || 0;
+                chess.undo();
+            }
+            worst = Math.max(worst, gain - recap);
+        }
+        chess.undo();
+        return worst;
+    }
+    function humanCentrality(square) {
+        const f = square.charCodeAt(0) - 97;
+        const r = parseInt(square[1], 10) - 1;
+        return (7 - (Math.abs(3.5 - f) + Math.abs(3.5 - r))) / 6;
+    }
+    // scored: [[uci, puntuació en cp per a qui mou]] de TOTES les jugades a
+    // considerar (normalment totes les legals). ctx: { moveNumber, lastMove:
+    // { to } (la del rival), ownLastMove: { to } (la pròpia anterior),
+    // bookMoves: Set de SAN (sense +/#) que continuen una línia d'obertura
+    // coneguda des de la partida actual }. Retorna un vector de trets per
+    // jugada, en el mateix ordre.
+    function humanMoveFeatures(ChessCtor, fen, scored, ctx) {
+        const c = ctx || {};
+        const chess = new ChessCtor();
+        if (!chess.load(fen)) return [];
+        const verbose = {};
+        chess.moves({ verbose: true }).forEach(m => { verbose[m.from + m.to + (m.promotion || '')] = m; });
+        const attacked = humanAttackedSquares(ChessCtor, fen);
+        const moveNo = Number(c.moveNumber) || parseInt(String(fen).split(/\s+/)[5], 10) || 1;
+        const list = scored.filter(([u, s]) => verbose[u] && Number.isFinite(s));
+        const best = Math.max(...list.map(([, s]) => s));
+        const bestWc = winningChances(best);
+        const sortedScores = list.map(([, s]) => s).sort((a, b) => b - a);
+        return list.map(([uci, score]) => {
+            const m = verbose[uci];
+            const white = m.color === 'w';
+            const loss = Math.max(0, bestWc - winningChances(score));
+            const fromRank = parseInt(m.from[1], 10);
+            const toRank = parseInt(m.to[1], 10);
+            const backRank = white ? 1 : 8;
+            const moved = HUMAN_PIECE_VALUE[m.piece] || 0;
+            const captured = m.captured ? (HUMAN_PIECE_VALUE[m.captured] || 0) : 0;
+            const castle = m.flags.indexOf('k') !== -1 || m.flags.indexOf('q') !== -1;
+            let freeGain = 0;
+            if (m.captured) {
+                chess.move(m);
+                const recapturable = chess.moves({ verbose: true }).some(r => r.to === m.to && r.captured);
+                chess.undo();
+                freeGain = Math.max(0, captured - (recapturable ? moved : 0));
+            }
+            const hang = humanHangLoss(chess, m);
+            // Amenaça: la peça moguda passa a atacar una peça rival (la de més valor).
+            let threat = 0;
+            chess.move(m);
+            const after = new ChessCtor();
+            if (after.load(humanFlippedFen(chess.fen()))) {
+                after.moves({ square: m.to, verbose: true }).forEach(t => {
+                    if (t.captured) threat = Math.max(threat, HUMAN_PIECE_VALUE[t.captured] || 0);
+                });
+            }
+            chess.undo();
+            const fd = Math.abs(m.from.charCodeAt(0) - m.to.charCodeAt(0));
+            const rd = Math.abs(fromRank - toRank);
+            const f = {
+                loss,
+                lossSmall: Math.min(loss, 0.1) * 10,
+                nearBest: loss < 0.02 ? 1 : 0,
+                blunder: loss >= 0.3 ? 1 : 0,
+                isBest: score === best ? 1 : 0,
+                logRank: Math.log(1 + sortedScores.indexOf(score)),
+                capture: captured / 9,
+                freeGain: freeGain / 9,
+                hang: Math.min(hang, 9) / 9,
+                check: m.san.indexOf('+') !== -1 ? 1 : 0,
+                mate: m.san.indexOf('#') !== -1 ? 1 : 0,
+                castle: castle ? 1 : 0,
+                promo: m.promotion ? 1 : 0,
+                knight: m.piece === 'n' ? 1 : 0,
+                bishop: m.piece === 'b' ? 1 : 0,
+                rook: m.piece === 'r' ? 1 : 0,
+                queen: m.piece === 'q' ? 1 : 0,
+                king: m.piece === 'k' && !castle ? 1 : 0,
+                pawnTwo: m.flags.indexOf('b') !== -1 ? 1 : 0,
+                edgePawn: m.piece === 'p' && !m.captured && (m.from[0] === 'a' || m.from[0] === 'h') ? 1 : 0,
+                retreat: m.piece !== 'p' && m.piece !== 'k' && (white ? toRank < fromRank : toRank > fromRank) ? 1 : 0,
+                develop: (m.piece === 'n' || m.piece === 'b') && fromRank === backRank && moveNo <= 15 ? 1 : 0,
+                earlyQueen: m.piece === 'q' && moveNo <= 10 ? 1 : 0,
+                recapture: m.captured && c.lastMove && c.lastMove.to === m.to ? 1 : 0,
+                escape: attacked.has(m.from) && moved >= 3 ? 1 : 0,
+                distance: Math.max(fd, rd) / 7,
+                center: humanCentrality(m.to) - humanCentrality(m.from),
+                threat: threat / 9,
+                samePiece: c.ownLastMove && c.ownLastMove.to === m.from ? 1 : 0,
+                book: c.bookMoves && c.bookMoves.has(humanSanKey(m.san)) ? 1 : 0
+            };
+            return { move: uci, score, x: HUMAN_CHOICE_FEATURES.map(k => f[k]) };
+        });
+    }
+
+    // Línies d'obertura conegudes (OPENINGS_DATA d'obertures.js): per a cada
+    // seqüència de SAN des de la posició inicial, les SAN que la continuen.
+    // Mateixa tokenització que al fitxer d'ajust (build_features.js).
+    function humanBookIndex(openings) {
+        const next = new Map();
+        (Array.isArray(openings) ? openings : []).forEach(o => {
+            const sans = String((o && o.pgn) || '').split(/\s+/)
+                .filter(t => t && !/^\d+\.+$/.test(t))
+                .map(t => humanSanKey(t.replace(/^\d+\.+/, '')));
+            for (let i = 0; i < sans.length; i++) {
+                const key = sans.slice(0, i).join(' ');
+                if (!next.has(key)) next.set(key, new Set());
+                next.get(key).add(sans[i]);
+            }
+        });
+        return next;
+    }
+    // Jugades de teoria a continuació d'una partida (SAN des de l'inici), o null.
+    function humanBookMoves(index, sanHistory) {
+        if (!index || !Array.isArray(sanHistory)) return null;
+        return index.get(sanHistory.map(humanSanKey).join(' ')) || null;
+    }
+    // Casella d'arribada d'una SAN (null per a l'enroc), tal com es va
+    // llegir de les partides de Lichess per als trets recapture i samePiece.
+    function humanSanTarget(san) {
+        const s = String(san || '').replace(/[+#!?]+$/, '').replace(/=[QRBN]$/, '');
+        const m = s.match(/([a-h][1-8])$/);
+        return m ? m[1] : null;
+    }
+
+    // Pesos del model: utilitat d'una jugada = x · (w0 + z·w1), amb
+    // z = (ELO − 1500) / 500 retallat al rang de les dades (ELO 400 a 3300), i
+    // probabilitat = softmax entre totes les jugades. Ajustat per màxima
+    // versemblança amb 9.974 jugades reals de Lichess (els sis ritmes de
+    // l'app, rellotge còmode, totes les franges d'ELO); validat amb 4.985 més
+    // que no s'hi van fer servir.
+    const HUMAN_CHOICE_MODEL = {
+        center: 1500, scale: 500, zMin: -2.2, zMax: 3.6,
+        w: [
+            [
+                -1.11943, -0.44949, 0.29771, -0.26105, -0.60647, -0.7941, 2.16395, 0.83742, -2.13805, 0.47529,
+                0, 1.42105, 0.0078, -0.42971, -0.3591, -0.69203, -0.71853, -0.72975, -0.12467, -0.88324,
+                -0.34017, 0.47872, -0.10339, 1.17809, 0.58015, 0.14169, 0.52596, 0.86423, 0.51326, 1.05788
+            ],
+            [
+                -0.46802, -0.20138, -0.15298, -0.15073, -0.01844, -0.08419, -0.13088, 0.03918, 0.23622, -0.04621,
+                0, 0.12365, 0.01304, 0.06277, -0.00359, 0.07758, 0.10276, 0.18954, 0.03637, 0.10216,
+                0.03829, 0.07088, -0.10143, -0.18711, -0.08989, -0.16557, -0.09669, -0.15513, -0.05193, 0.30103
+            ]
+        ]
+    };
+    // Profunditat amb què Stockfish 19 puntuava les jugades en l'ajust.
+    const HUMAN_CHOICE_DEPTH = 10;
+    // Nivell d'entrada del model per a cada ROC: el que fa perdre de mitjana
+    // el mateix que el rival anterior a les mateixes posicions (ANALISI §17).
+    // Per sota del primer punt no hi ha dades prou fluixes: s'hi manté la tria
+    // anterior (null). Per sobre del darrer s'allarga el darrer tram.
+    const HUMAN_CHOICE_ROC_POINTS = [[872, 400], [1226, 481], [1604, 940], [1942, 1720]];
+    function humanChoiceEloForRoc(roc) {
+        const r = Number(roc);
+        const P = HUMAN_CHOICE_ROC_POINTS;
+        if (!Number.isFinite(r) || r < P[0][0]) return null;
+        let i = 0;
+        while (i < P.length - 2 && r > P[i + 1][0]) i++;
+        const [r0, e0] = P[i], [r1, e1] = P[i + 1];
+        return Math.round(e0 + (e1 - e0) * (r - r0) / (r1 - r0));
+    }
+    // Probabilitat de cada jugada (files de humanMoveFeatures) per a una
+    // persona d'aquest ELO.
+    function humanChoiceProbs(rows, elo) {
+        const M = HUMAN_CHOICE_MODEL;
+        const list = Array.isArray(rows) ? rows : [];
+        if (!list.length) return [];
+        const z = clampNum(((Number(elo) || M.center) - M.center) / M.scale, M.zMin, M.zMax);
+        const u = list.map(row => M.w.reduce((sum, w, d) => {
+            const zd = Math.pow(z, d);
+            let dot = 0;
+            for (let k = 0; k < w.length; k++) dot += (row.x[k] || 0) * w[k];
+            return sum + zd * dot;
+        }, 0));
+        const max = Math.max(...u);
+        const e = u.map(v => Math.exp(v - max));
+        const total = e.reduce((s, v) => s + v, 0);
+        return e.map(v => v / total);
+    }
+    // Sorteja una jugada segons el model (random injectable per als tests).
+    function pickHumanChoice(rows, elo, random) {
+        const list = Array.isArray(rows) ? rows : [];
+        if (!list.length) return null;
+        const p = humanChoiceProbs(list, elo);
+        let roll = (typeof random === 'function' ? random : Math.random)();
+        for (let i = 0; i < list.length; i++) {
+            roll -= p[i];
+            if (roll < 0) return list[i];
+        }
+        return list[list.length - 1];
+    }
+
     // Temps de reflexió del rival a la partida. Als ritmes curts hi afegeix
     // retocs de naturalitat (més temps a les decisions difícils, menys a la
     // jugada única i a la recaptura, cap pensada llarga quan no toca), però la
@@ -9814,6 +10058,18 @@
         clockEloForRoc,
         TIMED_RIVAL_STRENGTH_POINTS,
         timedRivalStrengthElo,
+        HUMAN_CHOICE_FEATURES,
+        humanMoveFeatures,
+        humanSanKey,
+        humanSanTarget,
+        humanBookIndex,
+        humanBookMoves,
+        HUMAN_CHOICE_MODEL,
+        HUMAN_CHOICE_DEPTH,
+        HUMAN_CHOICE_ROC_POINTS,
+        humanChoiceEloForRoc,
+        humanChoiceProbs,
+        pickHumanChoice,
         rivalSearchStart,
         rivalSearchStop,
         rivalSearchMessage,
