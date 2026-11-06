@@ -174,7 +174,10 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   finestra (`leagueStyledChoice`, 200 casos a l'atzar) i `tryLeagueBookMove`.
   Partides consecutives a 30s i 1+0: compte enrere 30 → 0 que arrenca la
   jornada, aturat amb l'app amagada o amb la finestra tancada, en lloc de la
-  revisió i aturat per «Anar a l'inici». Pantalla: quatre rajoles i franja del
+  revisió i aturat per «Anar a l'inici»; la pantalla té el resultat en curt, la
+  jornada que toca gran i en un requadre i les dues posicions (la teva i la del
+  rival, amb punts, color i ROC), sense les frases llargues ni l'escala de
+  números. Pantalla: quatre rajoles i franja del
   rival a la capçalera (sense el «Rellotge» repetit), colors de posició i
   d'estil, regles de color també en paper electrònic, textos curts (divisió,
   balanç, «1 punt») i la taula que cap al mòbil. Rellotge final amb el

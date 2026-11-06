@@ -5662,17 +5662,28 @@
         .league-career-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 5px 0; }
         .league-career-row > span:last-child { color: var(--text-secondary); white-space: nowrap; font-size: 0.78rem; }
         .league-career-main { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-        /* Lliga ràpida: compte enrere entre partida i partida */
+        /* Lliga ràpida: compte enrere entre partida i partida. Poc text: el
+           resultat, el rellotge, el compte enrere i les dues posicions. */
         .league-interlude { z-index: 1200; }
-        .league-interlude .li-card { max-width: 360px; max-height: 94vh; padding: 20px 18px; }
-        .li-result { font-weight: 700; font-size: 0.95rem; color: var(--text-primary); margin-bottom: 10px; }
-        .li-label { color: var(--text-secondary); font-size: 0.85rem; }
-        .li-count { font-size: clamp(2.6rem, 8vh, 4.2rem); font-weight: 800; line-height: 1; color: var(--accent-gold); font-variant-numeric: tabular-nums; margin: 2px 0 8px; }
-        .li-round { color: var(--text-secondary); font-size: 0.85rem; }
-        .li-opp { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 8px; margin-top: 4px; }
-        .li-opp-name { font-size: 1.3rem; font-weight: 800; white-space: nowrap; }
-        .li-result.lg-chip { font-size: 0.85rem; padding: 4px 12px; margin-bottom: 10px; white-space: normal; }
-        .li-strip { margin-top: 8px; text-align: left; }
+        .league-interlude .li-card { max-width: 360px; max-height: 94vh; padding: 18px 16px; }
+        .li-result.lg-chip { font-size: 0.9rem; padding: 4px 14px; margin-bottom: 10px; white-space: normal; }
+        .li-round-box { display: inline-flex; flex-direction: column; align-items: center; padding: 6px 22px 8px; margin-bottom: 8px;
+            border: 3px solid var(--accent-gold); border-radius: 16px; background: var(--lg-tint); color: var(--text-primary); }
+        .li-round-box small { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.12em; color: var(--accent-gold); }
+        .li-round-num { font-size: 1.3rem; font-weight: 800; line-height: 1.1; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+        .li-round-num b { font-size: 2.2rem; font-weight: 900; color: var(--text-primary); }
+        .li-label { color: var(--text-secondary); font-size: 0.82rem; font-weight: 700; }
+        .li-count { font-size: clamp(3.2rem, 10vh, 4.8rem); font-weight: 800; line-height: 1; color: var(--accent-gold); font-variant-numeric: tabular-nums; margin: 2px 0 10px; }
+        .li-vs { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 6px; }
+        .li-side { display: flex; flex-direction: column; align-items: center; min-width: 0; padding: 8px 4px; border-radius: 14px; background: var(--lg-tint); }
+        .li-pos { position: relative; display: inline-grid; place-items: center; min-width: 54px; height: 54px; padding: 0 8px; border-radius: 16px; font-size: 1.6rem; font-weight: 900; line-height: 1; }
+        .li-pos-ic { position: absolute; right: -10px; top: -10px; font-size: 1.05rem; line-height: 1; }
+        .li-side-name { margin-top: 6px; font-size: 0.95rem; font-weight: 800; color: var(--text-primary); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .li-side small { font-size: 0.74rem; font-weight: 700; color: var(--text-secondary); text-align: center; line-height: 1.3; max-width: 100%; }
+        .li-nw { white-space: nowrap; }
+        .li-vs-x { font-weight: 900; color: var(--accent-gold); font-size: 0.95rem; }
+        .li-actions { display: flex; gap: 8px; margin-top: 14px; }
+        .li-actions .btn { flex: 1; padding: 10px; font-size: 0.9rem; }
         /* Rellotge final amb el resultat (revisió, compte enrere i jornades) */
         /* Dues capses que sempre hi caben, també amb la lletra gran del mòbil:
            el nom a dalt (retallat si és llarg) i el temps a sota, centrats. */
@@ -5689,10 +5700,6 @@
         .result-final-clock .history-clock-side strong { font-size: 1.2rem; max-width: 100%; }
         .li-clock .result-final-clock { margin: 0 0 10px; }
         .league-history-row .lh-clock { display: block; font-size: 0.75rem; color: var(--text-secondary); margin-top: 2px; font-variant-numeric: tabular-nums; }
-        .li-opp-meta, .li-me { color: var(--text-secondary); font-size: 0.8rem; margin-top: 4px; line-height: 1.3; }
-        .li-actions { display: flex; gap: 8px; margin-top: 14px; }
-        .li-actions .btn { flex: 1; padding: 10px; font-size: 0.88rem; }
-        .li-note { color: var(--text-secondary); font-size: 0.75rem; margin-top: 10px; }
 
         /* Lliga responsive mobile */
         table.league-table { min-width: 520px; }
@@ -8778,20 +8785,31 @@
             <div class="modal-content li-card">
                 <div class="li-result" id="li-result">—</div>
                 <div class="li-clock" id="li-clock"></div>
-                <div class="li-label" id="li-label">Següent partida en</div>
-                <div class="li-count" id="li-count" aria-live="polite">30</div>
-                <div class="li-round" id="li-round">Jornada 2/9</div>
-                <div class="li-opp">
-                    <span class="li-opp-name" id="li-opp-name">—</span>
-                    <span class="league-badge li-opp-rank" id="li-opp-rank">#—</span>
+                <!-- La jornada que toca, gran i en un requadre -->
+                <div class="li-round-box" id="li-round-box">
+                    <small>JORNADA</small>
+                    <span class="li-round-num"><b id="li-round-num">2</b>/9</span>
                 </div>
-                <div class="li-opp-meta" id="li-opp-meta"></div>
-                <div class="li-me" id="li-me"></div>
+                <div class="li-label" id="li-label">comença en</div>
+                <div class="li-count" id="li-count" aria-live="polite">30</div>
+                <!-- Les dues posicions a la classificació: la teva i la del rival -->
+                <div class="li-vs">
+                    <div class="li-side">
+                        <span class="li-pos lgc-teal" id="li-me-pos">—</span>
+                        <b class="li-side-name">Tu</b>
+                        <small id="li-me-sub"></small>
+                    </div>
+                    <span class="li-vs-x" aria-hidden="true">vs</span>
+                    <div class="li-side">
+                        <span class="li-pos" id="li-opp-pos">—</span>
+                        <b class="li-side-name li-opp-name" id="li-opp-name">—</b>
+                        <small id="li-opp-sub"></small>
+                    </div>
+                </div>
                 <div class="li-actions">
                     <button class="btn btn-primary" id="btn-li-play" type="button">Juga ara</button>
-                    <button class="btn btn-secondary" id="btn-li-home" type="button"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg>Anar a l'inici</button>
+                    <button class="btn btn-secondary" id="btn-li-home" type="button"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg>Inici</button>
                 </div>
-                <div class="li-note">Lliga ràpida: les jornades s'encadenen fins al final de la temporada.</div>
             </div>
         </div>
 

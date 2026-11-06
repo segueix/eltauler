@@ -379,7 +379,7 @@ describe('partides consecutives a les lligues de 30s i 1+0', () => {
     test('en acabar una jornada es mostra en lloc de la revisió; «Anar a l\'inici» l\'atura', () => {
         const hgo = fnSource('handleGameOver');
         expect(hgo).toMatch(/const leagueChainNext = wasLeagueMatch && !blunderMode && leagueInterludeWanted\(\);/);
-        expect(hgo).toMatch(/if \(leagueChainNext\) \{\s*hidePostGameStatusChip\(\);\s*if \(showLeagueInterlude\(msg, leagueOutcome, \{ clock: finalClockSnapshot, playerColor, oppName: finalClockOppName \}\)\) \{\s*persistPostGameAfterPaint\('league-interlude'\);\s*return;/);
+        expect(hgo).toMatch(/if \(leagueChainNext\) \{\s*hidePostGameStatusChip\(\);\s*if \(showLeagueInterlude\(msg, leagueOutcome, \{ clock: finalClockSnapshot, playerColor, oppName: finalClockOppName,\s*eloChange: isLeagueRatedGame \? change : null, reason: timeoutColor \? 'time' : null \}\)\) \{\s*persistPostGameAfterPaint\('league-interlude'\);\s*return;/);
         expect(fnSource('leaveLeagueInterludeHome')).toMatch(/hideLeagueInterlude\(\);[\s\S]*goToHomeScreen\(\);/);
         expect(fnSource('returnToMainMenuImmediate')).toMatch(/hideLeagueInterlude\(\)/);
     });
@@ -489,6 +489,79 @@ describe('rellotge final: hi cap també amb la lletra gran del mòbil', () => {
         expect(html).toMatch(/\.result-final-clock \.history-clock-side > span \{[^}]*text-overflow: ellipsis;/);
     });
     test('al compte enrere, la icona i el nom del rival no se separen', () => {
-        expect(html).toMatch(/\.li-opp-name \{[^}]*white-space: nowrap;/);
+        expect(html).toMatch(/\.li-side-name \{[^}]*white-space: nowrap;/);
+    });
+});
+
+describe('pantalla entre partides: poc text i les dues posicions marcades', () => {
+    function interCtx() {
+        const els = {};
+        const el = sel => (els[sel] = els[sel] || { text: null, attrs: {}, html: null, css: {} });
+        const $ = sel => {
+            const e = el(sel);
+            const api = {
+                text(v) { e.text = v; return api; }, attr(k, v) { e.attrs[k] = v; return api; },
+                html(v) { e.html = v; return api; }, css(k, v) { e.css[k] = v; return api; }
+            };
+            return api;
+        };
+        const overlay = { style: { display: 'none' } };
+        const ids = ['me'].concat([1, 2, 3, 4, 5, 6, 7, 8, 9].map(i => 'bot' + i));
+        const players = ids.map((id, i) => ({ id, name: id === 'me' ? 'Tu' : 'Rival' + i, elo: 1000 + i, pts: 9 - i, pg: 9 - i, style: 'wall' }));
+        const ctx = vm.createContext({
+            ElTaulerCore: Core, window: { ElTaulerStockfishTV: TV }, $, document: { getElementById: () => overlay },
+            currentLeague: { currentRound: 3, completed: false, players, results: [], colors: ['w', 'b', 'b'], division: 2 },
+            getLeagueTimeControlId: () => '1+0', syncLeagueUserRoc() {}, getMyOpponentForRound: () => 'bot4',
+            getLeaguePlayer: id => players.find(p => p.id === id), nowMs: () => 0, setInterval: () => 1, clearInterval() {},
+            leagueInterlude: null, resultFinalClockHtml: () => '<div>rellotge</div>', escapeHtml: x => x
+        });
+        vm.runInContext(fnSource('formatPts'), ctx);
+        vm.runInContext(fnSource('formatEloChange'), ctx);
+        ['leagueInterludeWanted', 'stopLeagueInterludeTimer', 'renderLeagueInterludeCount', 'leagueSort', 'leagueOrdinal',
+            'leaguePointsLabel', 'leagueStyleLook', 'getLeagueRoundColor', 'leagueShortResult', 'showLeagueInterlude', 'tickLeagueInterlude']
+            .forEach(n => vm.runInContext(fnSource(n), ctx));
+        vm.runInContext(source.slice(source.indexOf('const LEAGUE_STYLE_LOOK = {'), source.indexOf('};', source.indexOf('const LEAGUE_STYLE_LOOK = {')) + 2), ctx);
+        return { ctx, els, overlay };
+    }
+
+    test('resultat curt: paraula, «per temps» si cal i el canvi d\'ELO', () => {
+        const { ctx } = interCtx();
+        expect(ctx.leagueShortResult('win', { eloChange: 13 })).toBe('Victòria · +13');
+        expect(ctx.leagueShortResult('loss', { eloChange: -9, reason: 'time' })).toBe('Derrota per temps · -9');
+        expect(ctx.leagueShortResult('draw', {})).toBe('Taules');
+    });
+
+    test('la jornada gran, les dues posicions, els punts i el color', () => {
+        const { ctx, els, overlay } = interCtx();
+        expect(ctx.showLeagueInterlude('Victòria per temps! (+13 · Bullet 1+0)', 'win', { eloChange: 13, reason: 'time' })).toBe(true);
+        expect(overlay.style.display).toBe('flex');
+        expect(els['#li-result'].text).toBe('Victòria per temps · +13');
+        expect(els['#li-round-num'].text).toBe('3');
+        expect(els['#li-label'].text).toBe('comença en');
+        // Tu ets el primer (9 punts); el rival bot4, el cinquè (5 punts).
+        expect(els['#li-me-pos'].text).toBe('1r');
+        expect(els['#li-me-sub'].html).toBe('<span class="li-nw">9 punts</span> · <span class="li-nw">negres</span>');
+        expect(els['#li-opp-pos'].html).toBe('5è<span class="li-pos-ic" aria-hidden="true">🧱</span>');
+        expect(els['#li-opp-pos'].attrs.class).toBe('li-pos lgc-blue');   // el Mur: blau
+        expect(els['#li-opp-name'].text).toBe('Rival4');
+        expect(els['#li-opp-sub'].html).toBe('<span class="li-nw">5 punts</span> · <span class="li-nw">ROC 1004</span>');
+        // Ja no hi ha l'escala dels deu números.
+        expect(els['#li-ladder']).toBeUndefined();
+    });
+
+    test('ja no hi ha les frases llargues (estil, obertura, divisió, nota final)', () => {
+        const html = fs.readFileSync(require.resolve('../index.html'), 'utf8');
+        const a = html.indexOf('id="league-interlude"');
+        const block = html.slice(a, html.indexOf('id="promotion-modal"', a));
+        expect(block).not.toContain('li-opp-meta');
+        expect(block).not.toContain('Lliga ràpida: les jornades');
+        expect(block).not.toContain('li-ladder');
+        // La jornada que toca, en un requadre i gran.
+        expect(block).toMatch(/<div class="li-round-box" id="li-round-box">\s*<small>JORNADA<\/small>\s*<span class="li-round-num"><b id="li-round-num">/);
+        expect(html).toMatch(/\.li-round-box \{[^}]*border: 3px solid var\(--accent-gold\)/);
+        expect(html).toMatch(/\.li-round-num b \{ font-size: 2\.2rem;/);
+        // Els segons que falten, més grans que el número de la jornada.
+        expect(html).toMatch(/\.li-count \{ font-size: clamp\(3\.2rem, 10vh, 4\.8rem\);/);
+        expect(fnSource('showLeagueInterlude')).not.toMatch(/describeLeagueOpponent/);
     });
 });
