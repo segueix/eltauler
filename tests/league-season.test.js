@@ -565,3 +565,52 @@ describe('pantalla entre partides: poc text i les dues posicions marcades', () =
         expect(fnSource('showLeagueInterlude')).not.toMatch(/describeLeagueOpponent/);
     });
 });
+
+describe('final de la lliga: la posició, gran, a la revisió de la darrera jornada', () => {
+    function finalCtx() {
+        const ctx = vm.createContext({ ElTaulerCore: Core });
+        vm.runInContext(fnSource('formatPts'), ctx);
+        ['escapeHtml', 'leagueOrdinal', 'leaguePointsLabel', 'leagueRankClass', 'leagueFinalReviewHtml']
+            .forEach(n => vm.runInContext(fnSource(n), ctx));
+        return ctx;
+    }
+    const base = { players: 10, pts: 7, performance: 1545, division: 2, champion: 'Gambit', name: 'Copa del Rei III' };
+
+    test('posició gran amb el color del podi, punts, rendiment i divisió', () => {
+        const ctx = finalCtx();
+        const html = ctx.leagueFinalReviewHtml({ ...base, rank: 2, nextDivision: 3, movement: 'up' });
+        expect(html).toContain('<span class="rlf-pos lgc-silver">2n</span>');
+        expect(html).toContain('<b>de 10</b><span>7 punts · rendiment 1545</span>');
+        expect(html).toContain('↑ Puges a Primera Divisió');
+        expect(html).toContain('LLIGA ACABADA');
+        expect(html).toContain('Copa del Rei III');
+        expect(html).toContain('Campió: Gambit');
+    });
+
+    test('campió: or i trofeu; descens: vermell; a mitja taula, verd aigua', () => {
+        const ctx = finalCtx();
+        const champ = ctx.leagueFinalReviewHtml({ ...base, rank: 1, nextDivision: 3, movement: 'up', champion: 'Tu' });
+        expect(champ).toContain('rlf-champion');
+        expect(champ).toContain('🏆 CAMPIÓ DE LA LLIGA');
+        expect(champ).toContain('<span class="rlf-pos lgc-gold">1r</span>');
+        expect(champ).not.toContain('Campió:');
+        expect(ctx.leagueFinalReviewHtml({ ...base, rank: 9, nextDivision: 1, movement: 'down' }))
+            .toMatch(/<span class="rlf-pos lgc-red">9è<\/span>[\s\S]*↓ Baixes a Tercera Divisió/);
+        expect(ctx.leagueFinalReviewHtml({ ...base, rank: 5, nextDivision: 2, movement: 'stay' }))
+            .toMatch(/<span class="rlf-pos lgc-teal">5è<\/span>[\s\S]*Continues a Segona Divisió/);
+    });
+
+    test('fora de la darrera jornada no surt res', () => {
+        expect(finalCtx().leagueFinalReviewHtml(null)).toBe('');
+    });
+
+    test('la revisió el pinta a dalt i el final de partida l\'hi passa', () => {
+        const html = fs.readFileSync(require.resolve('../index.html'), 'utf8');
+        expect(html).toMatch(/id="checkmate-image" class="checkmate-image">\s*<div id="review-league-final"><\/div>\s*<div class="review-modal-result"/);
+        expect(html).toMatch(/\.rlf-pos \{[^}]*font-size: 3\.2rem;/);
+        expect(fnSource('showPostGameReview')).toMatch(/\$\('#review-league-final'\)\.html\(leagueFinalReviewHtml\(options\.leagueFinal\)\)/);
+        const hgo = fnSource('handleGameOver');
+        expect(hgo).toMatch(/const leagueFinalInfo = \(wasLeagueMatch && currentLeague && currentLeague\.completed && currentLeague\.final\)/);
+        expect(hgo).toMatch(/leagueFinal: leagueFinalInfo,/);
+    });
+});

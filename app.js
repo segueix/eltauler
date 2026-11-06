@@ -5603,6 +5603,30 @@ function leagueOrdinal(n) {
     return k + (k === 1 || k === 3 ? 'r' : (k === 2 ? 'n' : (k === 4 ? 't' : 'è')));
 }
 
+// Posició final de la temporada, gran, per a la finestra que surt en acabar la
+// darrera jornada (revisió). final: currentLeague.final (+ name de la lliga).
+function leagueFinalReviewHtml(final) {
+    const f = final;
+    if (!f || !Number.isFinite(f.rank)) return '';
+    const next = ElTaulerCore.leagueDivision(f.nextDivision);
+    const move = f.movement === 'up' ? `<span class="lg-chip lgc-green">↑ Puges a ${escapeHtml(next.name)}</span>`
+        : f.movement === 'down' ? `<span class="lg-chip lgc-red">↓ Baixes a ${escapeHtml(next.name)}</span>`
+            : `<span class="lg-chip lgc-blue">Continues a ${escapeHtml(next.name)}</span>`;
+    const champion = f.rank === 1;
+    const details = [leaguePointsLabel(f.pts), f.performance !== null && f.performance !== undefined ? `rendiment ${f.performance}` : null]
+        .filter(Boolean).join(' · ');
+    return `<div class="review-league-final${champion ? ' rlf-champion' : ''}" role="group" aria-label="Posició final a la lliga">
+        <div class="rlf-kicker">${champion ? '🏆 CAMPIÓ DE LA LLIGA' : 'LLIGA ACABADA'}</div>
+        ${f.name ? `<div class="rlf-name">${escapeHtml(f.name)}</div>` : ''}
+        <div class="rlf-main">
+            <span class="rlf-pos ${leagueRankClass(f.rank, f.players) || 'lgc-teal'}">${leagueOrdinal(f.rank)}</span>
+            <span class="rlf-side"><b>de ${f.players}</b><span>${escapeHtml(details)}</span></span>
+        </div>
+        ${move}
+        ${f.champion && !champion ? `<div class="rlf-champ">Campió: ${escapeHtml(f.champion)}</div>` : ''}
+    </div>`;
+}
+
 // Franja de sota les rajoles: el proper rival (color i icona del seu estil) o,
 // amb la temporada acabada, el resum (posició, punts, rendiment i divisió).
 function renderLeagueStrip() {
@@ -5615,7 +5639,8 @@ function renderLeagueStrip() {
         const side = f.movement === 'up' ? { cls: 'lgc-green', icon: '⬆️', text: `Puges a ${next.name}` }
             : f.movement === 'down' ? { cls: 'lgc-red', icon: '⬇️', text: `Baixes a ${next.name}` }
                 : { cls: 'lgc-blue', icon: '➡️', text: `Continues a ${next.name}` };
-        box.innerHTML = `<div class="lg-strip-side ${side.cls}">${f.rank === 1 ? '🏆' : side.icon}</div>
+        // La posició final, gran, a la capsa del costat (color del podi o del descens).
+        box.innerHTML = `<div class="lg-strip-side lg-strip-pos ${leagueRankClass(f.rank, f.players) || 'lgc-teal'}">${f.rank === 1 ? '🏆<br>' : ''}${leagueOrdinal(f.rank)}</div>
             <div class="lg-strip-txt"><div class="lg-strip-kicker">TEMPORADA ACABADA</div>
             <div class="lg-strip-name">${leagueOrdinal(f.rank)} de ${f.players}<span class="lg-chip ${leagueRankClass(f.rank, f.players) || 'lgc-silver'}">${leaguePointsLabel(f.pts)}</span></div>
             <div class="lg-strip-sub">${escapeHtml(side.text)}${f.performance !== null ? ` · rendiment ${f.performance}` : ''}${f.champion && f.rank !== 1 ? ` · campió: ${escapeHtml(f.champion)}` : ''}</div></div>`;
@@ -25840,7 +25865,8 @@ function setupEvents() {
             lastReviewSnapshot.counts,
             null,
             { showCheckmate: lastReviewSnapshot.showCheckmate, finalClock: lastReviewSnapshot.finalClock,
-                playerColor: lastReviewSnapshot.playerColor, oppName: lastReviewSnapshot.oppName }
+                playerColor: lastReviewSnapshot.playerColor, oppName: lastReviewSnapshot.oppName,
+                leagueFinal: lastReviewSnapshot.leagueFinal }
         );
     });
 
@@ -26190,7 +26216,8 @@ function setupEvents() {
                     lastReviewSnapshot.counts,
                     null,
                     { showCheckmate: lastReviewSnapshot.showCheckmate, finalClock: lastReviewSnapshot.finalClock,
-                        playerColor: lastReviewSnapshot.playerColor, oppName: lastReviewSnapshot.oppName }
+                        playerColor: lastReviewSnapshot.playerColor, oppName: lastReviewSnapshot.oppName,
+                leagueFinal: lastReviewSnapshot.leagueFinal }
                 );
             }
             $('#blunder-alert').hide();
@@ -34492,6 +34519,8 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
             }
         }
     
+        // Darrera jornada d'una lliga: la posició final, gran, a dalt de tot.
+        $('#review-league-final').html(leagueFinalReviewHtml(options.leagueFinal));
         $('#review-result-text').text(msg);
         // Partida amb rellotge: el rellotge final sota el resultat.
         $('#review-final-clock').html(resultFinalClockHtml(options.finalClock, options.playerColor, options.oppName));
@@ -36305,6 +36334,9 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     if (currentStreak > 0) reviewHeader += ` · Ratxa ${currentStreak} dies`;
     
     // Guardar snapshot per poder reobrir la revisió
+    // Darrera jornada de la lliga: la revisió porta la posició final, gran.
+    const leagueFinalInfo = (wasLeagueMatch && currentLeague && currentLeague.completed && currentLeague.final)
+        ? Object.assign({ name: currentLeague.name }, currentLeague.final) : null;
     lastReviewSnapshot = {
         msg: reviewHeader,
         finalPrecision: finalPrecision,
@@ -36312,7 +36344,8 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         showCheckmate: showCheckmate,
         finalClock: finalClockSnapshot,
         playerColor: playerColor,
-        oppName: finalClockOppName
+        oppName: finalClockOppName,
+        leagueFinal: leagueFinalInfo
     };
     
     let onClose = () => {
@@ -36416,6 +36449,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         }
         showPostGameReview(reviewHeader, finalPrecision, reviewCounts, onClose, {
             finalClock: finalClockSnapshot, playerColor: playerColor, oppName: finalClockOppName,
+            leagueFinal: leagueFinalInfo,
             showCheckmate: showCheckmate,
             quickReveal: quickResolve,
             growthTask: growthTask,

@@ -5684,6 +5684,20 @@
         .li-vs-x { font-weight: 900; color: var(--accent-gold); font-size: 0.95rem; }
         .li-actions { display: flex; gap: 8px; margin-top: 14px; }
         .li-actions .btn { flex: 1; padding: 10px; font-size: 0.9rem; }
+        /* Final de la lliga a la revisió de la darrera jornada: posició gran */
+        .review-league-final { margin: 4px 0 14px; padding: 12px 12px 14px; border-radius: 18px; text-align: center;
+            background: var(--lg-tint); border: 3px solid var(--accent-gold); }
+        .review-league-final.rlf-champion { border-color: var(--lg-gold); box-shadow: 0 0 0 4px rgba(255, 224, 138, 0.25); }
+        .rlf-kicker { font-size: 0.74rem; font-weight: 900; letter-spacing: 0.1em; color: var(--accent-gold); }
+        .rlf-name { font-size: 0.82rem; font-weight: 700; color: var(--text-secondary); margin-top: 2px; }
+        .rlf-main { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 10px 0; }
+        .rlf-pos { display: inline-grid; place-items: center; min-width: 96px; height: 96px; padding: 0 12px; border-radius: 22px;
+            font-size: 3.2rem; font-weight: 900; line-height: 1; }
+        .rlf-side { display: flex; flex-direction: column; align-items: flex-start; text-align: left; min-width: 0; }
+        .rlf-side b { font-size: 1.3rem; font-weight: 900; color: var(--text-primary); }
+        .rlf-side span { font-size: 0.82rem; font-weight: 700; color: var(--text-secondary); }
+        .rlf-champ { font-size: 0.8rem; color: var(--text-secondary); margin-top: 6px; }
+        .lg-strip-side.lg-strip-pos { font-size: 1.35rem; font-weight: 900; line-height: 1.05; text-align: center; }
         /* Rellotge final amb el resultat (revisió, compte enrere i jornades) */
         /* Dues capses que sempre hi caben, també amb la lletra gran del mòbil:
            el nom a dalt (retallat si és llarg) i el temps a sota, centrats. */
@@ -8908,6 +8922,7 @@
             <div class="modal-content">
                 <div class="modal-title">📈 Revisió de la partida</div>
                 <img src="checkmate.svg" alt="Escac i mat" id="checkmate-image" class="checkmate-image">
+                <div id="review-league-final"></div>
                 <div class="review-modal-result" id="review-result-text">—</div>
                 <div id="review-final-clock"></div>
                 <div class="review-precision">Precisió final: <strong id="review-precision-value">—</strong></div>

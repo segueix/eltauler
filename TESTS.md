@@ -177,7 +177,9 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   revisió i aturat per «Anar a l'inici»; la pantalla té el resultat en curt, la
   jornada que toca gran i en un requadre i les dues posicions (la teva i la del
   rival, amb punts, color i ROC), sense les frases llargues ni l'escala de
-  números. Pantalla: quatre rajoles i franja del
+  números. Final de la lliga: la revisió de la darrera jornada porta la
+  posició final gran (colors de podi, descens i mitja taula, campió, divisió)
+  i fora de la darrera jornada no surt. Pantalla: quatre rajoles i franja del
   rival a la capçalera (sense el «Rellotge» repetit), colors de posició i
   d'estil, regles de color també en paper electrònic, textos curts (divisió,
   balanç, «1 punt») i la taula que cap al mòbil. Rellotge final amb el
