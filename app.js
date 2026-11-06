@@ -547,6 +547,11 @@ let engineClockSlipArmed = false;
 // Nivell de força i motor de la cerca en curs del rival (vegeu makeEngineMove).
 let engineSearchStrengthElo = null;
 let engineSearchUsesTimedRival = false;
+// ELO d'entrada del model de tria humana per a la cerca en curs (null: tria
+// anterior) i quantes línies hauria demanat aquesta (per a la dificultat que
+// mou el temps de reflexió, que es va calibrar amb aquelles línies).
+let engineSearchHumanElo = null;
+let engineComplexityPv = null;
 // Jugada anticipada de l'usuari mentre pensa el rival. Al bullet, impedir tocar
 // el tauler durant cada resposta del motor obliga a pagar també el temps de
 // reacció i d'animació a cada jugada; una premove legal s'aplica tan bon punt
@@ -7784,6 +7789,7 @@ function maybeSuggestDailyNotify() {
 function resetEngineMoveCandidates() {
     engineMoveCandidates = [];
     engineMoveCandidateCollector = null;
+    engineComplexityPv = null;
 }
 
 function resetOpeningEngineMoveCandidates() {
@@ -8048,6 +8054,46 @@ function pickClockSlipMove(candidates, chessInstance) {
     return slip;
 }
 
+// Índex de les línies d'obertura (obertures.js) per al tret «teoria» del
+// model de tria humana; es construeix la primera vegada que cal.
+let humanBookIndexCache = null;
+function getHumanBookIndex() {
+    if (!humanBookIndexCache && typeof OPENINGS_DATA !== 'undefined') {
+        humanBookIndexCache = ElTaulerCore.humanBookIndex(OPENINGS_DATA);
+    }
+    return humanBookIndexCache;
+}
+// Jugades de teoria que continuen la partida, només si la partida ve de la
+// posició inicial (una partida començada des d'una posició no té llibre).
+function humanBookMovesFor(chessInstance, history) {
+    const moves = ElTaulerCore.humanBookMoves(getHumanBookIndex(), history);
+    if (!moves) return null;
+    try {
+        const replay = new Chess();
+        for (const san of history) if (!replay.move(san)) return null;
+        return replay.fen().split(' ')[0] === chessInstance.fen().split(' ')[0] ? moves : null;
+    } catch (e) { return null; }
+}
+
+// Tria del model humà (core.js) entre les candidates puntuades pel motor.
+function pickHumanModelMove(candidates, chessInstance, elo) {
+    if (!chessInstance || !Array.isArray(candidates) || candidates.length < 2) return null;
+    const fen = chessInstance.fen();
+    const history = chessInstance.history();
+    const rows = ElTaulerCore.humanMoveFeatures(Chess, fen,
+        candidates.filter(c => c && Number.isFinite(c.score)).map(c => [c.move, c.score]), {
+            moveNumber: parseInt(fen.split(' ')[5], 10) || 1,
+            lastMove: history.length ? { to: ElTaulerCore.humanSanTarget(history[history.length - 1]) } : null,
+            ownLastMove: history.length > 1 ? { to: ElTaulerCore.humanSanTarget(history[history.length - 2]) } : null,
+            bookMoves: humanBookMovesFor(chessInstance, history)
+        });
+    if (rows.length < 2) return null;
+    const row = ElTaulerCore.pickHumanChoice(rows, elo, Math.random);
+    const picked = row ? candidates.find(c => c.move === row.move) : null;
+    logWeakAiSelection(elo, picked, 'human-model');
+    return picked || null;
+}
+
 function chooseHumanLikeMove(candidates, chessInstance = game, options = {}) {
     // strengthElo: el nivell amb què ha cercat el motor, quan no és el ROC
     // (rival amb Stockfish 19 a les partides amb rellotge, core.js).
@@ -8059,6 +8105,14 @@ function chooseHumanLikeMove(candidates, chessInstance = game, options = {}) {
     if (options.clock && options.clockSlip) {
         const slip = pickClockSlipMove(candidates, chessInstance);
         if (slip) return slip;
+    }
+    // Model de tria humana: el motor ha puntuat totes les jugades a força
+    // màxima, i la tria la fa el model al nivell calibrat per al ROC. Si no hi
+    // ha alternatives (jugada única o cerca tallada), la del motor.
+    if (Number.isFinite(options.humanChoiceElo)) {
+        const modelChoice = pickHumanModelMove(candidates, chessInstance, options.humanChoiceElo);
+        if (modelChoice) return modelChoice;
+        if (options.engineBestMove) return (candidates || []).find(c => c.move === options.engineBestMove) || { move: options.engineBestMove };
     }
     let nativeChoice = null;
     if (options.clock && options.engineBestMove && chessInstance) {
@@ -29596,6 +29650,12 @@ const ENGINE_REPLY_MIN_UI_MS = 250;
 // del millor moviment i volatilitat d'avaluació (traça per profunditats) i
 // senyal tàctic (escac, mat a la vista, primera línia captura/promoció/escac).
 function estimateEngineMoveComplexity() {
+    // Amb el model de tria humana el motor puntua totes les jugades; la
+    // dificultat es continua mirant a les línies que hauria demanat la cerca
+    // anterior (les millors, en ordre de MultiPV), com quan es va calibrar.
+    const complexityCandidates = engineComplexityPv
+        ? engineMoveCandidates.slice(0, engineComplexityPv)
+        : engineMoveCandidates;
     let bestMoveChanges = 0;
     for (let i = 1; i < engineMoveSearchTrace.length; i++) {
         if (engineMoveSearchTrace[i].move !== engineMoveSearchTrace[i - 1].move) bestMoveChanges++;
@@ -29608,8 +29668,8 @@ function estimateEngineMoveComplexity() {
     let tacticalFlag = 0;
     try {
         const inCheck = game.in_check();
-        const hasMateScore = engineMoveCandidates.some(c => Math.abs(c.score) >= 9999);
-        const best = engineMoveCandidates.slice().sort((a, b) => b.score - a.score)[0];
+        const hasMateScore = complexityCandidates.some(c => Math.abs(c.score) >= 9999);
+        const best = complexityCandidates.slice().sort((a, b) => b.score - a.score)[0];
         let topMoveTactical = false;
         if (best) {
             const mv = game.moves({ verbose: true })
@@ -29621,7 +29681,7 @@ function estimateEngineMoveComplexity() {
     } catch (e) {}
 
     return ElTaulerCore.estimateMoveComplexity({
-        candidates: engineMoveCandidates,
+        candidates: complexityCandidates,
         bestMoveChanges,
         evalSamples,
         shallowDeepSwingCp,
@@ -32580,11 +32640,18 @@ function makeEngineMove(skipAntidote) {
         : getActiveStrengthElo();
     engineSearchStrengthElo = strengthElo;
     engineSearchUsesTimedRival = useTimedRival;
-    // La profunditat continua sortint del ROC: Stockfish 19 ha d'aprofitar el
-    // temps de cerca per veure més lluny (candidates fiables per a les errades
-    // per pressió i per a la dificultat que mou el temps de reflexió); la força
-    // la regula la tria (UCI_Elo i la capa de nivells baixos) al nivell calibrat.
-    const depth = getAIDepth();
+    // Model de tria humana (core.js, ANALISI §17): des de ROC 872 el rival
+    // tria entre TOTES les jugades legals com ho faria una persona del nivell
+    // calibrat. Stockfish 19 només les puntua: a força màxima, amb una línia
+    // per jugada i a la profunditat amb què es va ajustar el model.
+    const humanChoiceElo = useTimedRival ? ElTaulerCore.humanChoiceEloForRoc(getActiveStrengthElo()) : null;
+    engineSearchHumanElo = humanChoiceElo;
+    // Sense el model, la profunditat continua sortint del ROC: Stockfish 19 ha
+    // d'aprofitar el temps de cerca per veure més lluny (candidates fiables per
+    // a les errades per pressió i per a la dificultat que mou el temps de
+    // reflexió); la força la regula la tria (UCI_Elo i la capa de nivells
+    // baixos) al nivell calibrat.
+    const depth = humanChoiceElo !== null ? ElTaulerCore.HUMAN_CHOICE_DEPTH : getAIDepth();
     currentGameEngineDepth = depth;
     currentGameActiveStrengthElo = getActiveStrengthElo();
     resetEngineMoveCandidates();
@@ -32612,7 +32679,7 @@ function makeEngineMove(skipAntidote) {
     // Reafirma la força en cada resposta amb les opcions que el binari
     // anuncia: UCI_Elo o Skill Level. La revisió entre torns usa força màxima.
     if (useTimedRival) {
-        ElTaulerCore.nativeStrengthCommands(timedRivalCaps, strengthElo, false)
+        ElTaulerCore.nativeStrengthCommands(timedRivalCaps, strengthElo, humanChoiceElo !== null)
             .forEach(command => { try { searchEngine.postMessage(command); } catch (e) {} });
     } else {
         applyEngineEloStrength(getActiveStrengthElo());
@@ -32631,7 +32698,9 @@ function makeEngineMove(skipAntidote) {
         engineClockSlipArmed = chance > 0 && Math.random() < chance;
     }
     const baseMultiPv = shortClock ? Math.min(8, requestedPv) : requestedPv;
-    const multiPvValue = engineClockSlipArmed ? Math.max(baseMultiPv, ElTaulerCore.CLOCK_SLIP_MULTIPV) : baseMultiPv;
+    const legacyMultiPv = engineClockSlipArmed ? Math.max(baseMultiPv, ElTaulerCore.CLOCK_SLIP_MULTIPV) : baseMultiPv;
+    engineComplexityPv = legacyMultiPv;
+    const multiPvValue = humanChoiceElo !== null ? game.moves().length : legacyMultiPv;
     if (gameClock.enabled) engineMoveCandidateCollector = ElTaulerCore.createMoveCandidateCollector(
         Math.min(multiPvValue, game.moves().length));
     try { searchEngine.postMessage(`setoption name MultiPV value ${multiPvValue}`); } catch (e) {}
@@ -32648,7 +32717,7 @@ function makeEngineMove(skipAntidote) {
         elapsedMs: engineReplyElapsedMs()
     });
     if (DEBUG_ENGINE_TIMING) {
-        console.log('[engine search]', { depth, multiPvValue, searchBudgetMs, elapsed: engineReplyElapsedMs() });
+        console.log('[engine search]', { depth, multiPvValue, humanChoiceElo, searchBudgetMs, elapsed: engineReplyElapsedMs() });
     }
     searchEngine.postMessage(`position fen ${game.fen()}`);
     searchEngine.postMessage(searchBudgetMs === null
@@ -33328,7 +33397,7 @@ function handleEngineMessage(rawMsg) {
             const searchCaps = engineSearchUsesTimedRival ? timedRivalCaps : engineStrengthCaps;
             const chosen = chooseHumanLikeMove(engineMoveCandidates, game, gameClock.enabled
                 ? { engineBestMove: fallbackMove, clock: engineClockContext(), clockSlip: engineClockSlipArmed,
-                    strengthElo: engineSearchStrengthElo,
+                    strengthElo: engineSearchStrengthElo, humanChoiceElo: engineSearchHumanElo,
                     nativeStrength: !!(searchCaps.skill || (searchCaps.limit && searchCaps.elo)) } : {}) || { move: null };
             engineClockSlipArmed = false;
             const moveStr = chosen.move || (gameClock.enabled ? fallbackMove : chooseFallbackMove(fallbackMove));

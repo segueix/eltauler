@@ -67,3 +67,38 @@ python3 -I paired.py val.jsonl roc bench-short.jsonl bench-long.jsonl
 
 Els fitxers d'ids són llistes d'identificadors `ritme|franja|línia` de la
 mostra (40 per ritme i franja, disjunts entre calibratge i validació).
+
+## Model de tria humana del rival amb rellotge (§17)
+
+Cal Python 3 amb `numpy` i `scipy` per a l'ajust. Des de l'arrel del repo:
+
+```bash
+# 1. Totes les jugades legals de les 15.000 posicions de la mostra (§14),
+#    puntuades per Stockfish 19 a profunditat 10 (Chromium, ~30 min)
+node scripts/rellotge-lichess/allmoves.js sample.jsonl all10.jsonl 10
+# 2. Trets de cada jugada amb humanMoveFeatures de core.js (la mateixa funció de l'app)
+node scripts/rellotge-lichess/build_features.js all10.jsonl sample.jsonl features.jsonl
+# 3. Ajust (dos terços) i validació (un terç); en surten els pesos de HUMAN_CHOICE_MODEL
+DEG=1 python3 -I scripts/rellotge-lichess/fit_human.py features.jsonl model.json bench-short.jsonl bench-long.jsonl
+# 4. Nivell del model per ROC contra el rival anterior (jutge: la taula de profunditat 10);
+#    en surten els punts de HUMAN_CHOICE_ROC_POINTS
+python3 -I scripts/rellotge-lichess/calib_human.py features.jsonl model.json bench-short.jsonl bench-long.jsonl
+# 5. El mateix amb el que el model veu a l'app: la cerca real del rival (Chromium, ~17 min)
+python3 -I -c "import json
+for f in ('bench-short.jsonl', 'bench-long.jsonl'):
+    for l in open(f):
+        r = json.loads(l)
+        if min(2000, r['elo']) >= 872: print(r['id'])" > ids-model.txt
+node scripts/rellotge-lichess/runscores.js sample.jsonl ids-model.txt runscores.jsonl 3
+node scripts/rellotge-lichess/build_runtime.js runscores.jsonl sample.jsonl runtime-features.jsonl
+python3 -I scripts/rellotge-lichess/calib_runtime.py features.jsonl runtime-features.jsonl model.json \
+  bench-short.jsonl bench-long.jsonl '[[872,400],[1226,481],[1604,940],[1942,1720]]'
+# 6. De cap a cap amb chooseHumanLikeMove de l'app (un sorteig per posició; temps dels trets)
+node scripts/rellotge-lichess/benchhuman.js sample.jsonl ids-model.txt benchhuman.jsonl 3
+python3 -I scripts/rellotge-lichess/analyze_human.py features.jsonl benchhuman.jsonl bench-short.jsonl bench-long.jsonl
+```
+
+Les posicions reservades per validar són les de línia múltiple de 3 a tots els
+passos. `bench-short.jsonl` i `bench-long.jsonl` són els del rival anterior
+(§14); els ids que no hi són a `features.jsonl` (posicions forçades) es
+descarten.

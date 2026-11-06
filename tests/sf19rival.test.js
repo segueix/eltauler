@@ -108,11 +108,12 @@ describe('worker del rival a l’app', () => {
 });
 
 describe('makeEngineMove amb rellotge', () => {
-    function moveCtx(useSf19) {
+    // Per sota de ROC 872 (sense model de tria humana, vegeu humanchoice.test.js).
+    function moveCtx(useSf19, roc = 860) {
         const sent = { main: [], sf19: [] };
         const chess = new Chess();
         chess.move('e4');
-        const clockCtx = { timeControlId: '1+0', remainingMs: 52000, incMs: 0, elo: 1604, phase: 'opening',
+        const clockCtx = { timeControlId: '1+0', remainingMs: 52000, incMs: 0, elo: roc, phase: 'opening',
             moveNumber: 1, clockTemperament: 1, forced: false, humanPaceMs: null, paceSamples: 0 };
         const ctx = vm.createContext({
             ElTaulerCore: Core, game: chess, playerColor: 'w', currentGameMode: 'free', bessoState: null,
@@ -121,7 +122,7 @@ describe('makeEngineMove amb rellotge', () => {
             timedRivalEngine: { postMessage: c => sent.sf19.push(c) }, timedRivalActive: () => useSf19,
             timedRivalCaps: { limit: true, elo: { min: 1320, max: 3190 }, skill: { min: 0, max: 20 } },
             timedRivalSearch: { active: false, skip: 0 },
-            getActiveStrengthElo: () => 1604, ELO_MIN: 200, ELO_MAX: 2000,
+            getActiveStrengthElo: () => roc, ELO_MIN: 200, ELO_MAX: 2000,
             getAIDepth: (...args) => { ctx.depthCalls = (ctx.depthCalls || 0) + 1; ctx.depthArgs = args; return 10; },
             resetEngineMoveCandidates() {}, clearEngineMoveTimers() {}, nowMs: () => 0, engineReplyStartTs: 0,
             isCalibrationGame: false, updateCalibrationOpponentRoc() {},
@@ -138,7 +139,7 @@ describe('makeEngineMove amb rellotge', () => {
 
     test('amb Stockfish 19: tota la cerca va al seu worker, força al nivell calibrat, profunditat i temps del ROC', () => {
         const { ctx, sent, clockCtx } = moveCtx(true);
-        const level = Core.timedRivalStrengthElo(1604);
+        const level = Core.timedRivalStrengthElo(860);
         expect(sent.main).toEqual([]);
         expect(ctx.engineSearchUsesTimedRival).toBe(true);
         expect(ctx.engineSearchStrengthElo).toBe(level);
@@ -154,10 +155,10 @@ describe('makeEngineMove amb rellotge', () => {
     test('si Stockfish 19 no ha arrencat: el motor de sempre, amb el ROC tal qual', () => {
         const { ctx, sent } = moveCtx(false);
         expect(sent.sf19).toEqual([]);
-        expect(sent.main).toContain('strength 1604');
+        expect(sent.main).toContain('strength 860');
         expect(sent.main[sent.main.length - 1]).toMatch(/^go depth 10 movetime \d+$/);
         expect(ctx.engineSearchUsesTimedRival).toBe(false);
-        expect(ctx.engineSearchStrengthElo).toBe(1604);
+        expect(ctx.engineSearchStrengthElo).toBe(860);
         expect(ctx.depthArgs).toEqual([]);
     });
 

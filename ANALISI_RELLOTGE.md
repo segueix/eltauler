@@ -848,7 +848,8 @@ I a força igual no hi ha cap desajust significatiu en les errades greus que
 calgui corregir. L'estil (menys jugades exactes) es podria acostar al d'una
 persona —més jugades exactes i alguna errada greu més, a la mateixa pèrdua
 mitjana—, però no hi ha cap mesura de com afectaria els resultats de les
-partides, i sense mesura seria un ajust a cegues.
+partides, i sense mesura seria un ajust a cegues. Més endavant s'ha fet amb
+un model après de jugades reals i la força igualada per ROC: §17.
 
 ### 14.5. Conseqüència per a la resta del document
 
@@ -1055,3 +1056,204 @@ tota la partida. Conduint l'app: a 1+0 les quatre cerques del rival van a
 Stockfish 19 amb `UCI_Elo` 1336 (ROC 1600) i la revisió al motor de sempre;
 sense rellotge, tot al motor de sempre; amb Stockfish 19 bloquejat, la partida
 d'1+0 es juga sencera amb el motor de sempre.
+
+## 17. El rival tria la jugada com una persona: model de tria humana
+
+### 17.1. Per què
+
+La secció 14.3 va deixar una diferència d'estil sense tocar: a força igual, el
+rival encerta la jugada exacta un 10% menys sovint que una persona i ho
+compensa amb més imprecisions petites. És el que fa un motor rebaixat (Skill
+Level, `UCI_Elo`): tria entre les seves millors línies amb soroll, no com una
+persona. Maia (una xarxa neuronal entrenada amb milions de partides de Lichess)
+ho resol aprenent directament quina jugada tria la gent de cada nivell: a les
+posicions del banc de §14 endevina la jugada humana el 32,7% de les vegades
+(sortejant segons les seves probabilitats; el 46,0% amb la més probable),
+contra el 16,3% del rival. Però té llicència AGPL-3.0 i no s'ha integrat.
+
+Aquí es fa la mateixa idea en petit: **aprendre de jugades reals quina jugada
+tria una persona d'un nivell donat**, amb uns quants pesos en lloc d'una xarxa.
+
+### 17.2. El model
+
+Per a cada jugada legal es calculen 30 trets que una persona «veu»
+(`humanMoveFeatures` a `core.js`):
+
+- **Què diu el motor:** la pèrdua en probabilitat de guanyar respecte de la
+  millor (i la mateixa pèrdua saturada a 0,1, si és gairebé la millor, si és
+  una errada greu ≥ 0,30), si és la millor i el rang entre totes.
+- **Material:** si captura i què, si guanya material de franc, quant en penja
+  (la pitjor captura del rival amb recaptura simple, la regla de
+  `immediateMaterialLoss`), si salva una peça atacada, si amenaça una peça
+  rival.
+- **Tipus de jugada:** escac, mat, enroc, promoció, quina peça mou, peó de dues
+  caselles o de banda, retirada, desenvolupament (cavall o alfil de la primera
+  fila fins a la jugada 15), dama aviat (fins a la 10), distància, guany de
+  centralitat.
+- **Context:** recaptura a la casella on acaba de jugar el rival, tornar a
+  moure la peça de la jugada anterior i si la jugada continua una línia
+  d'obertura coneguda (`obertures.js`).
+
+La probabilitat de cada jugada és un logit condicional (softmax entre totes
+les legals) amb pesos que depenen linealment de l'ELO:
+`u = x · (w0 + z·w1)`, `z = (ELO − 1500) / 500` retallat al rang de les dades
+(ELO 400-3300). S'ajusta per màxima versemblança (`fit_human.py`, L-BFGS,
+regularització L2 de 10⁻³).
+
+**Dades:** les 15.000 posicions de la mostra de §14 (500 per ritme i franja,
+els sis ritmes, rellotge còmode, posicions obertes), amb **totes** les jugades
+legals puntuades per Stockfish 19 a profunditat 10 (`allmoves.js`). En queden
+14.959 amb més d'una jugada; dos terços (9.974) per ajustar i un terç (4.985)
+reservat per validar (identificador de línia múltiple de 3). Pesos quadràtics
+en l'ELO no milloren la versemblança reservada; el tret de teoria hi afegeix
+0,2 punts d'encert.
+
+### 17.3. Com s'assembla a les persones
+
+A les posicions reservades, amb el model al **mateix ELO de la persona** que
+tenia el torn (el rival i Maia, a les 2.594 que són també al banc de §14):
+
+| franja | encert de la jugada humana: model (més probable / sortejat) | rival | Maia (sortejat) | pèrdua mitjana pers. / model | errades greus pers. / model | jugada exacta pers. / model |
+|---|---|---|---|---|---|---|
+| <1000 | 33,9% / 18,7% | 12,8% | 29,0% | 0,134 / 0,129 | 13,9% / 13,1% | 39,9% / 41,7% |
+| 1000-1399 | 33,2% / 20,5% | 15,2% | 28,0% | 0,116 / 0,106 | 10,8% / 10,1% | 42,5% / 46,0% |
+| 1400-1799 | 39,8% / 24,1% | 15,0% | 38,0% | 0,084 / 0,088 | 7,5% / 7,8% | 50,2% / 48,4% |
+| 1800-2199 | 37,7% / 25,0% | 22,3% | 35,8% | 0,073 / 0,070 | 6,1% / 5,0% | 49,4% / 52,1% |
+| ≥2200 | 45,9% / 29,3% | — | — | 0,057 / 0,060 | 4,4% / 4,0% | 59,1% / 54,9% |
+| totes | 38,1% / 23,5% | 16,3% | 32,7% | 0,093 / 0,091 | 8,5% / 8,0% | 48,2% / 48,6% |
+
+- **El perfil d'errades és el d'una persona** a totes les franges: pèrdua
+  mitjana, errades greus i jugades exactes a un o dos punts (Maia a les
+  mateixes posicions: 0,105, 10,2% i 45,3%).
+- **Encertar la jugada concreta**, a mig camí: sortejant, el 23,5% (el 22% sense
+  la franja ≥2200, que el rival no juga), contra el 16% del rival i el 33% de
+  Maia. Maia mira el tauler sencer amb una xarxa de milions de paràmetres;
+  aquí són 60 pesos.
+
+### 17.4. La força: cada ROC juga igual que abans
+
+Com a §16, el ROC ha de continuar volent dir el mateix. L'ELO d'entrada del
+model per a cada ROC (`humanChoiceEloForRoc`) és el que fa perdre de mitjana
+per jugada el mateix que el rival anterior a les mateixes posicions del banc
+de §14.
+
+**Amb el jutge** (`calib_human.py`): les puntuacions de profunditat 10 de
+l'ajust, posicions del banc de §14 amb la jugada del rival anterior. Nivell
+del model que iguala la pèrdua mitjana, a les dues meitats per separat:
+
+| ROC | nivell del model (calibratge / validació) | punt de `core.js` |
+|---|---|---|
+| ~872 | 369 / 364: per sota del límit de les dades (400) | 400 |
+| ~1226 | 474 / 488 | 481 |
+| ~1604 | 1.009 / 870 | 940 |
+| ~1942 | 1.703 / 1.738 | 1.720 |
+
+Entre punts s'interpola. **Per sota de ROC 872 no hi ha model**: el nivell que
+caldria ja és per sota de les persones més fluixes de les dades, i s'hi manté
+la tria anterior. Per sobre de 1942 s'allarga l'últim tram fins al ROC màxim
+(2000 → 1854).
+
+El nivell del model és l'ELO de Lichess de les persones de qui ha après, i
+coincideix amb la correspondència de §15, mesurada per un altre camí (pèrdua
+de persones reals, no del model): ROC 1604 → 940 aquí i 1025 allà (interval
+850-1300); 1942 → 1720 i 1750 (1550-2100); fins a ROC ~1230, per sota de les
+dades totes dues.
+
+**Amb el que el model veu a l'app** (`runscores.js`, `build_runtime.js`,
+`calib_runtime.py`): a l'app el model no veu les puntuacions del jutge sinó
+les de la cerca del rival, amb el pressupost de temps del rellotge que tenia
+la persona i la memòria cau de la cerca anterior. S'ha repetit la cerca real
+al Chromium a les **6.954 posicions** del banc amb ROC de 872 o més i s'ha
+jutjat el que triaria el model (esperança sobre totes les jugades, no un sol
+sorteig). Amb els punts de dalt, la diferència de pèrdua amb el rival anterior
+queda dins de l'interval a totes les franges i a totes dues meitats (la més
+gran, +0,014 a la franja més baixa de la validació, interval −0,005 a
++0,031). Recalibrar els punts amb aquestes puntuacions no millora la
+validació (+0,013 / −0,004 / −0,012 / +0,001, contra +0,014 / −0,001 / −0,005 /
++0,005), i es mantenen.
+
+Totes les posicions juntes (la «persona» és la que tenia el torn, de Lichess,
+amb el mateix número d'ELO que el ROC; recordeu que és més forta que el rival,
+§14):
+
+| ROC | pèrdua: persona / anterior / model | diferència (IC 95%) | errades greus | jugada exacta | encert de la jugada humana: anterior / model |
+|---|---|---|---|---|---|
+| ~944 | 0,125 / 0,164 / 0,169 | +0,005 (−0,006 a +0,016) | 12,7% / 17,3% / 18,6% | 42,6% / 21,9% / 33,9% | 14,2% / 17,8% |
+| ~1227 | 0,110 / 0,160 / 0,159 | −0,002 (−0,011 a +0,007) | 10,6% / 16,0% / 17,2% | 45,2% / 23,7% / 35,3% | 13,9% / 18,5% |
+| ~1604 | 0,088 / 0,125 / 0,127 | +0,002 (−0,005 a +0,010) | 7,7% / 11,3% / 12,6% | 51,2% / 29,9% / 40,0% | 17,5% / 21,9% |
+| ~1942 | 0,075 / 0,081 / 0,085 | +0,004 (−0,002 a +0,009) | 6,5% / 5,5% / 7,2% | 49,5% / 40,5% / 46,6% | 20,9% / 23,8% |
+| totes | 0,096 / 0,129 / 0,131 | +0,002 (−0,002 a +0,006) | 9,0% / 11,9% / 13,4% | 47,7% / 29,9% / 39,6% | 16,9% / 20,8% |
+
+**La força és la mateixa i l'estil canvia**: deu punts més de jugades exactes
+i un i mig més d'errades greus, a la mateixa pèrdua mitjana. És exactament la
+diferència d'estil de §14.3 entre el rival i les persones de la seva força.
+
+### 17.5. A l'app
+
+- **On:** el rival de les partides amb rellotge quan juga amb Stockfish 19
+  (§16) i el ROC és de 872 o més. Per sota (no hi ha dades prou fluixes), sense
+  rellotge o si Stockfish 19 no ha arrencat, la tria de sempre.
+- **Cerca:** Stockfish 19 a **força màxima** (sense `UCI_Elo`) puntua **totes**
+  les jugades legals (MultiPV = nombre de jugades) a la profunditat de l'ajust
+  (10), amb el mateix pressupost de temps del rellotge. La força ja no la posa
+  el motor: la posa el model.
+- **Tria:** si la tirada de l'errada per pressió (§13) ha sortit, passa davant;
+  si no, el model sorteja entre totes les jugades amb la partida com a context
+  (les dues darreres jugades i la teoria, només si la partida ve de la posició
+  inicial). Amb una sola jugada, la del motor.
+- **Temps de reflexió:** la dificultat que el mou es continua calculant amb les
+  mateixes línies que abans (les primeres de MultiPV), no amb totes.
+
+**De cap a cap** (`benchhuman.js`: el `chooseHumanLikeMove` de l'app, un
+sorteig per posició, 2.309 posicions reservades): pèrdua 0,128 → 0,124,
+encert de la jugada humana 17,2% → 22,8%, cap error de pàgina. Temps al
+Chromium d'escriptori amb tres cerques en paral·lel: cerca mediana 417 ms
+(p90 814 ms), trets i sorteig 68 ms de mediana (p99 279 ms, màxim 506 ms). La
+profunditat 10 s'assoleix al 88% de les posicions; a 30s el pressupost la
+talla sovint (7-9 a 208 de 464). El temps dels trets compta dins del temps de
+reflexió del rival, com la resta de la resposta.
+
+**Conduint l'app** (1+0, ROC 1600): les deu respostes del rival les tria el
+model al nivell 935, Stockfish 19 cerca a força màxima (`UCI_LimitStrength`
+desactivat) amb MultiPV 20-34 (totes les jugades) i sense errors de pàgina. A
+ROC 700, `UCI_Elo` i MultiPV 8, com abans; sense rellotge, el motor de sempre.
+
+### 17.6. Límits
+
+- La força s'ha igualat per **pèrdua mitjana per jugada**, com a §16. L'efecte
+  sobre els resultats de les partides (que §14.4 deixava com a pregunta oberta)
+  no s'ha mesurat: el nou rival fa més jugades exactes i alguna errada greu
+  més, a la mateixa pèrdua mitjana, que és el que fa una persona.
+- Les posicions són sobretot del començament de la partida (jugades 7-16 de
+  mitjana), amb el rellotge còmode i obertes; no n'hi ha cap amb mat en una
+  (el tret de mat té pes zero; el mat ja és la millor jugada i la pèrdua de les
+  altres el fa gairebé segur).
+- El model no mira el rellotge: s'ha ajustat amb el rellotge còmode, i l'apuro
+  el continuen posant les errades de §13.
+- Els trets només veuen les dues darreres jugades i la teoria; Maia mira el
+  tauler sencer i l'historial.
+- Al mòbil no s'ha mesurat el temps de càlcul dels trets.
+
+### 17.7. Proves
+
+`humanchoice.test.js` (27 proves): els trets de jugades conegudes (pèrdua,
+rang, penjar la dama, salvar una peça atacada, captura de franc, escac, enroc,
+desenvolupament, teoria, recaptura, mateixa peça); el model (probabilitats que
+sumen 1, menys pèrdua esperada i més millors jugades com més ELO, ELO retallat
+al rang de les dades, sorteig amb atzar injectat, la teoria fa més probable la
+jugada de llibre); el nivell per ROC (punts, cap model per sota de 872,
+monotonia, tram final); l'índex de teoria i la casella d'arribada, com a
+l'ajust; i a l'app, `makeEngineMove` (força màxima, totes les jugades i la
+profunditat del model des de ROC 872; la cerca d'abans per sota i sense
+Stockfish 19), la tria (segueix el model amb la partida com a context, l'errada
+per pressió hi passa davant, la jugada única és la del motor, sense teoria si
+la partida no ve de la posició inicial) i la dificultat del temps de reflexió
+amb les mateixes línies que abans. Amb el codi anterior, el fitxer falla
+sencer. `clockslip.test.js` comprova a més que la tirada de l'errada per
+pressió no canvia amb el model (i falla amb el codi anterior);
+`sf19rival.test.js` passa a provar la cerca de §16 per sota de ROC 872.
+
+Comprovacions fora de les proves: `core.js` reprodueix les probabilitats de
+l'ajust a les 4.985 posicions reservades (diferència màxima 3·10⁻¹⁶), l'índex
+de teoria és idèntic al de l'ajust i `fit_human.py` torna a donar exactament
+els pesos de `core.js`.
