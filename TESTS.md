@@ -177,7 +177,9 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   revisió i aturat per «Anar a l'inici». Pantalla: quatre rajoles i franja del
   rival a la capçalera (sense el «Rellotge» repetit), colors de posició i
   d'estil, regles de color també en paper electrònic, textos curts (divisió,
-  balanç, «1 punt») i la taula que cap al mòbil.
+  balanç, «1 punt») i la taula que cap al mòbil. Rellotge final amb el
+  resultat: «Tu» i el rival a la capsa del seu color, a la revisió, al compte
+  enrere i a «Les teves jornades», i res sense rellotge.
 - **`league-rival.test.js`** — el rival de la lliga (`LLIGA.md` §2). Quan juga
   Stockfish 19 (`sf19RivalWanted`, `timedRivalActive`): lliga amb i sense
   rellotge i partida lliure amb rellotge sí; partida lliure sense rellotge,
