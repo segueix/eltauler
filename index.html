@@ -366,6 +366,13 @@
         }
         
         .app-logo { font-size: 2.5rem; margin-bottom: 5px; }
+        /* Títol de finestra amb icona del joc d'icones de l'app (no emoji) */
+        .modal-title--ic { display: flex; align-items: center; justify-content: center; gap: 10px; }
+        .modal-title-ic { width: 1.25em; height: 1.25em; flex: 0 0 auto;
+            fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+        .history-review-title .btn-ic { vertical-align: -0.2em; margin-right: 6px; }
+        .coach-insight { display: flex; align-items: flex-start; gap: 6px; }
+        .coach-insight .btn-ic { margin-top: 0.1em; color: var(--accent-gold); }
         .app-logo-svg { width: 2.5rem; height: 2.5rem; margin-bottom: 5px; display: inline-block;
             fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round;
             color: var(--accent-gold); }
@@ -6828,6 +6835,22 @@
             <path d="M12 20.5V8"/>
             <path d="M17.5 20.5v-9"/>
         </symbol>
+        <!-- Revisió de la partida: full amb la corba de l'avaluació -->
+        <symbol id="ic-review" viewBox="0 0 24 24">
+            <rect x="4.5" y="4" width="15" height="17.5" rx="2.2"/>
+            <path d="M9 4V3.3a1.1 1.1 0 0 1 1.1-1.1h3.8A1.1 1.1 0 0 1 15 3.3V4"/>
+            <polyline points="7.8 16.8 10.6 12.9 13.2 14.9 16.4 10"/>
+            <path d="M7.8 19h8.6"/>
+        </symbol>
+        <!-- Estadístiques: barres amb la línia de progrés que puja -->
+        <symbol id="ic-stats" viewBox="0 0 24 24">
+            <path d="M3.5 21h17"/>
+            <path d="M7 21v-5.5"/>
+            <path d="M12 21v-8.5"/>
+            <path d="M17 21v-6.5"/>
+            <polyline points="4.5 10.5 9.5 7 13 9 19.5 3.8"/>
+            <polyline points="16.3 3.8 19.5 3.8 19.5 7"/>
+        </symbol>
         <symbol id="ic-swords" viewBox="0 0 24 24">
             <polyline points="14.5 17.5 3 6 3 3 6 3 17.5 14.5"/>
             <path d="M13 19l6-6"/>
@@ -7271,7 +7294,7 @@
                             <span class="hb-tile-sub">Les teves partides</span>
                         </button>
                         <button class="hb-tile hb-tile--slate" id="btn-stats">
-                            <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-bars"/></svg>
+                            <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-stats"/></svg>
                             <span class="hb-tile-title">Estadístiques</span>
                             <span class="hb-tile-sub">Evolució i diagnòstic</span>
                         </button>
@@ -8170,7 +8193,7 @@
 
         <div id="stats-screen" class="screen-anim" style="display:none;">
             <div class="stats-header">
-                <div class="app-logo">📊</div>
+                <svg class="app-logo-svg" aria-hidden="true"><use href="#ic-stats"/></svg>
                 <h1>Estadístiques</h1>
             </div>
 
@@ -8393,7 +8416,7 @@
                                 </div>
                             </div>
                             <div class="history-review">
-                                <div class="history-review-title">Revisió de la partida</div>
+                                <div class="history-review-title"><svg class="btn-ic" aria-hidden="true"><use href="#ic-review"/></svg>Revisió de la partida</div>
                                 <div class="review-voice-control">
                                     <label for="history-voice-select">Veu</label>
                                     <select id="history-voice-select" class="select-control">
@@ -8920,7 +8943,7 @@
         </div>
         <div class="modal-overlay" id="review-modal">
             <div class="modal-content">
-                <div class="modal-title">📈 Revisió de la partida</div>
+                <div class="modal-title modal-title--ic"><svg class="modal-title-ic" aria-hidden="true"><use href="#ic-review"/></svg>Revisió de la partida</div>
                 <img src="checkmate.svg" alt="Escac i mat" id="checkmate-image" class="checkmate-image">
                 <div id="review-league-final"></div>
                 <div class="review-modal-result" id="review-result-text">—</div>
@@ -8936,7 +8959,7 @@
                     <button class="btn btn-secondary" id="btn-review-tria" style="display:none;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-shuffle"/></svg>Tres camins</button>
                     <button class="btn btn-secondary" id="btn-review-errors"><svg class="btn-ic" aria-hidden="true"><use href="#ic-search"/></svg>Revisar errors</button>
                     <button class="btn btn-secondary" id="btn-review-hieroglyphic"><svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> Desxifra el teu error</button>
-                    <button class="btn btn-secondary" id="btn-review-stats"><svg class="btn-ic" aria-hidden="true"><use href="#ic-bars"/></svg>Veure evolució</button>
+                    <button class="btn btn-secondary" id="btn-review-stats"><svg class="btn-ic" aria-hidden="true"><use href="#ic-stats"/></svg>Veure evolució</button>
                 </div>
                 <div class="nav-trio">
                     <button class="btn btn-nav-home" id="btn-review-menu" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>

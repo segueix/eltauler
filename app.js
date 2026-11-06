@@ -15232,6 +15232,7 @@ const PHASE_REPLAY_BONUS = 5;
 const PHASE_REPLAY_CLOCK_FRACTION = 0.3;
 const PHASE_DISPLAY_LABELS = { opening: 'Obertura', middlegame: 'Mig joc', endgame: 'Final' };
 const HISTORY_ICON_SVG = '<svg class="btn-ic" aria-hidden="true"><use href="#ic-history"/></svg>';
+const REVIEW_ICON_SVG = '<svg class="btn-ic" aria-hidden="true"><use href="#ic-review"/></svg>';
 
 // Estat del repte «Rejugar +5%»: el pla pendent (el consumeix startGame) i el repte viu.
 let phaseReplayPending = null;
@@ -30143,7 +30144,7 @@ function showMatchErrorReviewOverlay(remaining, noMore) {
     // Secció d'origen: l'historial o la revisió de la partida acabada de jugar.
     const sectionLabel = fromHistory
         ? `${HISTORY_ICON_SVG} Historial`
-        : (currentBundleSource === 'match' && matchErrorReturnReviewSnapshot ? '📈 Revisió de la partida' : 'Tornar');
+        : (currentBundleSource === 'match' && matchErrorReturnReviewSnapshot ? `${REVIEW_ICON_SVG} Revisió de la partida` : 'Tornar');
     wireNavTrio(overlay, {
         onHome: () => {
             matchErrorReturnReviewSnapshot = null;
@@ -36881,7 +36882,7 @@ function buildInsightsNote(insights) {
         else if (insights.trend === 'down') parts.push('la precisió ha baixat una mica últimament: juga amb una mica més de calma');
         if (!parts.length) return null;
         const s = parts.join('; ');
-        return '📈 ' + s.charAt(0).toUpperCase() + s.slice(1) + '.';
+        return s.charAt(0).toUpperCase() + s.slice(1) + '.';
     } catch (e) { return null; }
 }
 
@@ -38395,7 +38396,13 @@ function renderGameDebrief(targetEntry) {
 
     const playerInsights = buildPlayerInsights(entry.id);
     const insightsNote = buildInsightsNote(playerInsights);
-    if (insightsNote) box.append($('<div class="coach-text"></div>').css({ opacity: 0.85, 'margin-top': '6px' }).text(insightsNote));
+    // La tendència de les teves partides, amb la icona d'estadístiques de l'app.
+    if (insightsNote) {
+        const note = $('<div class="coach-text coach-insight"></div>').css({ opacity: 0.85, 'margin-top': '6px' });
+        note.append('<svg class="btn-ic" aria-hidden="true"><use href="#ic-stats"/></svg>');
+        note.append($('<span></span>').text(insightsNote));
+        box.append(note);
+    }
 
     const humanPlanMoments = buildHumanPlanMoments(entry, playerInsights);
     let humanPlansPanel = null;

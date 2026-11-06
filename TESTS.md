@@ -185,6 +185,12 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   balanç, «1 punt») i la taula que cap al mòbil. Rellotge final amb el
   resultat: «Tu» i el rival a la capsa del seu color, a la revisió, al compte
   enrere i a «Les teves jornades», i res sense rellotge.
+- **`review-stats-icons.test.js`** — les icones de la revisió (`ic-review`: un
+  full amb la corba de l'avaluació) i de les estadístiques (`ic-stats`: barres
+  amb la línia de progrés), del joc d'icones SVG de l'app i no emojis: a la
+  finestra de revisió, a l'historial, al botó de tornada a la revisió, a la
+  capçalera d'Estadístiques, al mosaic de l'inici i a «Veure evolució»; ja no
+  queda cap 📈 ni 📊.
 - **`league-rival.test.js`** — el rival de la lliga (`LLIGA.md` §2). Quan juga
   Stockfish 19 (`sf19RivalWanted`, `timedRivalActive`): lliga amb i sense
   rellotge i partida lliure amb rellotge sí; partida lliure sense rellotge,
