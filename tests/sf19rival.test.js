@@ -171,7 +171,9 @@ describe('makeEngineMove amb rellotge', () => {
     });
 
     test('en començar una partida amb rellotge es prepara Stockfish 19 i es fixa per a tota la partida', () => {
-        expect(source).toMatch(/timedRivalInUse = false;\s*if \(clockApplies && getActiveTimeControlId\(\) !== 'none'\)/);
+        // sf19RivalWanted: amb rellotge (o a la lliga, vegeu league-rival.test.js).
+        expect(source).toMatch(/timedRivalInUse = false;\s*if \(sf19RivalWanted\(clockApplies\)\)/);
+        expect(fnSource('sf19RivalWanted')).toMatch(/getActiveTimeControlId\(\) !== 'none'/);
         expect(source).toMatch(/const rivalReady = alreadyReady \|\| await prewarmTimedRivalEngine\(10000\);/);
         expect(source).toMatch(/timedRivalInUse = rivalReady;/);
     });

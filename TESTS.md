@@ -145,6 +145,29 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   perquè s'hi pugui clicar: mana l'id desat quan la partida encara hi és, i les
   jornades velles (jugades abans que se'n desés cap) es reconeixen pel nom del
   rival entre les partides de lliga posteriors a la creació de la temporada.
+  ROC dels rivals (`LLIGA.md` §3): `leagueOpponentOffsets` (−200…+200 cada 50,
+  ±10, ordenats, mitjana del jugador) i `leagueOpponentRating` (dins de ROC
+  200-2000 als dos extrems, amb l'ordre conservat, també amb el jugador fora
+  del rang); `rebasedLeagueRatings` torna a col·locar els rivals que duen el
+  desplaçament (anar i tornar la deixa igual) i mou en bloc, amb terra i sostre,
+  els de lligues velles; a l'app, `createNewLeague` en desa el desplaçament i
+  `syncLeagueUserRoc` fa seguir la puntuació actual a una lliga no començada i
+  congela la començada. Partides entre rivals (`LLIGA.md` §4): taules
+  mesurades a Lichess (`leagueDrawChance`: rang de l'1% al 9%, bullet per sota
+  dels ritmes lents, nivell equivalent amb `clockEloForRoc`, factor de la
+  diferència i ritme desconegut) i `leagueSimulatedResult` amb la puntuació
+  esperada d'Elo exacta i la taxa de taules mesurada (40.000 partides amb atzar
+  reproduïble).
+- **`league-rival.test.js`** — el rival de la lliga (`LLIGA.md` §2). Quan juga
+  Stockfish 19 (`sf19RivalWanted`, `timedRivalActive`): lliga amb i sense
+  rellotge i partida lliure amb rellotge sí; partida lliure sense rellotge,
+  modes sense rellotge o motor caigut no; obrir la lliga el prepara.
+  `getAIDepth`: la lliga cerca a la profunditat del ROC del rival com la
+  partida lliure, i no amb la fórmula antiga. `makeEngineMove` a la lliga sense
+  rellotge: model de tria humana amb totes les jugades i el sostre de 4,5 s, cap
+  errada per pressió, línies recollides per profunditat; per sota de ROC 872,
+  força calibrada i profunditat del ROC; sense Stockfish 19, el motor de sempre
+  sense sostre. La tria final va pel camí calibrat (`nativePath`).
   Cobreix que cap partida no serveixi per a dues jornades, que una temporada
   anterior amb el mateix rival no s'hi coli, que les partides lliures i les
   importades en quedin fora, i que una jornada abandonada o amb la partida

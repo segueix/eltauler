@@ -1034,9 +1034,10 @@ tocar.
 
 - Les posicions de la mostra són sobretot del començament de la partida (la
   jugada 7-16 de mitjana), les del rellotge còmode.
-- A les partides de lliga la profunditat surt d'una altra fórmula (la
+- A les partides de lliga la profunditat sortia d'una altra fórmula (la
   diferència d'ELO amb el rival de la lliga); el calibratge s'ha fet amb la de
-  la partida lliure.
+  la partida lliure. Ara la lliga fa servir la de la partida lliure, i el rival
+  de lliga també és Stockfish 19 sense rellotge (`LLIGA.md` §2).
 - Per sota de ROC ~870 el nivell s'extrapola.
 - El rendiment al mòbil no s'ha mesurat aquí. Stockfish 19 ja corria al mòbil
   per al Rival Antídot, els jeroglífics i la TV, i té la memòria cau pròpia.

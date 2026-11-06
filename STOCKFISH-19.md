@@ -20,7 +20,8 @@ dos enllaços).
   **Stockfish vs Lozza TV**, al **generador de jeroglífics** i al
   **Rival Antídot**. També cerca les jugades del **rival de les partides amb
   rellotge** (worker propi, força calibrada perquè cada ROC jugui com abans;
-  vegeu `ANALISI_RELLOTGE.md` §16), que torna al motor ordinari si no arrenca.
+  vegeu `ANALISI_RELLOTGE.md` §16) i del **rival de lliga**, també sense
+  rellotge (`LLIGA.md` §2), que torna al motor ordinari si no arrenca.
   Des de ROC 872 hi cerca a força màxima i puntua totes les jugades legals
   (MultiPV), i la tria la fa el model de tria humana (§17). Ni la TV ni els jeroglífics recauen al motor antic.
   Antídot usa un worker propi; només si Stockfish 19 falla recau al motor
