@@ -174,8 +174,11 @@ Conduir amb Playwright + Chromium preinstal·lat
     `hgNewCount()` i `hgLastGenDiag`; el Chromium de l'entorn té 4 nuclis i va
     en «mode lleuger» (cua de 2). La reserva (`window.ElTaulerHieroReserve`,
     `jeroglifics-reserva.js`) dona un jeroglífic a l'instant amb la cua buida;
-    per provar la generació real sense reserva, buidar-la en carregar la
-    pàgina (`window.ElTaulerHieroReserve.length = 0`).
+    ja no es carrega amb la pàgina sinó quan el navegador queda lliure (com
+    la base d'obertures, `obertures.js`; app.js: `loadDeferredData`). Per
+    provar la generació real sense reserva, esperar-la
+    (`await loadDeferredData('hieroReserve')`) i buidar-la
+    (`window.ElTaulerHieroReserve.length = 0`).
     Per ampliar-la: `node scripts/mine-hieroglyphics.js --minutes 30 --pages 3`
     (els CDN es copien a `.cache/cdn`).
     **Col·lecció**: el banc diari NO es copia a la cua; tots els seus ítems no

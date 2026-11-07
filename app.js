@@ -3473,10 +3473,57 @@ function parsePgnToMoves(pgn) {
     return ElTaulerCore.parsePgnToMoves(pgn);
 }
 
+/* ---- Dades grans que es carreguen quan el navegador queda lliure ----
+   La base d'obertures (obertures.js, 454 KB) i la reserva de jeroglífics
+   (jeroglifics-reserva.js, 220 KB) no calen per pintar l'inici: no es
+   carreguen amb la pàgina, sinó just després (requestIdleCallback) o en el
+   moment que una funció les demana. Cada funció que les fa servir ja comprova
+   si hi són; les que les necessiten de seguida esperen loadDeferredData(). */
+const DEFERRED_DATA = {
+    openings: { src: 'obertures.js?v=1.0.3', ready: () => typeof OPENINGS_DATA !== 'undefined' },
+    hieroReserve: { src: 'jeroglifics-reserva.js?v=1.0.0', ready: () => Array.isArray(window.ElTaulerHieroReserve) }
+};
+const deferredDataLoads = {};
+function loadDeferredData(name) {
+    const d = DEFERRED_DATA[name];
+    if (!d) return Promise.resolve(false);
+    if (d.ready()) return Promise.resolve(true);
+    if (deferredDataLoads[name]) return deferredDataLoads[name];
+    const job = new Promise(resolve => {
+        const el = document.createElement('script');
+        el.src = d.src;
+        el.async = true;
+        el.onload = () => resolve(d.ready());
+        el.onerror = () => resolve(false);
+        document.head.appendChild(el);
+    }).then(ok => {
+        if (!ok) { delete deferredDataLoads[name]; return false; }
+        onDeferredDataLoaded(name);
+        return true;
+    });
+    deferredDataLoads[name] = job;
+    return job;
+}
+function onDeferredDataLoaded(name) {
+    if (name === 'hieroReserve') {
+        // La rajola de l'inici compta els jeroglífics nous (els de la reserva inclosos).
+        try { renderHieroglyphicBanner(); } catch (e) {}
+    } else if (name === 'openings') {
+        try { if (window.ElTaulerOpeningLab && $('#opening-screen').is(':visible')) window.ElTaulerOpeningLab.refresh(); } catch (e) {}
+    }
+}
+function scheduleDeferredData() {
+    const go = () => { void loadDeferredData('hieroReserve'); void loadDeferredData('openings'); };
+    if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(go, { timeout: 2500 });
+    else setTimeout(go, 1200);
+}
+
 // Construeix el trie d'obertures per cerca eficient
 function buildOpeningTrie() {
     if (typeof OPENINGS_DATA === 'undefined') {
-        console.warn('[Openings] OPENINGS_DATA no disponible');
+        // Encara no ha arribat: es demana i el trie es farà en una crida posterior.
+        void loadDeferredData('openings');
+        console.warn('[Openings] OPENINGS_DATA encara no disponible');
         return null;
     }
 
@@ -3493,7 +3540,7 @@ function initOpeningSystem() {
         openingTrie = buildOpeningTrie();
         if (openingTrie) {
             console.log('[Openings] Sistema d\'obertures inicialitzat correctament');
-        } else {
+        } else if (typeof OPENINGS_DATA !== 'undefined') {
             console.error('[Openings] ERROR: No s\'ha pogut construir el trie d\'obertures');
         }
     }
@@ -7233,7 +7280,8 @@ function openOpeningHieroglyphicFromHome() {
     if (typeof guardCalibrationAccess === 'function' && !guardCalibrationAccess()) return;
     $('#btn-opening').click();
     initOpeningBundleBoard();
-    startOpeningTheoryHieroglyphic();
+    // Les branques surten de la base d'obertures, que pot estar arribant.
+    loadDeferredData('openings').then(() => startOpeningTheoryHieroglyphic());
 }
 
 // Engega una partida d'un ritme des d'Estadístiques: fixa el rellotge triat i
@@ -8643,6 +8691,8 @@ let humanBookIndexCache = null;
 function getHumanBookIndex() {
     if (!humanBookIndexCache && typeof OPENINGS_DATA !== 'undefined') {
         humanBookIndexCache = ElTaulerCore.humanBookIndex(OPENINGS_DATA);
+    } else if (!humanBookIndexCache) {
+        void loadDeferredData('openings');
     }
     return humanBookIndexCache;
 }
@@ -23750,6 +23800,8 @@ function hgMigrateMotifLabels() {
 // Si no n'hi ha cap, se'n busca un de nou sota demanda (encara que la generació
 // en segon pla estigui desactivada, perquè és una petició explícita de l'usuari).
 async function hgPlayNext(opts = {}) {
+    // La reserva es carrega quan el navegador queda lliure: si encara no hi és, s'espera.
+    await loadDeferredData('hieroReserve');
     const pref = hieroglyphicPreferredFinalMotif || 'any';
     const excludeFen = opts.excludeFen || null;
     // 1) Un jeroglífic nou JUGABLE (descartant els malmesos).
@@ -24059,9 +24111,12 @@ let openingBranchIndexBuilt = false;
 
 function getOpeningBranchIndex() {
     if (openingBranchIndexBuilt) return openingBranchIndex;
+    // La base d'obertures arriba després de la pàgina: fins llavors no es
+    // dona l'índex per fet (es tornarà a provar a la crida següent).
+    if (typeof OPENINGS_DATA === 'undefined') { void loadDeferredData('openings'); return null; }
     openingBranchIndexBuilt = true;
     try {
-        if (typeof OPENINGS_DATA === 'undefined' || typeof ElTaulerCore === 'undefined') return null;
+        if (typeof ElTaulerCore === 'undefined') return null;
         openingBranchIndex = ElTaulerCore.buildOpeningBranchIndex(CURATED_OPENINGS, OPENINGS_DATA, { parsePgn: parsePgnToMoves });
         console.log(`[OpeningHiero] Índex de branques: ${openingBranchIndex.slots.length} exercicis de ${CURATED_OPENINGS.length} obertures`);
     } catch (e) {
@@ -24082,14 +24137,13 @@ function countOpeningHieroglyphicExercises() {
         openingHieroglyphicCandidateCount = index.slots.length;
         return openingHieroglyphicCandidateCount;
     }
-    // Sense base ECO només queda el repertori catalogat.
+    // Sense base ECO només queda el repertori catalogat (si la base encara ha
+    // d'arribar, el recompte no es guarda: es refarà quan hi sigui).
     const helpers = getOpeningHieroglyphicHelpers();
-    try {
-        openingHieroglyphicCandidateCount = helpers ? helpers.openingHieroglyphicCandidates(CURATED_OPENINGS).length : 0;
-    } catch (e) {
-        openingHieroglyphicCandidateCount = 0;
-    }
-    return openingHieroglyphicCandidateCount;
+    let count = 0;
+    try { count = helpers ? helpers.openingHieroglyphicCandidates(CURATED_OPENINGS).length : 0; } catch (e) { count = 0; }
+    if (typeof OPENINGS_DATA !== 'undefined') openingHieroglyphicCandidateCount = count;
+    return count;
 }
 
 function renderOpeningHieroglyphicBanner() {
@@ -25486,7 +25540,7 @@ function setupEvents() {
         window.ElTaulerOpeningLab.configure({
             stockfishUrl: HIERO_STOCKFISH_URL,
             getGraph: () => getOpeningPositionGraph(),
-            onHiero: () => { initOpeningBundleBoard(); startOpeningTheoryHieroglyphic(); }
+            onHiero: () => { initOpeningBundleBoard(); loadDeferredData('openings').then(() => startOpeningTheoryHieroglyphic()); }
         });
     }
     $('#btn-opening').click(() => {
@@ -25497,6 +25551,8 @@ function setupEvents() {
         $('#opening-screen').show();
         navPush('opening-screen');
         if (window.ElTaulerOpeningLab && typeof window.ElTaulerOpeningLab.open === 'function') window.ElTaulerOpeningLab.open();
+        // Si la base d'obertures encara no ha arribat, el taller es repinta en arribar.
+        void loadDeferredData('openings');
         setTimeout(() => resizeOpeningBoardToViewport(), 50);
     });
     $(document).on('click', '.opening-lesson-btn', function() {
@@ -40206,6 +40262,8 @@ $(document).ready(() => {
     updateDeviceType();
     perf();   // arrenca el planificador (mesura de velocitat, pressió, bateria)
     loadStorage();
+    // Base d'obertures i reserva de jeroglífics: quan el navegador quedi lliure.
+    scheduleDeferredData();
     if (!isCalibrationActive()) {
         syncEngineEloFromUser();
     }
