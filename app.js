@@ -5982,6 +5982,7 @@ function showLeagueInterlude(resultText, outcome, info) {
     const resultCls = outcome === 'win' ? 'lgc-green' : (outcome === 'loss' ? 'lgc-red' : (outcome === 'draw' ? 'lgc-gold' : 'lgc-silver'));
     $('#li-result').text(outcome ? leagueShortResult(outcome, ci) : (resultText || '')).attr('class', `li-result lg-chip ${resultCls}`);
     $('#li-clock').html(resultFinalClockHtml(ci.clock, ci.playerColor, ci.oppName));
+    renderLeagueInterludeAccuracy(ci);
     $('#li-round-num').text(String(round));
     $('#li-label').text('comença en');
     const look = leagueStyleLook(opp.style);
@@ -6001,6 +6002,32 @@ function showLeagueInterlude(resultText, outcome, info) {
     leagueInterlude.timer = setInterval(tickLeagueInterlude, 200);
     startLeagueInterludeMusic();
     return true;
+}
+
+// Encert de la partida que s'acaba de jugar i mitjana de la lliga en curs.
+function leagueInterludeAccuracy(ci) {
+    const links = currentLeagueGameLinks();
+    const games = Object.keys(links).map(r => findHistoryEntryById(links[r])).filter(Boolean).map(e => ({
+        id: e.id,
+        precision: e.precision,
+        playerMoves: Array.isArray(e.moveReviews) ? e.moveReviews.filter(r => !r.color || r.color === (e.playerColor || 'w')).length : undefined
+    }));
+    const current = typeof ci.precision === 'number'
+        ? { id: ci.gameId || null, precision: ci.precision, playerMoves: ci.playerMoves }
+        : null;
+    return ElTaulerCore.leagueAccuracySummary(games, current);
+}
+function renderLeagueInterludeAccuracy(ci) {
+    const box = document.getElementById('li-acc');
+    if (!box) return;
+    let acc = null;
+    try { acc = leagueInterludeAccuracy(ci || {}); } catch (e) { acc = null; }
+    if (!acc || (acc.last === null && acc.avg === null)) { box.style.display = 'none'; return; }
+    const tone = v => v === null ? '' : (v >= 80 ? 'li-acc-good' : (v >= 60 ? 'li-acc-mid' : 'li-acc-low'));
+    $('#li-acc-last').text(acc.last === null ? '—' : acc.last + '%').attr('class', 'li-acc-val ' + tone(acc.last));
+    $('#li-acc-avg').text(acc.avg === null ? '—' : acc.avg + '%').attr('class', 'li-acc-val ' + tone(acc.avg));
+    $('#li-acc-n').text(acc.n === 1 ? '1 partida' : acc.n + ' partides');
+    box.style.display = '';
 }
 
 function renderLeagueInterludeCount() {
@@ -38129,7 +38156,9 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         if (leagueChainNext) {
             hidePostGameStatusChip();
             if (showLeagueInterlude(msg, leagueOutcome, { clock: finalClockSnapshot, playerColor, oppName: finalClockOppName,
-                eloChange: isLeagueRatedGame ? change : null, reason: timeoutColor ? 'time' : null })) {
+                eloChange: isLeagueRatedGame ? change : null, reason: timeoutColor ? 'time' : null,
+                precision: finalPrecision, playerMoves: totalPlayerMoves,
+                gameId: gameHistory.length ? gameHistory[gameHistory.length - 1].id : null })) {
                 persistPostGameAfterPaint('league-interlude');
                 return;
             }

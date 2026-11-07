@@ -269,6 +269,15 @@ dos jugadors («Tu» i el rival, cadascun a la capsa del color amb què jugava),
 aquí, a la finestra de revisió de qualsevol partida amb rellotge i a la llista
 «Les teves jornades» (`resultFinalClockHtml`, `leagueRoundClockText`).
 
+Sota el rellotge final hi ha l'**encert**: el de la partida que s'acaba de
+jugar i la **mitjana de les partides d'aquesta lliga** (amb quantes partides
+compten). És el mateix percentatge de jugades bones que la revisió
+(`finalPrecision`); la mitjana surt de les partides enllaçades a les jornades
+(`currentLeagueGameLinks`) més la que s'acaba de jugar, sense comptar-la dues
+vegades. Les partides sense cap jugada pròpia (perdudes de seguida per temps)
+no hi compten (`leagueAccuracySummary`). Verd a partir del 80 %, daurat del 60
+al 79 % i vermell per sota.
+
 El compte enrere només corre amb l'app a la vista (amb la pestanya amagada
 s'atura) i, si una altra pantalla tanca la finestra, s'atura sense començar
 cap partida d'amagat.

@@ -4605,6 +4605,24 @@
         return best;
     }
 
+    // Encert entre partides de la lliga (finestra del compte enrere): el de la
+    // partida que s'acaba de jugar i la mitjana de les partides d'aquesta lliga.
+    // games: partides de la lliga ({ id, precision, playerMoves }); current: la
+    // que s'acaba de jugar, que pot no ser encara a la llista. Les partides
+    // sense cap jugada pròpia (perdudes de seguida, per temps) no compten:
+    // un 0 % no diria res de l'encert.
+    function leagueAccuracySummary(games, current) {
+        const valid = g => g && typeof g.precision === 'number' && isFinite(g.precision)
+            && !(typeof g.playerMoves === 'number' && g.playerMoves <= 0);
+        const clamp = v => Math.max(0, Math.min(100, Math.round(v)));
+        const list = (Array.isArray(games) ? games : []).filter(valid);
+        const cur = valid(current) ? current : null;
+        if (cur && !(cur.id && list.some(g => g.id === cur.id))) list.push(cur);
+        const n = list.length;
+        const avg = n ? clamp(list.reduce((sum, g) => sum + g.precision, 0) / n) : null;
+        return { last: cur ? clamp(cur.precision) : null, avg, n };
+    }
+
     // Quina partida guardada correspon a cada jornada de la lliga.
     //
     // Les jornades noves ja duen l'id de la partida (gameId), perquè es desa en
@@ -10466,6 +10484,7 @@
         leagueStyledChoice,
         rebasedLeagueRatings,
         leagueRoundGameLinks,
+        leagueAccuracySummary,
         evaluateGameQuality,
         parsePgnToMoves,
         buildOpeningTrie,
