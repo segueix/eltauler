@@ -96,6 +96,24 @@ describe('la música acompanya la veu a tota l’app', () => {
         expect(player.active).toBe(true);
         expect(player.melody).toBe('lofi');
     });
+    test('«Atura» calla la música de seguida, encara que la veu trigui a acabar, i torna amb la veu següent', () => {
+        const { c, player, coord } = setup({ page: 'settings-screen' });
+        const end = coord.begin();
+        expect(player.active).toBe(true);
+        coord.stopMusic();
+        expect(player.active).toBe(false);
+        expect(player.fades).toBe(1);
+        // La veu aturada encara no ha avisat que acaba: la música no torna.
+        c.advance(5000);
+        expect(player.active).toBe(false);
+        end();
+        c.advance(60000);
+        expect(player.active).toBe(false);
+        // Una prova nova la torna a engegar (dins la mateixa pàgina, la mateixa melodia).
+        coord.begin();
+        expect(player.active).toBe(true);
+        expect(player.melody).toBe('theme');
+    });
     test('dues veus seguides no canvien la melodia', () => {
         const { c, player, coord } = setup();
         const a = coord.begin(); c.advance(1000); a();

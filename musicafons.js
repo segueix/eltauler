@@ -69,6 +69,9 @@
         let page, pageMelody = null;
         let prefs = normalizePrefs(e.loadPrefs ? safe(e.loadPrefs) : null);
         let player = null, session = false, melody = null, lastVoice = -Infinity, timer = null, seq = 0, signature = '';
+        // «Atura» (stopMusic): la música calla i no torna fins que comenci una
+        // veu nova, encara que la veu aturada trigui un moment a acabar.
+        let held = false;
         const voices = new Map();
         const ticks = [];
         if (ambient && ambient.setAllowed) ambient.setAllowed(prefs.music);
@@ -97,7 +100,7 @@
             if (talking) lastVoice = t;
             const key = safe(pageKey);
             if (key !== page) { page = key; pageMelody = null; session = false; }
-            if (!prefs.music || quiet()) session = false;
+            if (!prefs.music || quiet() || held) session = false;
             else if (!session && talkingHere()) {
                 session = true;
                 // Fora d'una pàgina coneguda, cada tanda de veu en tria una de nova.
@@ -146,6 +149,7 @@
             // opts.muted: locució silenciada (no cal abaixar la música).
             begin(opts) {
                 const id = ++seq;
+                held = false;
                 voices.set(id, { muted: !!(opts && opts.muted), page: safe(pageKey) });
                 evaluate();
                 let done = false;
@@ -164,6 +168,8 @@
             // Comprovacions que es fan a cada pols mentre hi ha veu o música.
             onTick(fn) { if (typeof fn === 'function') ticks.push(fn); },
             refresh: evaluate,
+            // Atura la música ara mateix (amb un fos curt); torna amb la veu següent.
+            stopMusic() { held = true; evaluate(); },
             player: () => player
         };
         return api;
