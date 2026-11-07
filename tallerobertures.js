@@ -216,8 +216,15 @@
         // nom propi («West Indian», «King's English») i es deixa tal qual.
         const words = String(text).split(' ');
         if (words.every(w => ADJ_CA[w])) return words.map(w => ADJ_CA[w][idx]).join(' ');
+        // Nom propi + adjectius purs («Accelerated Panov» → «Panov accelerat»).
+        const pure = words.filter(w => PURE_ADJ.indexOf(w) >= 0);
+        if (pure.length && pure.length < words.length) {
+            return words.filter(w => PURE_ADJ.indexOf(w) < 0).join(' ') + ' ' + pure.map(w => ADJ_CA[w][idx]).join(' ');
+        }
         return text;
     }
+    // Adjectius que no són gentilicis: es poden posar darrere d'un nom propi.
+    const PURE_ADJ = ['Classical', 'Modern', 'Closed', 'Open', 'Old', 'Accelerated', 'Normal', 'Symmetrical', 'Reversed', 'Delayed', 'Deferred', 'Exchange', 'Advance'];
 
     function translateSegment(seg) {
         const s = String(seg || '').trim();
@@ -356,6 +363,102 @@
         }
         out.nameCa = translateOpeningName(out.name);
         return out;
+    }
+
+    // Variant cap on va una jugada: el nom «família: primera variant» més
+    // freqüent entre les línies de la base que passen pel node, si n'és una
+    // part prou gran (35%). Serveix per distingir jugades que encara tenen el
+    // mateix nom (2.d4 i 2.Nc3 a la Caro-Kann, per exemple).
+    function dominantVariation(node) {
+        if (!node) return null;
+        if (node._var !== undefined) return node._var;
+        const tally = new Map();
+        let total = 0;
+        const stack = [node];
+        while (stack.length) {
+            const n = stack.pop();
+            n.ops.forEach(op => {
+                const parts = String(op.name).split(':');
+                if (parts.length < 2) return;
+                const v = parts[0] + ': ' + parts[1].split(',')[0].trim();
+                tally.set(v, (tally.get(v) || 0) + 1);
+                total++;
+            });
+            n.kids.forEach(k => stack.push(k));
+        }
+        let best = null;
+        tally.forEach((n, v) => { if (!best || n > best.n) best = { v, n }; });
+        node._var = best && total && best.n / total >= 0.35 ? best.v : null;
+        return node._var;
+    }
+
+    // ------------------------------------------------------------------
+    // Opcions de la pista: un color per a cada obertura possible
+    // ------------------------------------------------------------------
+    // Colors que no es confonen amb la marca de la darrera jugada (daurat i
+    // blau cel) ni amb els de correcció (verd, vermell, ambre).
+    const OPTION_COLORS = [
+        { hex: '#8b5cf6', name: 'lila' }, { hex: '#f97316', name: 'taronja' },
+        { hex: '#ec4899', name: 'rosa' }, { hex: '#1d4ed8', name: 'blau' },
+        { hex: '#0d9488', name: 'turquesa' }, { hex: '#9f1239', name: 'granat' }
+    ];
+    const OPTION_COLOR_OTHER = { hex: '#6b7280', name: 'gris' };
+
+    // options = [{ san, from, to, label, ... }] → grups per obertura (label),
+    // en l'ordre en què apareixen, cadascun amb el seu color.
+    function groupOptions(options) {
+        const groups = [];
+        const byLabel = new Map();
+        (options || []).forEach(o => {
+            if (!o || !o.san) return;
+            const label = o.label || 'Línia pròpia';
+            let g = byLabel.get(label);
+            if (!g) {
+                const color = OPTION_COLORS[groups.length] || OPTION_COLOR_OTHER;
+                g = { label, color: color.hex, colorName: color.name, moves: [] };
+                byLabel.set(label, g);
+                groups.push(g);
+            }
+            if (!g.moves.some(m => m.san === o.san)) g.moves.push(o);
+        });
+        return groups;
+    }
+
+    // Caselles a pintar: { casella: [{ color, role: 'to'|'from' }] }. Si un
+    // grup està en focus, només aquell. El destí té prioritat sobre l'origen.
+    function optionSquareMarks(groups, focus) {
+        const out = {};
+        const add = (sq, color, role) => {
+            if (!sq) return;
+            const list = out[sq] || (out[sq] = []);
+            if (!list.some(x => x.color === color && x.role === role)) list.push({ color, role });
+        };
+        (groups || []).forEach((g, i) => {
+            if (focus !== null && focus !== undefined && focus !== i) return;
+            g.moves.forEach(m => { add(m.to, g.color, 'to'); add(m.from, g.color, 'from'); });
+        });
+        Object.keys(out).forEach(sq => out[sq].sort((a, b) => (a.role === b.role ? 0 : a.role === 'to' ? -1 : 1)));
+        return out;
+    }
+
+    // box-shadow d'una casella: anells concèntrics (un per color) i, al destí,
+    // un vel del color perquè es vegi fins i tot amb la peça a sobre.
+    function hexToRgba(hex, alpha) {
+        const h = String(hex || '').replace('#', '');
+        const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
+        return 'rgba(' + ((n >> 16) & 255) + ', ' + ((n >> 8) & 255) + ', ' + (n & 255) + ', ' + alpha + ')';
+    }
+    function optionShadow(marks) {
+        if (!marks || !marks.length) return '';
+        const layers = [];
+        let width = 0;
+        marks.forEach(m => {
+            width += m.role === 'to' ? 5 : 3;
+            layers.push('inset 0 0 0 ' + width + 'px ' + m.color);
+        });
+        const fill = marks.find(m => m.role === 'to');
+        if (fill) layers.push('inset 0 0 0 100px ' + hexToRgba(fill.color, 0.3));
+        return layers.join(', ');
     }
 
     // Família d'obertura majoritària entre les línies que passen per un node.
@@ -897,7 +1000,8 @@
         scoreToCp, parseInfoLine, judgeMove, verdictFor, formatCp, formatLoss,
         srsAfter, isDue, rivalCandidates, pickWeighted,
         emptyStore, normalizeStore, rememberEval, repertoireReport, PIECE_CA,
-        namedOpeningFor, namingCandidate, addNamedOpening, userMovesIn, MAX_NAMED
+        namedOpeningFor, namingCandidate, addNamedOpening, userMovesIn, MAX_NAMED,
+        dominantVariation, OPTION_COLORS, groupOptions, optionSquareMarks, optionShadow, hexToRgba
     };
 
     if (typeof document !== 'undefined' && typeof window !== 'undefined') {
@@ -924,7 +1028,7 @@
             visit: null, hintLevel: 0, tapFrom: null, lastMove: null, expected: null, hintSquares: null,
             pending: null, forceDecideKey: null, reviewNote: '', feedback: '', rivalNote: '',
             lineStats: null, lastName: '', orientation: null, wired: false, engine: null,
-            follow: null, namePrompt: null,
+            follow: null, namePrompt: null, optionMarks: null,
             evalMem: new Map(), inflight: new Map(), saveTimer: null
         };
 
@@ -1125,8 +1229,20 @@
         function paintMarks() {
             const jq = $();
             if (!jq) return;
-            jq('#olab-board .square-55d63').removeClass('tap-selected tap-move olab-last olab-expected olab-hint-sq');
-            if (ui.lastMove) { [ui.lastMove.from, ui.lastMove.to].forEach(sq => { const el = squareEl(sq); if (el) el.addClass('olab-last'); }); }
+            jq('#olab-board .square-55d63').removeClass('tap-selected tap-move mark-from mark-to olab-expected olab-hint-sq').each(function () {
+                if (this.style.boxShadow) this.style.boxShadow = '';
+            });
+            // Opcions de la pista: el color de cada obertura possible.
+            if (ui.optionMarks && ui.phase === 'user' && ui.optionMarks.key === currentKey()) {
+                const marks = L.optionSquareMarks(ui.optionMarks.groups, ui.optionMarks.focus);
+                Object.keys(marks).forEach(sq => { const el = squareEl(sq); if (el && el[0]) el[0].style.boxShadow = L.optionShadow(marks[sq]); });
+            }
+            // Última jugada: la marca de jugada única de l'app (origen daurat, destí blau cel).
+            if (ui.lastMove) {
+                const f = squareEl(ui.lastMove.from), t = squareEl(ui.lastMove.to);
+                if (f) f.addClass('mark-from');
+                if (t) t.addClass('mark-to');
+            }
             if (ui.expected) { [ui.expected.from, ui.expected.to].forEach(sq => { if (sq) { const el = squareEl(sq); if (el) el.addClass('olab-expected'); } }); }
             if (ui.hintSquares) ui.hintSquares.forEach(sq => { const el = squareEl(sq); if (el) el.addClass('olab-hint-sq'); });
             if (ui.tapFrom) {
@@ -1235,7 +1351,7 @@
         function userTurn() {
             ui.phase = 'user';
             ui.visit = { key: currentKey(), failed: false, hinted: false, counted: false };
-            ui.hintLevel = 0; ui.hintSquares = null; ui.expected = null;
+            ui.hintLevel = 0; ui.hintSquares = null; ui.expected = null; ui.optionMarks = null;
             if (ui.game.game_over()) { finishLine('gameover'); return; }
             if (!currentNode()) analysis(ui.game.fen(), 'decide');
             render();
@@ -1262,7 +1378,7 @@
             const probe = new (ChessCtor())(ui.game.fen());
             const mv = probe.move({ from, to, promotion: 'q' });
             if (!mv) return false;
-            ui.expected = null; ui.hintSquares = null;
+            ui.expected = null; ui.hintSquares = null; ui.optionMarks = null;
             const node = currentNode();
             if (node) return recall(node, mv);
             void decide(mv);
@@ -1569,33 +1685,69 @@
             renderDecisionHint();
         }
 
+        // Pista d'una posició nova: cada obertura possible té un color, i les
+        // jugades que hi porten es marquen al tauler amb aquell color (marc prim
+        // a l'origen, marc gruixut i vel al destí).
         function renderDecisionHint() {
             const Chess = ChessCtor();
             const fen = ui.game.fen();
             const key = currentKey();
+            const c = ctx();
             const st = L.annotateLine(Chess, ui.sans);
+            const curName = L.lineName(c, ui.sans, st.keys).nameCa;
             const sch = L.computeScheme(side().nodes);
             const plan = L.planMoves(sch, st).slice(0, 3);
-            const book = L.bookMoves(ctx(), ui.sans, key).filter(b => { try { return !!new Chess(fen).move(b.san, { sloppy: true }); } catch (e) { return false; } }).slice(0, 4);
-            const theory = book.map(b => {
-                const sans = ui.sans.concat([b.san]);
-                const nm = L.lineName(ctx(), sans, L.annotateLine(Chess, sans).keys);
-                return '<li><b>' + esc(b.san) + '</b>' + (nm.nameCa ? ' <span class="olab-muted">→ ' + esc(nm.nameCa) + '</span>' : '') + '</li>';
-            });
+            const legalMove = san => { try { return new Chess(fen).move(san, { sloppy: true }); } catch (e) { return null; } };
+            const book = L.bookMoves(c, ui.sans, key).filter(b => legalMove(b.san)).slice(0, 6);
             const mem = ui.evalMem.get(key);
-            let sf;
-            if (mem && mem.lines.length) {
-                const best = mem.lines[0].cp;
-                sf = mem.lines.slice(0, 3).filter(l => best - l.cp <= 90).map(l => '<b>' + esc(l.san) + '</b> ' + esc(L.formatCp(l.cp))).join(' · ');
-            } else {
-                sf = '<span class="olab-muted">encara pensa…</span>';
-                analysis(fen, 'decide').then(() => { if (ui.phase === 'user' && currentKey() === key && !currentNode()) renderDecisionHint(); });
-            }
+            const sfLines = mem && mem.lines.length ? mem.lines.slice(0, 3).filter(l => mem.lines[0].cp - l.cp <= 90) : [];
+            const label = san => {
+                const sans2 = ui.sans.concat([san]);
+                const nm = L.lineName(c, sans2, L.annotateLine(Chess, sans2).keys);
+                if (!nm.inBook) return 'Fora de la teoria';
+                let name = nm.nameCa;
+                if (!name || name === curName) {
+                    const v = L.dominantVariation(L.trieAt(c.trie, sans2));
+                    if (v) name = L.translateOpeningName(v);
+                }
+                return name || curName || 'Teoria';
+            };
+            const opts = [];
+            const addOpt = (san, tag) => {
+                const m = legalMove(san);
+                if (!m) return;
+                let o = opts.find(x => x.san === m.san);
+                if (!o) { o = { san: m.san, from: m.from, to: m.to, tags: [] }; opts.push(o); }
+                if (tag && o.tags.indexOf(tag) < 0) o.tags.push(tag);
+            };
+            book.forEach(b => addOpt(b.san, 'teoria'));
+            plan.forEach(p => addOpt(p.san, 'pla'));
+            sfLines.forEach(l => addOpt(l.san, null));
+            opts.forEach(o => {
+                o.label = label(o.san);
+                const sf = sfLines.find(l => l.san === o.san);
+                if (sf) o.cp = sf.cp;
+            });
+            const groups = L.groupOptions(opts);
+            const keep = ui.optionMarks && ui.optionMarks.key === key ? ui.optionMarks.focus : null;
+            ui.optionMarks = { key, groups, focus: keep !== null && keep < groups.length ? keep : null };
+            const focus = ui.optionMarks.focus;
+            const moveHtml = o => '<span class="olab-opt-move"><b>' + esc(o.san) + '</b>' +
+                ((o.tags.indexOf('pla') >= 0 || typeof o.cp === 'number')
+                    ? '<small>' + [o.tags.indexOf('pla') >= 0 ? 'el teu pla' : '', typeof o.cp === 'number' ? L.formatCp(o.cp) : ''].filter(Boolean).map(esc).join(' · ') + '</small>' : '') + '</span>';
+            const list = groups.map((g, i) => '<li class="olab-opt' + (focus !== null && focus !== i ? ' is-dim' : '') + (focus === i ? ' is-focus' : '') + '" data-olab-opt="' + i + '" role="button" tabindex="0" aria-pressed="' + (focus === i ? 'true' : 'false') + '">' +
+                '<span class="olab-swatch" style="background:' + g.color + '" title="' + esc(g.colorName) + '" aria-hidden="true"></span>' +
+                '<span class="olab-opt-body"><span class="olab-opt-name">' + esc(g.label) + ' <span class="olab-muted">(' + esc(g.colorName) + ')</span></span>' +
+                '<span class="olab-opt-moves">' + g.moves.map(moveHtml).join('') + '</span></span></li>').join('');
+            if (!sfLines.length) analysis(fen, 'decide').then(() => { if (ui.phase === 'user' && currentKey() === key && !currentNode() && ui.optionMarks && ui.optionMarks.key === key) renderDecisionHint(); });
             ui.feedback = '<div class="olab-fb olab-fb--hint"><div class="olab-hint-title">💡 Opcions per decidir</div>' +
-                (plan.length ? '<div>Segons el teu pla: <b>' + plan.map(p => esc(p.san)).join('</b>, <b>') + '</b></div>' : '<div class="olab-muted">Encara no tens pla per a cap peça que es pugui moure aquí: la jugada que triïs el començarà.</div>') +
-                (theory.length ? '<div>Teoria:</div><ul class="olab-hint-list">' + theory.join('') + '</ul>' : '<div class="olab-muted">Fora de llibre: aquí decideixes tu.</div>') +
-                '<div>Stockfish 19: ' + sf + '</div></div>';
+                (groups.length
+                    ? '<div class="olab-muted">Cada color és una obertura: al tauler, marc prim a la casella d’origen i marc gruixut a la de destí. Toca’n una per veure només aquella.</div><ul class="olab-opts-list">' + list + '</ul>'
+                    : '<div class="olab-muted">Fora de llibre i sense jugades del teu pla: aquí decideixes tu.</div>') +
+                (plan.length ? '' : '<div class="olab-muted">Encara no tens pla per a cap peça que es pugui moure aquí: la jugada que triïs el començarà.</div>') +
+                (sfLines.length ? '' : '<div class="olab-muted">Stockfish 19 encara pensa…</div>') + '</div>';
             render();
+            paintMarks();
         }
 
         // ---------------- accions dels botons ----------------
@@ -1833,6 +1985,14 @@
             });
             jq(document).on('click', '#opening-lab [data-olab-act]', function () { onAction(this.getAttribute('data-olab-act')); });
             jq(document).on('click', '#opening-lab [data-olab-review]', function () { reviewIssue(this.getAttribute('data-olab-review')); });
+            const focusOption = el => {
+                if (!ui.optionMarks || ui.phase !== 'user') return;
+                const i = Number(el.getAttribute('data-olab-opt'));
+                ui.optionMarks.focus = ui.optionMarks.focus === i ? null : i;
+                renderDecisionHint();
+            };
+            jq(document).on('click', '#opening-lab [data-olab-opt]', function () { focusOption(this); });
+            jq(document).on('keydown', '#opening-lab [data-olab-opt]', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); focusOption(this); } });
             jq(document).on('click', '#opening-lab [data-olab-practice]', function () { practice(this.getAttribute('data-olab-practice')); });
             jq(document).on('click', '#opening-lab [data-olab-rename]', function () {
                 const o = side().named.find(x => x.id === this.getAttribute('data-olab-rename'));

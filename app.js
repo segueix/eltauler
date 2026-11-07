@@ -3073,9 +3073,19 @@ function clearTvTapSelection() {
 // desincronitzat respecte de la jugada.
 let currentEngineMoveHighlight = null;
 
+// MARCA DE JUGADA ÚNICA de tota l'app (index.html): origen daurat (mark-from) i
+// destí blau cel (mark-to). La classe engine-move es conserva com a marcador
+// perquè boardexperience.js sàpiga quines caselles ha de netejar.
+const MOVE_MARK_CLASSES = 'engine-move mark-from mark-to';
+function paintMoveMark($squareOf, $board, from, to) {
+    $board.removeClass(MOVE_MARK_CLASSES);
+    if (from) $squareOf(from).addClass('engine-move mark-from');
+    if (to) $squareOf(to).addClass('engine-move mark-to');
+}
+
 function clearEngineMoveHighlights() {
     currentEngineMoveHighlight = null;
-    $('#myBoard .square-55d63').removeClass('engine-move');
+    $('#myBoard .square-55d63').removeClass(MOVE_MARK_CLASSES);
 }
 
 function getMainBoardSquare(sq) {
@@ -3089,20 +3099,14 @@ function getMainBoardSquare(sq) {
 
 function highlightEngineMove(from, to) {
     currentEngineMoveHighlight = { from: from || null, to: to || null };
-    $('#myBoard .square-55d63').removeClass('engine-move');
-    [from, to].forEach((sq) => {
-        getMainBoardSquare(sq).addClass('engine-move');
-    });
+    paintMoveMark(getMainBoardSquare, $('#myBoard .square-55d63'), from, to);
 }
 
 // Reaplica la marca desada (després d'un board.resize(), que recrea les caselles).
 function reapplyEngineMoveHighlight() {
     const h = currentEngineMoveHighlight;
     if (!h) return;
-    $('#myBoard .square-55d63').removeClass('engine-move');
-    [h.from, h.to].forEach((sq) => {
-        getMainBoardSquare(sq).addClass('engine-move');
-    });
+    paintMoveMark(getMainBoardSquare, $('#myBoard .square-55d63'), h.from, h.to);
 }
 
 function highlightTapSelection(square) {
@@ -4286,19 +4290,14 @@ function clearOpeningMoveVisualFeedback() {
 // quin moviment ha fet entre dues jugades de l'usuari.
 function showOpeningRivalMove(from, to) {
     if (!from || !to) return;
-    const fromSquare = $(`#opening-board .square-55d63[data-square='${from}']`);
-    const toSquare = $(`#opening-board .square-55d63[data-square='${to}']`);
-    fromSquare.addClass('move-rival');
-    toSquare.addClass('move-rival');
-    setTimeout(() => {
-        fromSquare.removeClass('move-rival');
-        toSquare.removeClass('move-rival');
-    }, 2000);
+    // La resposta del rival duu la marca de jugada única i es queda fins a la
+    // jugada següent (abans era un requadre blau provisional de 2 s).
+    highlightOpeningEngineMove(from, to);
 }
 
-// Requadre de l'última jugada de l'enginy al tauler d'obertures: la MATEIXA
-// marca (.engine-move) que als exercicis de la resta de l'app, a la casella
-// d'origen i a la de destinació, i que es queda fins a la jugada següent seva.
+// Última jugada de l'enginy al tauler d'obertures: la MATEIXA marca de jugada
+// que a la resta de l'app (origen daurat, destí blau cel), i que es queda fins
+// a la jugada següent seva.
 // Es fa servir la classe lògica .square-<casella> i no el data-square: amb el
 // tauler orientat de negres, el data-square segueix la posició visual i marcaria
 // la casella equivocada.
@@ -4310,13 +4309,12 @@ function getOpeningBoardSquare(sq) {
 
 function clearOpeningEngineMoveHighlight() {
     openingEngineMoveHighlight = null;
-    $('#opening-board .square-55d63').removeClass('engine-move');
+    $('#opening-board .square-55d63').removeClass(MOVE_MARK_CLASSES);
 }
 
 function highlightOpeningEngineMove(from, to) {
     openingEngineMoveHighlight = { from: from || null, to: to || null };
-    $('#opening-board .square-55d63').removeClass('engine-move');
-    [from, to].forEach(sq => getOpeningBoardSquare(sq).addClass('engine-move'));
+    paintMoveMark(getOpeningBoardSquare, $('#opening-board .square-55d63'), from, to);
 }
 
 // resize() reconstrueix les caselles i s'emporta les classes: la marca es torna
@@ -4324,8 +4322,7 @@ function highlightOpeningEngineMove(from, to) {
 function reapplyOpeningEngineMoveHighlight() {
     const h = openingEngineMoveHighlight;
     if (!h) return;
-    $('#opening-board .square-55d63').removeClass('engine-move');
-    [h.from, h.to].forEach(sq => getOpeningBoardSquare(sq).addClass('engine-move'));
+    paintMoveMark(getOpeningBoardSquare, $('#opening-board .square-55d63'), h.from, h.to);
 }
 
 function showMainMoveVisualFeedback(to, quality, from) {
@@ -12949,23 +12946,19 @@ function disableExplorerTapToMove() {
     clearExplorerTapSelection();
 }
 
-// Requadre marró de jugada del motor (el mateix .engine-move que a la resta de
-// l'app): marca la «millor jugada» quan la juga el motor i desapareix així que
+// Marca de la jugada del motor (la marca de jugada única de tota l'app): marca la «millor jugada» quan la juga el motor i desapareix així que
 // la posició canvia (jugada de l'usuari, navegació, FEN nou o edició). Es desa
 // per reaplicar-la quan el tauler es recrea (canvi de mode de control) o es
 // gira, que reconstrueixen les caselles i n'esborren les classes.
 function clearExplorerEngineMoveHighlight() {
     explorerEngineMoveHighlight = null;
-    $('#explorer-board .square-55d63').removeClass('engine-move');
+    $('#explorer-board .square-55d63').removeClass(MOVE_MARK_CLASSES);
 }
 
 function reapplyExplorerEngineMoveHighlight() {
     const h = explorerEngineMoveHighlight;
     if (!h) return;
-    $('#explorer-board .square-55d63').removeClass('engine-move');
-    [h.from, h.to].forEach((sq) => {
-        if (sq) $(`#explorer-board .square-${sq}`).addClass('engine-move');
-    });
+    paintMoveMark(sq => $(`#explorer-board .square-${sq}`), $('#explorer-board .square-55d63'), h.from, h.to);
 }
 
 function highlightExplorerEngineMove(from, to) {
@@ -13261,15 +13254,10 @@ function renderExplorerPvLine(lineKey, el) {
 // canvia la posició VISUAL del tauler i el ressaltat; en sortir es restaura.
 
 // Ressalta al tauler les caselles d'origen/destí de l'última jugada reproduïda,
-// reutilitzant la classe .engine-move (el mateix requadre marró de la resta de
-// l'app), sense tocar el ressaltat persistent de «Juga la millor jugada».
+// amb la marca de jugada única de l'app, sense tocar el ressaltat persistent de
+// «Juga la millor jugada».
 function paintExplorerPreviewMove(lastMove) {
-    $('#explorer-board .square-55d63').removeClass('engine-move');
-    if (lastMove) {
-        [lastMove.from, lastMove.to].forEach((sq) => {
-            if (sq) $(`#explorer-board .square-${sq}`).addClass('engine-move');
-        });
-    }
+    paintMoveMark(sq => $(`#explorer-board .square-${sq}`), $('#explorer-board .square-55d63'), lastMove && lastMove.from, lastMove && lastMove.to);
 }
 
 function updateExplorerPreviewBar() {
@@ -13342,7 +13330,7 @@ function exitExplorerPreview() {
     explorerPreview.lineKey = null;
     explorerPreview.stepIndex = 0;
     if (explorerBoard && explorerGame) explorerBoard.position(explorerGame.fen(), false);
-    $('#explorer-board .square-55d63').removeClass('engine-move');
+    $('#explorer-board .square-55d63').removeClass(MOVE_MARK_CLASSES);
     reapplyExplorerEngineMoveHighlight();
     updateExplorerPreviewBar();
     renderExplorerPvLines();
@@ -24598,8 +24586,7 @@ function handleHieroglyphicMove(source, target) {
                     // Al jeroglífic d'obertura, la jugada del rival queda marcada
                     // amb el requadre d'última jugada de l'enginy (origen i destí)
                     // fins que en faci una altra, com a la resta d'exercicis.
-                    if (isOpeningHiero) highlightOpeningEngineMove(replyFrom, replyTo);
-                    else showOpeningRivalMove(replyFrom, replyTo);
+                    highlightOpeningEngineMove(replyFrom, replyTo);
                     advanceToNextStep();
                 }, 650);
             } else {

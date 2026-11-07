@@ -268,6 +268,54 @@ describe('resposta del rival', () => {
     });
 });
 
+describe('opcions de la pista: un color per obertura', () => {
+    test('cada jugada sap cap a quina variant va', () => {
+        const trie = L.buildSequenceTrie(DATA);
+        const v = san => L.translateOpeningName(L.dominantVariation(L.trieAt(trie, ['e4', 'c6', san])) || '');
+        expect(v('Nc3')).toBe('Defensa Caro-Kann: atac dels dos cavalls');
+        expect(v('c4')).toBe('Defensa Caro-Kann: atac Panov accelerat');
+        // 2.d4 porta a moltes variants: cap no en domina prou.
+        expect(L.dominantVariation(L.trieAt(trie, ['e4', 'c6', 'd4']))).toBeNull();
+    });
+
+    test('agrupa les jugades per obertura i dona un color diferent a cada una', () => {
+        const groups = L.groupOptions([
+            { san: 'd4', from: 'd2', to: 'd4', label: 'Defensa Caro-Kann' },
+            { san: 'Nc3', from: 'b1', to: 'c3', label: 'Defensa Caro-Kann: atac dels dos cavalls' },
+            { san: 'Nf3', from: 'g1', to: 'f3', label: 'Defensa Caro-Kann' },
+            { san: 'd3', from: 'd2', to: 'd3', label: 'Defensa Caro-Kann: variant Breyer' }
+        ]);
+        expect(groups.map(g => g.label)).toEqual(['Defensa Caro-Kann', 'Defensa Caro-Kann: atac dels dos cavalls', 'Defensa Caro-Kann: variant Breyer']);
+        expect(groups[0].moves.map(m => m.san)).toEqual(['d4', 'Nf3']);
+        expect(new Set(groups.map(g => g.color)).size).toBe(3);
+        groups.forEach((g, i) => expect(g.color).toBe(L.OPTION_COLORS[i].hex));
+    });
+
+    test('els colors no es confonen amb la marca de jugada ni amb els de correcció', () => {
+        const banned = ['#d8ae55', '#51b9d4', '#7ee787', '#ff1744', '#ffc107'];
+        L.OPTION_COLORS.forEach(c => expect(banned).not.toContain(c.hex.toLowerCase()));
+        // Més obertures que colors: la resta, en gris.
+        const many = L.groupOptions(Array.from({ length: 8 }, (_, i) => ({ san: 'm' + i, from: 'a1', to: 'a' + (i + 1), label: 'O' + i })));
+        expect(many[7].color).toBe('#6b7280');
+    });
+
+    test('marques per casella: destí i origen, casella compartida amb dos anells, i focus', () => {
+        const groups = L.groupOptions([
+            { san: 'd4', from: 'd2', to: 'd4', label: 'A' },
+            { san: 'd3', from: 'd2', to: 'd3', label: 'B' }
+        ]);
+        const marks = L.optionSquareMarks(groups, null);
+        expect(marks.d4).toEqual([{ color: groups[0].color, role: 'to' }]);
+        expect(marks.d2.map(m => m.color)).toEqual([groups[0].color, groups[1].color]);
+        const shadow = L.optionShadow(marks.d2);
+        expect(shadow).toBe('inset 0 0 0 3px ' + groups[0].color + ', inset 0 0 0 6px ' + groups[1].color);
+        expect(L.optionShadow(marks.d4)).toMatch(/inset 0 0 0 5px .*, inset 0 0 0 100px rgba\(/);
+        const focused = L.optionSquareMarks(groups, 1);
+        expect(Object.keys(focused).sort()).toEqual(['d2', 'd3']);
+        expect(L.hexToRgba('#8b5cf6', 0.3)).toBe('rgba(139, 92, 246, 0.3)');
+    });
+});
+
 describe('les teves obertures amb nom', () => {
     // Repertori de blanques on la línia 1.d4 d5 2.Nf3 Nf6 3.Bf4 e6 4.e3 c5 5.h4
     // surt de la teoria amb una jugada pròpia (5.h4).
