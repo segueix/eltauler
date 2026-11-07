@@ -486,6 +486,14 @@ describe('integració a la pàgina', () => {
             expect(screen).toContain('id="' + id + '"');
         });
     });
+    test('sota la llista de jugades hi ha la llegenda dels tres colors', () => {
+        const legend = html.slice(html.indexOf('id="olab-legend"'), html.indexOf('</div>', html.indexOf('id="olab-legend"')));
+        expect(html.indexOf('id="olab-legend"')).toBeGreaterThan(html.indexOf('id="olab-moves"'));
+        ['olab-mv--ok', 'olab-mv--retry', 'olab-mv--new'].forEach(c => expect(legend).toContain(c));
+        expect(legend).toContain('Recordada a la primera');
+        expect(legend).toContain('Fallada o amb pista');
+        expect(legend).toContain('Decisió nova');
+    });
     test('app.js obre el taller i el connecta a Stockfish 19', () => {
         const app = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
         expect(app).toMatch(/ElTaulerOpeningLab\.configure\(\{\s*stockfishUrl: HIERO_STOCKFISH_URL/);

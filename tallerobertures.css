@@ -160,6 +160,21 @@ body.epaper-mode .olab-moves { background: #f6f6f6; }
 .olab-mv--new { background: rgba(201, 162, 39, 0.20); color: var(--accent-gold); }
 .olab-mv--retry { background: rgba(255, 111, 97, 0.16); color: var(--text-negative); }
 body.epaper-mode .olab-mv--ok, body.epaper-mode .olab-mv--new, body.epaper-mode .olab-mv--retry { background: #fff; color: #000; border: 1px solid #bbb; }
+/* Paper electrònic (sense color): cada tipus amb una vora diferent. */
+body.epaper-mode .olab-mv--ok { border: 2px solid #000; }
+body.epaper-mode .olab-mv--new { border: 2px dashed #000; }
+body.epaper-mode .olab-mv--retry { border: 2px dotted #000; }
+/* Llegenda dels colors sota la llista de jugades. */
+.olab-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    margin-top: 6px;
+    font-size: 0.76rem;
+    color: var(--text-secondary);
+}
+.olab-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+.olab-legend .olab-mv { font-size: 0.72rem; padding: 0 4px; }
 
 .olab-guide { margin-top: 8px; font-size: 0.92rem; line-height: 1.4; }
 .olab-guide:empty { display: none; }
