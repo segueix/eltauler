@@ -801,9 +801,12 @@
     // generar una melodia nova a cada partida no deixi la pantalla glaçada.
     // El resultat és idèntic al de samples() amb la mateixa font d'atzar.
     function samplesAsync(melody, sampleRate = 22050, random = Math.random, opts = {}) {
-        const syn = createSynth(sampleRate, MELODY_SECONDS, random), jobs = [], score = {};
+        return renderAsync(SCORES[melodyId(melody)], MELODY_SECONDS, sampleRate, random, opts);
+    }
+    function renderAsync(scoreFn, seconds, sampleRate, random, opts = {}) {
+        const syn = createSynth(sampleRate, seconds, random), jobs = [], score = {};
         INSTRUMENTS.forEach(name => { score[name] = (...args) => { jobs.push(() => syn[name](...args)); }; });
-        const target = SCORES[melodyId(melody)](score);
+        const target = scoreFn(score);
         const budget = opts.budgetMs || 8, clock = opts.now || (() => Date.now());
         const later = opts.later || (fn => setTimeout(fn, 0));
         return new Promise((resolve, reject) => {
@@ -819,6 +822,488 @@
             later(step);
         });
     }
+
+    // ══ Tornades de la lliga ═════════════════════════════════════════════
+    // Peces de 30 s que sonen UNA vegada a la pantalla entre partida i partida
+    // de la lliga amb rellotge (el compte enrere de 30 s): comencen amb el
+    // compte i acaben amb un acord final just quan comença la partida
+    // següent. Els cinc estils són ARRANJAMENTS (instruments i ritme); la
+    // música (tonalitat, tempo, acords i melodia) la compon l'app cada vegada.
+    const JINGLE_SECONDS = 30;
+    const JINGLES = [
+        { id: 'fanfarria', name: 'Fanfàrria de jornada', description: 'metalls, timbals i cordes en marxa' },
+        { id: 'galop', name: 'Galop del rellotge', description: 'pizzicato, flautí i el tic-tac d’un rellotge que acaba fent de despertador' },
+        { id: 'rumba', name: 'Rumba de la classificació', description: 'rumba catalana: ventilador de guitarra, palmes, bongos i acordió' },
+        { id: 'funk', name: 'Funk de la jugada', description: 'piano elèctric, baix sincopat, bateria i vibràfon' },
+        { id: 'himne', name: 'Himne de la lliga', description: 'cordes, arpa, flauta i timbals, solemne' }
+    ];
+    function jingleId(id) { return JINGLES.some(j => j.id === id) ? id : JINGLES[0].id; }
+    function jingleInfo(id) { return JINGLES.find(j => j.id === jingleId(id)); }
+    function pickJingle(random = Math.random, previous = null) {
+        const pool = JINGLES.filter(j => j.id !== previous);
+        const list = pool.length ? pool : JINGLES;
+        const r = Math.max(0, Math.min(0.999999, Number(random()) || 0));
+        return list[Math.floor(r * list.length)].id;
+    }
+    // Crescendo suau al llarg de la peça (0,8 al principi, 1 al final).
+    const cresc = (t, end) => 0.8 + 0.2 * Math.min(1, Math.max(0, t / end));
+    // Cop final: acord llarg, timbal, plat i campana.
+    function jingleFinal(syn, t, notes, root, o) {
+        const p = o || {};
+        notes.forEach(n => syn.strings(t, n, p.hold || 1.3, 0.024, 0.04));
+        notes.forEach(n => syn.pad(t, n, p.hold || 1.3, 0.012, 0.05));
+        syn.bass(t, root, 1.1, 0.9);
+        syn.kick(t, 1.2, 44);
+        syn.brush(t, 1.1, 0.42, true);
+        syn.struck(t, notes[notes.length - 1] + 12, 0.8, [1, 2.76, 5.4], [1, 0.4, 0.15], [1.4, 0.6, 0.25], { gain: 0.06, len: 2.4 });
+    }
+
+    // ── El compositor ────────────────────────────────────────────────────
+    // Cada tornada és una peça NOVA: l'app tria la tonalitat, el tempo, la
+    // progressió d'acords (frases A · A' · B i cadència) i compon la melodia
+    // amb regles de l'ofici: notes de l'acord als temps forts, passos per
+    // l'escala entre mig, un contorn de frase, el motiu de la primera frase
+    // que torna a la segona i el final a la tònica. Tot surt d'una llavor
+    // (un enter): la mateixa llavor dona la mateixa peça.
+    function seededRng(seed) {
+        let a = (seed >>> 0) || 1;
+        return () => {
+            a = (a + 0x6D2B79F5) | 0;
+            let t = Math.imul(a ^ (a >>> 15), 1 | a);
+            t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+    }
+    const pickOf = (r, list) => list[Math.floor(r() * list.length) % list.length];
+    const SCALES = { major: [0, 2, 4, 5, 7, 9, 11], minor: [0, 2, 3, 5, 7, 8, 10], dorian: [0, 2, 3, 5, 7, 9, 10] };
+    const PC_NAMES = ['do', 'do♯', 're', 'mi♭', 'mi', 'fa', 'fa♯', 'sol', 'la♭', 'la', 'si♭', 'si'];
+    const MODE_NAMES = { major: 'major', minor: 'menor', dorian: 'menor' };
+    // Progressions (graus 0-6) en frases de quatre compassos.
+    const PHRASES = {
+        major: {
+            a: [[0, 4, 5, 3], [0, 3, 4, 0], [0, 5, 1, 4], [5, 3, 0, 4], [0, 2, 3, 4], [3, 0, 4, 0], [0, 3, 5, 4], [0, 5, 3, 4]],
+            b: [[3, 4, 2, 5], [5, 3, 1, 4], [3, 0, 3, 4], [1, 4, 0, 5], [5, 2, 3, 4], [3, 4, 5, 1]]
+        },
+        minor: {
+            a: [[0, 3, 4, 0], [0, 5, 2, 6], [0, 3, 6, 2], [5, 6, 0, 0], [0, 4, 0, 3], [0, 6, 5, 4], [0, 3, 0, 4]],
+            b: [[5, 6, 2, 4], [2, 6, 0, 4], [3, 6, 2, 5], [5, 3, 4, 4], [3, 4, 0, 5]]
+        },
+        dorian: {
+            a: [[0, 0, 3, 3], [0, 3, 0, 3], [0, 0, 6, 3], [0, 6, 0, 3]],
+            b: [[5, 4, 0, 3], [2, 3, 5, 4], [5, 5, 4, 4]]
+        }
+    };
+    // Ritmes de melodia d'un compàs: [temps, durada].
+    const RHYTHMS = {
+        r1: [[0, 0.5], [0.5, 0.5], [1, 1], [2, 1.5], [3.5, 0.5]],
+        r2: [[0, 1], [1, 1], [2, 2]],
+        r3: [[0, 0.5], [0.5, 0.5], [1, 0.5], [1.5, 0.5], [2, 2]],
+        r4: [[0, 1.5], [1.5, 0.5], [2, 1], [3, 1]],
+        r5: [[0, 1], [1, 0.5], [1.5, 0.5], [2, 1], [3, 1]],
+        r6: [[0.5, 0.5], [1, 0.5], [1.75, 0.75], [2.5, 0.5], [3, 1]],
+        r7: [[0, 2], [2, 2]],
+        r8: [[0, 0.5], [0.5, 0.5], [1, 1], [2, 0.5], [2.5, 0.5], [3, 1]],
+        r9: [[0.5, 0.5], [1, 1], [2, 0.5], [2.5, 0.5], [3, 1]]
+    };
+    const CADENCE_RHYTHMS = [RHYTHMS.r2, RHYTHMS.r4, RHYTHMS.r5];
+    // Cada estil: mode, tonalitats, tempo (durada del temps, s), compassos
+    // abans del cop final, registres i ritmes de melodia.
+    const STYLES = {
+        fanfarria: { mode: 'major', keys: [0, 2, 3, 5, 7, 10], beat: [0.47, 0.515], bars: 13, chordBase: 61, seventh: false, mel: [69, 88], rhythms: ['r1', 'r2', 'r3', 'r4', 'r5', 'r8'] },
+        galop: { mode: 'minor', keys: [9, 4, 2, 7, 0, 11], beat: [0.47, 0.515], bars: 13, chordBase: 67, seventh: false, mel: null, rhythms: [] },
+        rumba: { mode: 'minor', keys: [9, 4, 2, 7, 11, 5], beat: [0.47, 0.515], bars: 13, chordBase: 55, seventh: false, four: true, mel: [64, 86], rhythms: ['r1', 'r3', 'r4', 'r5', 'r8', 'r9'] },
+        funk: { mode: 'dorian', keys: [4, 9, 2, 7, 0, 5], beat: [0.47, 0.515], bars: 13, chordBase: 59, seventh: true, mel: [71, 90], rhythms: ['r6', 'r5', 'r9', 'r8', 'r3'] },
+        himne: { mode: 'major', keys: [0, 2, 5, 7, 10, 3], beat: [0.6, 0.675], bars: 10, chordBase: 59, seventh: false, mel: [65, 86], rhythms: ['r2', 'r4', 'r7', 'r5'] }
+    };
+    // Arpegis del galop (índexs de l'acord; -1 = silenci): quatre patrons.
+    const GALOP_PATTERNS = [[0, 1, 2, 3, 2, 1, 0, -1], [3, 2, 1, 0, 1, 2, 3, -1], [0, 2, 1, 3, 2, 3, 1, -1], [0, 1, 2, 1, 3, 2, 1, -1]];
+
+    // Notes d'un acord (classes de to) sobre un grau de l'escala. El cinquè grau
+    // en mode menor és major (sensible), com a la música tonal.
+    function chordPcs(tonic, mode, degree, seventh) {
+        const sc = SCALES[mode];
+        const pcs = [0, 2, 4].concat(seventh ? [6] : []).map(k => (tonic + sc[(degree + k) % 7]) % 12);
+        if ((mode === 'minor' || mode === 'dorian') && degree === 4) pcs[1] = (tonic + 11) % 12;
+        return pcs;
+    }
+    function voice(pcs, base, four) {
+        const notes = pcs.map(pc => base + ((pc - base) % 12 + 12) % 12).sort((a, b) => a - b);
+        if (four && notes.length === 3) notes.push(notes[0] + 12);
+        return notes;
+    }
+    // Acord en estat fonamental (la fonamental a baix): el de l'acord final.
+    function voiceRoot(pcs, base) {
+        const root = base + ((pcs[0] - base) % 12 + 12) % 12;
+        const notes = [root];
+        pcs.slice(1).forEach(pc => notes.push(root + ((pc - root) % 12 + 12) % 12));
+        notes.sort((x, y) => x - y);
+        notes.push(root + 12);
+        return notes;
+    }
+    function bassOf(pc) { return 33 + ((pc - 33) % 12 + 12) % 12; }
+    function buildChord(tonic, mode, degree, st, seventh) {
+        const pcs = chordPcs(tonic, mode, degree, seventh);
+        return { degree, pcs, root: bassOf(pcs[0]), notes: voice(pcs, st.chordBase, !!st.four) };
+    }
+
+    // La melodia: una nota per cada cop de ritme. Als temps forts, una nota de
+    // l'acord a prop de la direcció de la frase; als febles, un pas per
+    // l'escala. `dirs` (opcional) repeteix el contorn d'una frase anterior.
+    function composePhrase(r, ctx, bars, rhythms, dirs) {
+        const out = [], usedDirs = [];
+        let di = 0;
+        bars.forEach((bar, bi) => {
+            const chord = ctx.chords[bar];
+            const rhythm = rhythms[bi];
+            rhythm.forEach(([t, d], ni) => {
+                let dir = dirs && di < dirs.length ? dirs[di] : (ctx.prev > ctx.center + 6 ? -1 : (ctx.prev < ctx.center - 6 ? 1 : (r() < 0.5 ? -1 : 1)));
+                di++;
+                const strong = t === 0 || t === 2 || d >= 1;
+                let n;
+                if (strong) {
+                    const jump = 1 + Math.floor(r() * 4);
+                    n = nearestTone(ctx.prev + dir * jump, chord.pcs, ctx.lo, ctx.hi);
+                    if (n === ctx.prev && r() < 0.7) n = nearestTone(ctx.prev + dir * 4, chord.pcs, ctx.lo, ctx.hi);
+                } else {
+                    n = stepScale(ctx.prev, dir, ctx.scalePcs, chord, ctx.lo, ctx.hi);
+                }
+                if (n < ctx.lo || n > ctx.hi) { dir = -dir; n = nearestTone(ctx.prev + dir * 2, chord.pcs, ctx.lo, ctx.hi); }
+                usedDirs.push(dir);
+                out.push([bar, t, n, d]);
+                ctx.prev = n;
+            });
+        });
+        return { notes: out, dirs: usedDirs };
+    }
+    function nearestTone(target, pcs, lo, hi) {
+        let best = null;
+        for (let n = lo; n <= hi; n++) {
+            if (pcs.indexOf(n % 12) < 0) continue;
+            if (best === null || Math.abs(n - target) < Math.abs(best - target)) best = n;
+        }
+        return best === null ? Math.max(lo, Math.min(hi, target)) : best;
+    }
+    // Un pas per l'escala; sobre l'acord de dominant en menor, amb la sensible.
+    function stepScale(from, dir, scalePcs, chord, lo, hi) {
+        const pcs = scalePcs.slice();
+        chord.pcs.forEach(pc => { if (pcs.indexOf(pc) < 0) pcs.push(pc); });
+        let n = from + dir;
+        for (let k = 0; k < 3 && pcs.indexOf(((n % 12) + 12) % 12) < 0; k++) n += dir;
+        if (n < lo || n > hi) return n < lo ? stepScale(from, 1, scalePcs, chord, lo, hi) : stepScale(from, -1, scalePcs, chord, lo, hi);
+        return n;
+    }
+
+    function composeJingle(style, seed) {
+        const id = jingleId(style);
+        const st = STYLES[id];
+        const s = (seed >>> 0) || 1;
+        const r = seededRng(s);
+        const tonic = pickOf(r, st.keys);
+        const mode = st.mode;
+        const beat = st.beat[0] + r() * (st.beat[1] - st.beat[0]);
+        const phrases = PHRASES[mode];
+        const a = pickOf(r, phrases.a);
+        const a2 = r() < 0.5 ? a : a.slice(0, 2).concat(pickOf(r, phrases.a).slice(2));
+        const b = pickOf(r, phrases.b);
+        let degrees;
+        if (st.bars === 10) degrees = a.concat(b, [r() < 0.5 ? 3 : 1, 4]);
+        else degrees = a.concat(a2, b, [4]);
+        const chords = degrees.map(dg => buildChord(tonic, mode, dg, st, st.seventh || (mode !== 'major' && dg === 4)));
+        const finalPcs = chordPcs(tonic, mode, 0, st.seventh);
+        const finalNotes = voiceRoot(finalPcs.slice(0, 3), 57);
+        const spec = {
+            style: id, seed: s, tonic, mode, beat, degrees,
+            keyName: PC_NAMES[tonic] + ' ' + MODE_NAMES[mode],
+            chords,
+            final: { root: bassOf(tonic), notes: finalNotes, top: nearestTone(st.mel ? st.mel[1] - 4 : 81, [tonic], 74, 90) },
+            melody: [], patterns: []
+        };
+        if (id === 'galop') {
+            spec.patterns = chords.map(() => pickOf(r, GALOP_PATTERNS));
+            return spec;
+        }
+        const scalePcs = SCALES[mode].map(i => (tonic + i) % 12);
+        const ctx = { chords, scalePcs, lo: st.mel[0], hi: st.mel[1], center: (st.mel[0] + st.mel[1]) / 2 };
+        ctx.prev = nearestTone(ctx.center - 3, chords[0].pcs, ctx.lo, ctx.hi);
+        const rh = n => Array.from({ length: n }, () => RHYTHMS[pickOf(r, st.rhythms)]);
+        const cadence = pickOf(r, CADENCE_RHYTHMS);
+        if (st.bars === 10) {
+            const ra = rh(4);
+            const A = composePhrase(r, ctx, [0, 1, 2, 3], ra);
+            const B = composePhrase(r, ctx, [4, 5, 6, 7], rh(4));
+            const C = composePhrase(r, ctx, [8, 9], rh(1).concat([cadence]));
+            spec.melody = A.notes.concat(B.notes, C.notes);
+        } else {
+            // A: el motiu; A': el mateix ritme i contorn sobre els acords nous; B: contrast; cadència.
+            const ra = rh(4);
+            const A = composePhrase(r, ctx, [0, 1, 2, 3], ra);
+            const A2 = composePhrase(r, ctx, [4, 5, 6, 7], ra.slice(0, 3).concat(rh(1)), A.dirs);
+            const B = composePhrase(r, ctx, [8, 9, 10, 11], rh(4));
+            const C = composePhrase(r, ctx, [12], [cadence]);
+            spec.melody = A.notes.concat(A2.notes, B.notes, C.notes);
+        }
+        return spec;
+    }
+    // Empremta d'una peça (melodia i harmonia), per no repetir-ne cap.
+    function jingleFingerprint(spec) {
+        const str = spec.style + '|' + spec.tonic + '|' + spec.degrees.join('') + '|' + spec.melody.map(m => m[2] + ':' + m[1]).join(',') + '|' + spec.patterns.map(p => p.join('')).join('');
+        let h = 2166136261;
+        for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+        return (h >>> 0).toString(36);
+    }
+    function jingleTitle(spec) {
+        const info = jingleInfo(spec && spec.style);
+        return info.name + ' · ' + (spec ? spec.keyName : '');
+    }
+
+    // ── Fanfàrria de jornada ─────────────────────────────────────────────
+    // Marxa: metalls (llengüetes gairebé afinades) a la melodia i als cops
+    // d'acord, timbals, caixa amb redoble i cordes.
+    function fanfarriaScore(syn, spec) {
+        const beat = spec.beat, bar = beat * 4, end = spec.chords.length * bar;
+        const brass = { gain: 0.022, attack: 0.025, release: 0.07, detune: 3 };
+        spec.chords.forEach((chord, b) => {
+            const t0 = b * bar, v = cresc(t0, end);
+            // Cops d'acord dels metalls: «pam, pa-pam».
+            [[0, 0.4, 1], [1.5, 0.2, 0.7], [2, 0.9, 0.9]].forEach(([t, d, vel]) =>
+                chord.notes.forEach(n => syn.reed(t0 + t * beat, n - 12, d * beat * 2, vel * v, brass)));
+            chord.notes.forEach(n => syn.strings(t0, n, bar, 0.008, 0.3));
+            syn.bass(t0, chord.root, 0.9 * v, 0.5);
+            syn.bass(t0 + 2 * beat, chord.root + 7, 0.65 * v, 0.5);
+            syn.kick(t0, 1 * v, 45);
+            syn.kick(t0 + 2 * beat, 0.75 * v, 45);
+            [1, 3].forEach(t => syn.brush(t0 + t * beat, 0.75 * v, 0.08, false));
+            if (b % 4 === 3) for (let k = 0; k < 6; k++) syn.brush(t0 + 3 * beat + k * beat / 6, 0.35 + 0.1 * k, 0.03, true);
+        });
+        spec.melody.forEach(([b, t, n, d]) => {
+            const start = b * bar + t * beat, v = cresc(start, end);
+            syn.reed(start, n, d * beat - 0.03, v, { gain: 0.042, attack: 0.03, release: 0.08, detune: 3 });
+            syn.flute(start, n, d * beat - 0.03, 0.55 * v, { breath: 0.04, vib: 0.12, attack: 0.03, gain: 0.05 });
+        });
+        jingleFinal(syn, end, spec.final.notes, spec.final.root, { hold: 1.4 });
+        syn.reed(end, spec.final.top, 1.3, 1, { gain: 0.045, attack: 0.03, release: 0.25, detune: 3 });
+        return TARGET_RMS;
+    }
+
+    // ── Galop del rellotge ───────────────────────────────────────────────
+    // «Um-pa» de pizzicato, flautí i marimba en arpegis ràpids, el tic-tac
+    // del rellotge a cada temps i el despertador abans del final.
+    function galopScore(syn, spec) {
+        const beat = spec.beat, bar = beat * 4, eighth = beat / 2, end = spec.chords.length * bar;
+        const pizz = { decay: 0.35, partials: [1, 0.5, 0.25, 0.1], damp: 1.2, gain: 0.11, attack: 0.003 };
+        spec.chords.forEach((chord, b) => {
+            const t0 = b * bar, v = cresc(t0, end);
+            const tones = chord.notes.slice(0, 3).concat([chord.notes[0] + 12]);
+            [0, 2].forEach((t, k) => {
+                syn.pluck(t0 + t * beat, chord.root + (k ? 7 : 0) + 12, 0.9 * v, pizz);
+                syn.bass(t0 + t * beat, chord.root + (k ? 7 : 0), 0.5 * v, 0.3);
+            });
+            [1, 3].forEach(t => chord.notes.forEach((n, k) => syn.pluck(t0 + t * beat + k * 0.006, n - 12, 0.55 * v, pizz)));
+            spec.patterns[b].forEach((idx, e) => {
+                const start = t0 + e * eighth;
+                if (idx < 0) return;
+                const held = e === 6;
+                syn.flute(start, tones[idx] + 12, (held ? 2 : 1) * eighth - 0.02, 0.8 * v, { breath: 0.06, vib: held ? 0.2 : 0, attack: 0.012, gain: 0.05, release: 0.05 });
+                syn.struck(start, tones[idx], 0.7 * v, [1, 3.98, 9.9], [1, 0.22, 0.05], [0.35, 0.1, 0.03], { gain: 0.08 });
+            });
+            for (let t = 0; t < 4; t++) syn.block(t0 + t * beat, 0.35, t % 2 ? 1450 : 1900, 0.008, 0.5);
+            [1, 3].forEach(t => syn.brush(t0 + t * beat + eighth, 0.4 * v, 0.03, true));
+            if (b % 2) syn.kick(t0, 0.6 * v, 50);
+        });
+        for (let k = 0; k < 12; k++) syn.struck(end - bar + 2 * beat + k * beat / 6, 93 + (k % 2) * 2, 0.6, [1, 2.76, 5.4], [1, 0.35, 0.12], [0.12, 0.06, 0.03], { gain: 0.05 });
+        jingleFinal(syn, end, spec.final.notes, spec.final.root, { hold: 1.2 });
+        syn.flute(end, spec.final.top, 1.2, 1, { breath: 0.05, vib: 0.25, attack: 0.02, gain: 0.06 });
+        return TARGET_RMS;
+    }
+
+    // ── Rumba de la classificació ────────────────────────────────────────
+    // Rumba catalana: guitarra amb el «ventilador», palmes al contratemps,
+    // bongos, baix i acordió a la melodia.
+    const RUMBA_STRUM = [[0, 1, false], [2, 0.55, true], [3, 0.75, false], [4, 0.95, false], [6, 0.55, true], [7, 0.75, false]];
+    function rumbaScore(syn, spec) {
+        const beat = spec.beat, bar = beat * 4, eighth = beat / 2, end = spec.chords.length * bar;
+        const guitar = { decay: 0.32, partials: [1, 0.55, 0.3, 0.15], damp: 1.3, gain: 0.085, attack: 0.003 };
+        const thumb = { decay: 0.6, partials: [1, 0.6, 0.3], damp: 1, gain: 0.11, attack: 0.004 };
+        spec.chords.forEach((chord, b) => {
+            const t0 = b * bar, v = cresc(t0, end);
+            RUMBA_STRUM.forEach(([e, vel, up]) => {
+                const notes = up ? chord.notes.slice().reverse() : chord.notes;
+                notes.forEach((n, k) => syn.pluck(t0 + e * eighth + k * 0.009, n, vel * v, guitar));
+                if (up) syn.brush(t0 + e * eighth, 0.35 * v, 0.015, false);
+            });
+            [[0, 0], [2, 7], [3.5, 0]].forEach(([t, iv], k) => {
+                syn.pluck(t0 + t * beat, chord.root + iv + 12, (k === 2 ? 0.6 : 0.9) * v, thumb);
+                syn.bass(t0 + t * beat, chord.root + iv, 0.45 * v, 0.35);
+            });
+            [1, 3].forEach(t => { syn.brush(t0 + t * beat, 0.85 * v, 0.035, true); syn.brush(t0 + t * beat + 0.012, 0.5 * v, 0.03, true); });
+            [[0.5, 480], [1.5, 330], [2.5, 480], [3, 480], [3.5, 330]].forEach(([t, hz]) => syn.block(t0 + t * beat, 0.55 * v, hz, 0.06, 0.25));
+        });
+        spec.melody.forEach(([b, t, n, d]) => {
+            const start = b * bar + t * beat;
+            syn.reed(start, n, d * beat - 0.04, cresc(start, end), { gain: 0.04, attack: 0.03, release: 0.1, detune: 7 });
+        });
+        jingleFinal(syn, end, spec.final.notes, spec.final.root, { hold: 1.1 });
+        spec.final.notes.forEach((n, k) => syn.pluck(end + k * 0.012, n, 1, guitar));
+        syn.reed(end, spec.final.top, 1.2, 1, { gain: 0.045, attack: 0.03, release: 0.25, detune: 7 });
+        return TARGET_RMS;
+    }
+
+    // ── Funk de la jugada ────────────────────────────────────────────────
+    // Cops de piano elèctric sincopats, baix en semicorxeres, bombo, caixa i
+    // xarleston, i un vibràfon a la melodia.
+    const FUNK_STABS = [0, 0.75, 1.5, 2.5, 3.25];
+    const FUNK_BASS = [[0, 0, 1], [0.75, 0, 0.6], [1.5, 12, 0.7], [2, 7, 0.8], [2.75, 10, 0.6], [3.5, 12, 0.7]];
+    function funkScore(syn, spec) {
+        const beat = spec.beat, bar = beat * 4, s16 = beat / 4, end = spec.chords.length * bar;
+        spec.chords.forEach((chord, b) => {
+            const t0 = b * bar, v = cresc(t0, end);
+            FUNK_STABS.forEach((t, k) => chord.notes.forEach((n, j) => syn.epiano(t0 + t * beat + j * 0.006, n, (k === 0 ? 0.6 : 0.42) * v)));
+            FUNK_BASS.forEach(([t, iv, vel]) => syn.bass(t0 + t * beat, chord.root + iv, vel * 0.95 * v, 0.22));
+            [0, 1.75, 2.5].forEach((t, k) => syn.kick(t0 + t * beat, (k ? 0.75 : 1) * v, 50));
+            [1, 3].forEach(t => { syn.brush(t0 + t * beat, 0.95 * v, 0.1, false); syn.block(t0 + t * beat, 0.45 * v, 200, 0.05, 0.4); });
+            for (let k = 0; k < 16; k++) syn.brush(t0 + k * s16, (k % 4 === 2 ? 0.45 : 0.25) * v, 0.014, true);
+        });
+        spec.melody.forEach(([b, t, n, d]) => syn.vibes(b * bar + t * beat, n, d * beat));
+        jingleFinal(syn, end, spec.final.notes, spec.final.root, { hold: 1.2 });
+        spec.final.notes.forEach((n, j) => syn.epiano(end + j * 0.01, n + 12, 0.8));
+        syn.vibes(end, spec.final.top, 1.4);
+        return TARGET_RMS;
+    }
+
+    // ── Himne de la lliga ────────────────────────────────────────────────
+    // Cordes i flauta a la melodia, arpa en arpegis, timbals i redoble abans
+    // del cop final.
+    function himneScore(syn, spec) {
+        const beat = spec.beat, bar = beat * 4, eighth = beat / 2, end = spec.chords.length * bar;
+        const harp = { decay: 1.1, partials: [1, 0.5, 0.22, 0.1], damp: 1, gain: 0.08, attack: 0.004 };
+        spec.chords.forEach((chord, b) => {
+            const t0 = b * bar, v = cresc(t0, end);
+            chord.notes.forEach(n => { syn.strings(t0, n - 12, bar, 0.012 * v, 0.4); syn.pad(t0, n, bar, 0.008, 0.5); });
+            const [x, y, z] = chord.notes;
+            [x, y, z, x + 12, z, y, z, x + 12].forEach((n, e) => syn.pluck(t0 + e * eighth, n, (e === 0 ? 0.9 : 0.6) * v, harp));
+            syn.bass(t0, chord.root, 0.9 * v, 1.0);
+            syn.kick(t0, 1.05 * v, 44);
+            syn.kick(t0 + 2 * beat, 0.6 * v, 44);
+        });
+        for (let k = 0; k < 16; k++) syn.kick(end - bar + k * bar / 16, 0.35 + 0.04 * k, 46);
+        spec.melody.forEach(([b, t, n, d]) => {
+            const start = b * bar + t * beat, v = cresc(start, end);
+            syn.strings(start, n, d * beat - 0.05, 0.022 * v, 0.08);
+            syn.flute(start, n, d * beat - 0.05, 0.8 * v, { breath: 0.05, vib: 0.2, attack: 0.05, gain: 0.06 });
+        });
+        jingleFinal(syn, end, spec.final.notes, spec.final.root, { hold: 1.0 });
+        syn.flute(end, spec.final.top, 1.1, 1, { breath: 0.05, vib: 0.25, attack: 0.04, gain: 0.07 });
+        return TARGET_RMS;
+    }
+
+    const JINGLE_SCORES = { fanfarria: fanfarriaScore, galop: galopScore, rumba: rumbaScore, funk: funkScore, himne: himneScore };
+    // Entrada i sortida: un esvaïment molt curt al principi i un de llarg al
+    // final, perquè la peça s'acabi sense tall encara que l'acord final ressoni.
+    function shapeJingle(data, sampleRate) {
+        const inN = Math.round(0.03 * sampleRate), outStart = Math.round((JINGLE_SECONDS - 1.2) * sampleRate);
+        for (let i = 0; i < inN && i < data.length; i++) data[i] *= i / inN;
+        const outN = data.length - outStart;
+        for (let i = outStart; i < data.length; i++) data[i] *= 0.5 + 0.5 * Math.cos(Math.PI * (i - outStart) / outN);
+        return data;
+    }
+    // `spec` és una peça composta (composeJingle) o el nom d'un estil (es
+    // compon amb una llavor nova).
+    function asSpec(spec) {
+        return spec && typeof spec === 'object' ? spec : composeJingle(spec, Math.floor(Math.random() * 4294967295) + 1);
+    }
+    function jingleSamples(spec, sampleRate = 22050, random = Math.random) {
+        const sp = asSpec(spec);
+        const syn = createSynth(sampleRate, JINGLE_SECONDS, random);
+        return shapeJingle(syn.finish(JINGLE_SCORES[sp.style](syn, sp)), sampleRate);
+    }
+    function jingleSamplesAsync(spec, sampleRate = 22050, random = Math.random, opts = {}) {
+        const sp = asSpec(spec);
+        return renderAsync(syn => JINGLE_SCORES[sp.style](syn, sp), JINGLE_SECONDS, sampleRate, random, opts)
+            .then(data => shapeJingle(data, sampleRate));
+    }
+
+    // Reproductor d'una tornada (una sola vegada, sense bucle). Té el seu propi
+    // context d'àudio i respecta l'interruptor general de la música.
+    // env = { createContext, generate(id, sampleRate, random, opts) → Promise }
+    const JINGLE_LEVEL = 0.8;
+    function createJinglePlayer(env = {}) {
+        let context = null, entry = null, token = 0, cached = null;
+        const Ctor = root && (root.AudioContext || root.webkitAudioContext);
+        const generate = env.generate || jingleSamplesAsync;
+        const supported = !!(env.createContext || Ctor);
+        function ensureContext() {
+            if (!context || context.state === 'closed') context = env.createContext ? env.createContext() : new Ctor();
+            return context;
+        }
+        function stop(fade) {
+            token++;
+            if (!entry) return;
+            const e = entry;
+            entry = null;
+            try {
+                if (fade && context) {
+                    e.gain.gain.setTargetAtTime(0, context.currentTime, 0.15);
+                    e.source.stop(context.currentTime + 0.9);
+                } else e.source.stop();
+            } catch (err) {}
+        }
+        const api = {
+            supported: () => supported,
+            // spec: peça composta (composeJingle). opts = { volume (0-100),
+            // startedAt() (s des del principi) }. Retorna una promesa: true si
+            // ha començat a sonar.
+            play(spec, opts) {
+                const o = opts || {};
+                stop(true);
+                const my = ++token;
+                const sp = asSpec(spec);
+                const jid = sp.style + ':' + sp.seed;
+                if (!allowed || !supported || !(o.volume > 0)) return Promise.resolve(false);
+                let ctx;
+                try { ctx = ensureContext(); } catch (err) { return Promise.resolve(false); }
+                const resumed = ctx.state === 'running' ? Promise.resolve() : Promise.resolve(ctx.resume()).catch(() => {});
+                const data = cached && cached.id === jid ? Promise.resolve(cached.data)
+                    : Promise.resolve().then(() => generate(sp, 22050, Math.random, { cancelled: () => my !== token }))
+                        .then(d => { cached = { id: jid, data: d }; return d; });
+                return Promise.all([data, resumed]).then(([samples]) => {
+                    if (my !== token || !allowed) return false;
+                    const started = typeof o.startedAt === 'function' ? o.startedAt() : (o.offset || 0);
+                    const offset = Math.max(0, Math.min(JINGLE_SECONDS - 0.5, started));
+                    const buffer = ctx.createBuffer(1, samples.length, 22050);
+                    buffer.getChannelData(0).set(samples);
+                    const source = ctx.createBufferSource(), gain = ctx.createGain();
+                    source.buffer = buffer;
+                    source.loop = false;
+                    gain.gain.value = 0;
+                    source.connect(gain); gain.connect(ctx.destination);
+                    source.start(0, offset);
+                    gain.gain.setTargetAtTime(Math.min(1, o.volume / 100) * JINGLE_LEVEL, ctx.currentTime, 0.04);
+                    const mine = { source, gain, id: sp.style, spec: sp };
+                    entry = mine;
+                    source.onended = () => {
+                        if (entry === mine) entry = null;
+                        try { source.disconnect(); gain.disconnect(); } catch (err) {}
+                    };
+                    return true;
+                }).catch(() => false);
+            },
+            stop,
+            // Pestanya amagada: la tornada s'atura on és i continua en tornar.
+            pause() { try { if (context && context.state === 'running') context.suspend(); } catch (err) {} },
+            resume() { try { if (context && context.state === 'suspended') context.resume(); } catch (err) {} },
+            playing() { return entry ? entry.id : null; },
+            // La peça que sona (amb la tonalitat i la llavor).
+            current() { return entry ? entry.spec : null; },
+            dispose() {
+                stop();
+                cached = null;
+                const ctx = context; context = null;
+                try { if (ctx && ctx.close) Promise.resolve(ctx.close()).catch(() => {}); } catch (err) {}
+            }
+        };
+        return api;
+    }
+
     // Nivell màxim de la música (amb el volum al 100 %): deixa el fons uns
     // 20 dB per sota de Matxa amb el volum per defecte (20 %).
     const LEVEL = 0.35;
@@ -978,6 +1463,9 @@
     }
     return { normalize, setAllowed, isAllowed, othersPlaying, canPlay, samples, samplesAsync, createPlayer, pickMelody, melodyId, melodyInfo,
         MELODIES, LEVEL, DUCK, TARGET_RMS, THEME_SECONDS, MELODY_SECONDS,
+        // Tornades de la lliga (pantalla entre partides).
+        JINGLES, JINGLE_SECONDS, JINGLE_LEVEL, jingleId, jingleInfo, pickJingle, jingleSamples, jingleSamplesAsync, createJinglePlayer,
+        composeJingle, jingleFingerprint, jingleTitle, _jingleStyles: STYLES, _scales: SCALES,
         // Partitures, per als tests.
         _scores: { theme: THEME, oriental: ORIENTAL, bossa: BOSSA, vals: VALS, capvespre: CAPVESPRE,
             havanera: HAVANERA, celta: CELTA, nocturn: NOCTURN, marimba: MARIMBA, lofi: LOFI } };

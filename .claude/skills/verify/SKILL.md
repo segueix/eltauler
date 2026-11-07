@@ -249,6 +249,17 @@ Conduir amb Playwright + Chromium preinstal·lat
     des d'altres llocs (`#olab-hiero`, missions, historial); `setOpeningScreenMode('overview')`
     torna al taller.
 
+19. **Tornades de la lliga** (`radioambient.js`: `JINGLES`,
+    `createJinglePlayer`): sonen a la pantalla `#league-interlude`. Per
+    provar-les sense jugar una lliga, des de `page.evaluate`: mostrar
+    l'overlay, posar `leagueInterlude = { remainingMs: 30000, lastTs: nowMs(),
+    timer: null }` i cridar `startLeagueInterludeMusic()`; `leagueJinglePlayer
+    .playing()` diu quina sona i `#li-music` ho mostra. Amb la música apagada
+    (`voiceMusicApi().setMode('voice')`) no sona. L'app les compon: `R.composeJingle(estil, llavor)`
+    dona la partitura (mateixa llavor = mateixa peça) i `jingleTitle` el nom
+    («… · la menor»). Per escoltar-les, generar WAV amb
+    `R.jingleSamples(R.composeJingle('rumba', 123), 22050)` des de Node.
+
 ## Fluxos útils
 
 - **Final de partida real per la UI**: `#btn-new-game` → `#btn-resign` →
