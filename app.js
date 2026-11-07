@@ -5878,9 +5878,9 @@ function applyResult(aId, bId, outcome) {
 let leagueInterlude = null;   // { remainingMs, lastTs, timer }
 
 // Tornades musicals de la pantalla entre partides (radioambient.js): cada
-// vegada l'app COMPON una peça nova de 30 s (tonalitat, tempo, acords i
-// melodia) sobre un dels cinc estils, que comença amb el compte enrere i acaba
-// amb un acord final quan comença la partida següent. Es recorden les
+// vegada l'app COMPON una peça nova (tonalitat, tempo, acords i melodia)
+// sobre un dels cinc estils. És un bucle de 32 s sense final: sona en bucle
+// des del compte enrere fins que comença la partida següent (o se surt). Es recorden les
 // empremtes de les darreres peces perquè no se'n repeteixi cap. Respecta la
 // música de Configuració (activada i volum).
 const LEAGUE_JINGLE_LAST_KEY = 'eltauler_league_jingle_last';
@@ -5906,7 +5906,7 @@ function composeNewLeagueJingle(R) {
     let spec = null, fp = null;
     for (let k = 0; k < 20; k++) {
         const seed = Math.floor(Math.random() * 4294967295) + 1;
-        spec = R.composeJingle(style, seed);
+        spec = R.composeJingle(style, seed, { loop: true });
         fp = R.jingleFingerprint(spec);
         if (seen.indexOf(fp) < 0) break;
     }
@@ -5925,15 +5925,15 @@ function startLeagueInterludeMusic() {
     if (!leagueJinglePlayer.supported()) return;
     const spec = composeNewLeagueJingle(want.R);
     const totalMs = ElTaulerCore.LEAGUE_INTERLUDE_SECONDS * 1000;
-    // Si generar-la triga, comença pel punt on va el compte enrere, perquè
-    // l'acord final coincideixi amb l'inici de la partida.
+    // Si generar-la triga, comença pel punt on va el compte enrere (el bucle
+    // dona la volta: no hi ha cap final que s'hagi de fer coincidir).
     leagueJinglePlayer.play(spec, {
         volume: want.volume,
         startedAt: () => leagueInterlude ? Math.max(0, (totalMs - leagueInterlude.remainingMs) / 1000) : 0
     }).then(ok => {
         if (!ok) return;
         // Al registre de música composta (Configuració › Veus de lectura).
-        try { want.R.registerComposition({ where: 'lliga', style: spec.style, seed: spec.seed, loop: false }); } catch (e) {}
+        try { want.R.registerComposition({ where: 'lliga', style: spec.style, seed: spec.seed, loop: true }); } catch (e) {}
         if (!leagueInterlude) return;
         if (document.hidden) leagueJinglePlayer.pause();
         $('#li-music').html(`<svg class="btn-ic" aria-hidden="true"><use href="#ic-music"/></svg>Sona: ${escapeHtml(want.R.jingleTitle(spec))}`)
@@ -32900,20 +32900,93 @@ function renderComposedMusicRegistry() {
     const wrap = document.getElementById('composed-music');
     if (wrap && !wrap.open) return;
     if (!list.length) { box.innerHTML = '<div class="setting-help">Encara no n’ha sonat cap: la primera arribarà entre partides de la lliga o a la TV.</div>'; return; }
-    const sorted = list.slice().sort((a, b) => (b.fav ? 1 : 0) - (a.fav ? 1 : 0) || b.at - a.at);
-    box.innerHTML = sorted.map(e => {
+    const g = R.registryGroups(list);
+    const row = (e, inFavs) => {
         const key = R.registryKey(e);
-        const spec = R.registrySpec(e);
+        const title = R.jingleTitle(R.registrySpec(e));
         const when = new Date(e.at);
         const date = when.toLocaleDateString('ca-ES', { day: 'numeric', month: 'short' }) + ' ' + when.toLocaleTimeString('ca-ES', { hour: '2-digit', minute: '2-digit' });
         const playing = composedPreviewKey === key;
+        const busy = composedDownloadKey === key;
         return `<div class="cm-row${playing ? ' is-playing' : ''}">
-            <div class="cm-info"><span class="cm-title">${escapeHtml(R.jingleTitle(spec))}</span>
-            <span class="cm-meta">${e.where === 'tv' ? 'Stockfish TV' : 'Lliga'} · ${escapeHtml(date)}</span></div>
-            <button type="button" class="btn btn-secondary cm-btn" data-cm-play="${escapeHtml(key)}" aria-label="${playing ? 'Atura' : 'Escolta'} ${escapeHtml(R.jingleTitle(spec))}" title="${playing ? 'Atura' : 'Escolta-la'}"><svg class="btn-ic" aria-hidden="true"><use href="#${playing ? 'ic-stop' : 'ic-play'}"/></svg></button>
+            <div class="cm-info"><span class="cm-title">${escapeHtml(title)}</span>
+            <span class="cm-meta">${e.where === 'tv' ? 'Stockfish TV' : 'Lliga'} · ${escapeHtml(date)}${e.fav && !inFavs ? ' · preferida' : ''}</span></div>
+            <button type="button" class="btn btn-secondary cm-btn" data-cm-play="${escapeHtml(key)}" aria-label="${playing ? 'Atura' : 'Escolta'} ${escapeHtml(title)}" title="${playing ? 'Atura' : 'Escolta-la (en bucle)'}"><svg class="btn-ic" aria-hidden="true"><use href="#${playing ? 'ic-stop' : 'ic-play'}"/></svg></button>
+            <button type="button" class="btn btn-secondary cm-btn cm-dl" data-cm-dl="${escapeHtml(key)}"${busy ? ' disabled aria-busy="true"' : ''} aria-label="Baixa ${escapeHtml(title)} en MP3" title="Baixa-la en MP3">${busy ? '<span class="cm-dl-pct">' + composedDownloadPct + '%</span>' : '<svg class="btn-ic" aria-hidden="true"><use href="#ic-download"/></svg>'}</button>
             <button type="button" class="btn btn-secondary cm-btn cm-fav" data-cm-fav="${escapeHtml(key)}" aria-pressed="${e.fav ? 'true' : 'false'}" title="${e.fav ? 'Treu-la de les preferides' : 'Desa-la com a preferida'}" aria-label="Preferida"><svg class="btn-ic" aria-hidden="true"><use href="#ic-bookmark"/></svg></button>
         </div>`;
-    }).join('');
+    };
+    const dayLabel = d => d.label || new Date(d.day + 'T12:00:00').toLocaleDateString('ca-ES', { weekday: 'short', day: 'numeric', month: 'short' });
+    const open = composedArchiveOpen;
+    let html = `<div class="cm-group"><div class="cm-group-title">${g.latest.length === 1 ? 'La darrera' : 'Les ' + g.latest.length + ' darreres'}</div>${g.latest.map(e => row(e)).join('')}</div>`;
+    if (g.favs.length) html += `<div class="cm-group"><div class="cm-group-title">Preferides (${g.favs.length})</div>${g.favs.map(e => row(e, true)).join('')}</div>`;
+    if (g.days.length) {
+        const n = g.days.reduce((t, d) => t + d.items.length, 0);
+        html += `<details class="cm-archive" id="cm-archive"${open ? ' open' : ''}><summary>Arxiu (${n})</summary>`
+            + g.days.map(d => `<div class="cm-group"><div class="cm-group-title">${escapeHtml(dayLabel(d))} · ${d.items.length}</div>${d.items.map(e => row(e)).join('')}</div>`).join('')
+            + '</details>';
+    }
+    box.innerHTML = html;
+    const arch = document.getElementById('cm-archive');
+    if (arch) arch.addEventListener('toggle', () => { composedArchiveOpen = arch.open; });
+}
+// Baixada en MP3: el bucle es genera de nou (quatre voltes, uns 2 minuts,
+// amb un esvaïment curt al final del fitxer) i lamejs el codifica al
+// navegador; lamejs només es carrega el primer cop que es baixa una peça.
+let composedDownloadKey = null;
+let composedDownloadPct = 0;
+let composedArchiveOpen = false;
+let lameLoading = null;
+const LAMEJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.1/lame.min.js';
+function loadLamejs() {
+    if (window.lamejs && window.lamejs.Mp3Encoder) return Promise.resolve(window.lamejs);
+    if (lameLoading) return lameLoading;
+    lameLoading = new Promise((resolve, reject) => {
+        const sc = document.createElement('script');
+        sc.src = LAMEJS_URL;
+        sc.async = true;
+        sc.onload = () => (window.lamejs && window.lamejs.Mp3Encoder ? resolve(window.lamejs) : reject(new Error('lamejs')));
+        sc.onerror = () => reject(new Error('lamejs'));
+        document.head.appendChild(sc);
+    }).catch(err => { lameLoading = null; throw err; });
+    return lameLoading;
+}
+async function downloadComposedMp3(key) {
+    const R = window.ElTaulerRadioAmbient;
+    if (!R || composedDownloadKey) return;
+    const e = R.registryList().find(x => R.registryKey(x) === key);
+    if (!e) return;
+    const spec = R.registrySpec(e);
+    composedDownloadKey = key; composedDownloadPct = 0;
+    renderComposedMusicRegistry();
+    const setPct = p => {
+        const pct = Math.max(0, Math.min(99, Math.round(p * 100)));
+        if (pct === composedDownloadPct) return;
+        composedDownloadPct = pct;
+        const el = document.querySelector('[data-cm-dl="' + CSS.escape(key) + '"] .cm-dl-pct');
+        if (el) el.textContent = pct + '%';
+    };
+    try {
+        const [lame, samples] = await Promise.all([loadLamejs(), R.exportSamples(spec, { cycles: 4 })]);
+        setPct(0.3);
+        const parts = await R.encodeMp3(samples, lame, { onProgress: p => setPct(0.3 + p * 0.7) });
+        const blob = new Blob(parts, { type: 'audio/mpeg' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = R.mp3FileName(spec);
+        a.rel = 'noopener'; a.style.display = 'none';
+        document.body.appendChild(a); a.click();
+        // L'enllaç i l'adreça es mantenen una estona: si es treuen de seguida,
+        // alguns navegadors perden el nom del fitxer.
+        setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 60000);
+        showToast('Baixada: ' + a.download + ' (' + (blob.size / 1048576).toFixed(1).replace('.', ',') + ' MB)', 'info', 4000);
+    } catch (err) {
+        console.warn('[Música] MP3', err);
+        showToast('No s’ha pogut preparar l’MP3. Comprova la connexió (el codificador es baixa el primer cop) i torna-ho a provar.', 'warn', 6000);
+    } finally {
+        composedDownloadKey = null; composedDownloadPct = 0;
+        renderComposedMusicRegistry();
+    }
 }
 function toggleComposedPreview(key) {
     const R = window.ElTaulerRadioAmbient;
@@ -32948,6 +33021,7 @@ function initVoiceMusicSettingsUi() {
         if (!document.getElementById('composed-music').open && composedPreviewPlayer) { composedPreviewPlayer.stop(true); composedPreviewKey = null; }
     });
     $(document).off('click.cm').on('click.cm', '[data-cm-play]', function () { toggleComposedPreview(this.getAttribute('data-cm-play')); })
+        .on('click.cm', '[data-cm-dl]', function () { void downloadComposedMp3(this.getAttribute('data-cm-dl')); })
         .on('click.cm', '[data-cm-fav]', function () {
             const R = window.ElTaulerRadioAmbient;
             if (R) { R.toggleFavourite(this.getAttribute('data-cm-fav')); renderComposedMusicRegistry(); }

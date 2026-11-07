@@ -282,11 +282,13 @@ El compte enrere només corre amb l'app a la vista (amb la pestanya amagada
 s'atura) i, si una altra pantalla tanca la finestra, s'atura sense començar
 cap partida d'amagat.
 
-**Tornades musicals.** Durant el compte enrere sona una tornada de 30 s que
+**Tornades musicals.** Durant el compte enrere sona una tornada que
 **l'app compon en aquell moment** (`radioambient.js`, `composeJingle`) i
 sintetitza al dispositiu com la resta de música. És música **tranquil·la**,
 per acompanyar entre partida i partida: tempos de 77 a 104 ppm, percussió
-suau, salts de melodia curts, notes llargues i un final amable. Hi ha cinc
+suau, salts de melodia curts i notes llargues. **No té final**: és un bucle
+de 32 s (l'últim compàs és la dominant, que torna a la tònica en començar de
+nou) que sona fins que comença la partida. Hi ha cinc
 estils d'acompanyament: *Passeig de jornada*, *Tic-tac del rellotge*, *Rumba
 de la classificació*, *Groove de la jugada* i *Himne de la lliga*; cada
 transició en tria un de diferent de l'anterior
@@ -297,17 +299,28 @@ d'acompanyament** (ritme de guitarra, línia de baix, arpegis, tic-tac sí o
 no). La música és nova cada vegada: tonalitat, tempo, progressió d'acords en
 frases A · A' · B amb cadència a la dominant, i una melodia amb notes de
 l'acord als temps forts, passos per l'escala entre mig, el motiu de la
-primera frase repetit a la segona i el final a la tònica. Tot surt d'una
+primera frase repetit a la segona i la tornada a la tònica en cada volta. Tot surt d'una
 llavor (un enter); l'app recorda l'empremta de les 200 darreres peces
 (`eltauler_league_jingle_seen`) i no en repeteix cap. La pantalla diu quina
 sona («Sona: Rumba de la classificació · la menor · flauta»). La
 mateixa música composta sona també de fons a la TV Stockfish vs Lozza (un
 bucle de 32 s nou per a cada partida, `composeMelodyId`). Totes les peces
 queden al **registre** de Configuració › Veus de lectura › «Música composta
-per l'app» (`eltauler_composed_music`, només estil i llavor): les 60 darreres
-i les preferides, per tornar-les a escoltar. Comença
-pel punt on va el compte enrere (si generar-la triga una mica) perquè l'acord
-final, entre el segon 26 i el 27, coincideixi amb l'inici de la partida; es
+per l'app» (`eltauler_composed_music`). De cada peça només es desa la
+recepta (estil, llavor, on i quan va sonar, si és preferida: uns 90 bytes; el
+so es torna a generar igual), de manera que se'n conserven les 200 darreres
+(uns 18 kB) i fins a 100 preferides. La llista està ordenada
+(`registryGroups`): **les 5 darreres** a la vista, després **les preferides**
+i la resta a l'**Arxiu**, plegat i agrupat per dies («Avui», «Ahir», «dj., 5
+de nov.»). Cada peça es pot escoltar (en bucle), marcar com a preferida o
+**baixar en MP3**: l'app genera quatre voltes del bucle (uns 2 minuts, amb un
+esvaïment de 3 s només al final del fitxer) i les codifica al navegador amb
+lamejs (mono, 22.050 Hz, 64 kbps, ~1 MB), que només es baixa de cdnjs el
+primer cop (`exportSamples`, `encodeMp3`, `mp3FileName`; nom del fitxer sense
+accents). Les tornades antigues, que acabaven amb un acord, també es tornen a
+generar en bucle. Comença
+pel punt on va el compte enrere (si generar-la triga una mica; el bucle dona
+la volta); es
 pausa amb l'app amagada i s'apaga suaument amb «Juga ara», «Inici» o en
 començar la jornada. Segueix la música de Configuració › Veus de lectura
 (només sona si la música hi és activada, amb el seu volum). Durant la

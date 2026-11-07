@@ -198,7 +198,9 @@ describe('connexió amb la pantalla entre partides de la lliga', () => {
         expect(hide).toContain('stopLeagueInterludeMusic();');
         expect(app).toMatch(/pickJingle\(Math\.random, last\)/);
         // Peça composta ara, amb una llavor que no repeteixi cap de les darreres.
-        expect(app).toMatch(/spec = R\.composeJingle\(style, seed\);/);
+        // En bucle: sense final, sona fins que comença la partida.
+        expect(app).toMatch(/spec = R\.composeJingle\(style, seed, \{ loop: true \}\);/);
+        expect(app).toMatch(/registerComposition\(\{ where: 'lliga', style: spec\.style, seed: spec\.seed, loop: true \}\)/);
         expect(app).toMatch(/if \(seen\.indexOf\(fp\) < 0\) break;/);
         expect(app).toMatch(/if \(!prefs\.music \|\| !\(prefs\.volume > 0\)\) return null;/);
     });
@@ -260,16 +262,19 @@ describe('registre de la música composta', () => {
         expect(list.map(e => R.registryKey(e))).toEqual(['rumba:12:t', 'himne:7:b']);
         expect(list[0].at).toBe(3);
         expect(R.registrySpec(list[1])).toEqual(R.composeJingle('himne', 7, { loop: true }));
-        expect(R.registrySpec(list[0])).toEqual(R.composeJingle('rumba', 12));
+        // També les tornades antigues (sense bucle) es tornen a generar en bucle.
+        expect(R.registrySpec(list[0])).toEqual(R.composeJingle('rumba', 12, { loop: true }));
         expect(R.registerComposition({ style: 'no-existeix', seed: 1 }, st)).toBeNull();
     });
-    test('es guarden les 60 darreres i totes les preferides', () => {
+    test('es guarden les 200 darreres (ocupen molt poc) i totes les preferides', () => {
         const st = memory();
         R.registerComposition({ where: 'lliga', style: 'funk', seed: 1, at: 0 }, st);
         expect(R.toggleFavourite('funk:1:t', st)).toBe(true);
-        for (let k = 2; k <= 80; k++) R.registerComposition({ where: 'lliga', style: 'galop', seed: k, at: k }, st);
+        for (let k = 2; k <= 230; k++) R.registerComposition({ where: 'lliga', style: 'galop', seed: k, at: k }, st);
         const list = R.registryList(st);
-        expect(list.filter(e => !e.fav)).toHaveLength(60);
+        expect(list.filter(e => !e.fav)).toHaveLength(200);
+        // Unes desenes de bytes per peça: 200 peces no arriben a 20 kB.
+        expect(st.data[R.REGISTRY_KEY].length).toBeLessThan(20000);
         expect(list.find(e => R.registryKey(e) === 'funk:1:t').fav).toBe(true);
         // Tornar-la a sentir no li treu la marca de preferida.
         R.registerComposition({ where: 'lliga', style: 'funk', seed: 1, at: 99 }, st);
@@ -285,5 +290,92 @@ describe('registre de la música composta', () => {
         expect(app).toMatch(/data-cm-play=/);
         expect(app).toMatch(/data-cm-fav=/);
         expect(app).toMatch(/registerComposition\(\{ where: 'lliga'/);
+    });
+});
+
+describe('peces en bucle, sense final', () => {
+    test('el reproductor fa sonar en bucle les peces en bucle i el punt d’inici dona la volta', async () => {
+        const ctx = context();
+        const player = R.createJinglePlayer({ createContext: () => ctx, generate: jest.fn(() => Promise.resolve(new Float32Array(22050 * 32))) });
+        const sp = R.composeJingle('rumba', 3, { loop: true });
+        expect(await player.play(sp, { volume: 40, startedAt: () => 40 })).toBe(true);
+        expect(ctx.sources[0].loop).toBe(true);
+        expect(ctx.sources[0].start).toHaveBeenCalledWith(0, 8);
+    });
+    test('cap estil falla en compondre un bucle (abans fallava 1 de cada 6 rumbes)', () => {
+        for (const st of R.JINGLES.map(j => j.id)) {
+            for (let seed = 1; seed <= 1500; seed++) {
+                const sp = R.composeJingle(st, seed, { loop: true });
+                expect(sp.chords.length * sp.beat * 4).toBeCloseTo(R.MELODY_SECONDS, 6);
+                expect(sp.degrees[sp.degrees.length - 1]).toBe(4);
+            }
+        }
+    });
+});
+
+describe('historial ordenat', () => {
+    const day = 86400000, now = new Date(2026, 10, 7, 18, 0).getTime();
+    const e = (seed, at, fav) => ({ where: 'lliga', style: 'funk', seed, loop: true, at, fav: !!fav });
+    test('les 5 darreres a la vista, les preferides i l’arxiu per dies, cada peça en un sol lloc', () => {
+        const list = [e(1, now), e(2, now - 1), e(3, now - 2), e(4, now - 3), e(5, now - 4, true),
+            e(6, now - 5, true), e(7, now - 6), e(8, now - day), e(9, now - 3 * day), e(10, now - 3 * day - 1)];
+        const g = R.registryGroups(list, now);
+        expect(g.latest.map(x => x.seed)).toEqual([1, 2, 3, 4, 5]);
+        expect(g.favs.map(x => x.seed)).toEqual([6]);
+        expect(g.days.map(d => [d.label, d.items.map(x => x.seed)])).toEqual([
+            ['Avui', [7]], ['Ahir', [8]], [null, [9, 10]]]);
+        expect(g.days[2].day).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        expect(R.registryGroups([], now)).toEqual({ latest: [], favs: [], days: [] });
+    });
+});
+
+describe('baixada en MP3', () => {
+    test('quatre voltes del bucle i un esvaïment curt només al final del fitxer', async () => {
+        const cycle = new Float32Array(100).fill(0.5);
+        const out = await R.exportSamples(R.composeJingle('himne', 4, { loop: true }), { cycles: 4, fadeSeconds: 0.001, generate: () => Promise.resolve(cycle) });
+        expect(out.length).toBe(400);
+        expect(out[0]).toBe(0.5);
+        expect(out[350]).toBe(0.5);
+        expect(Math.abs(out[399])).toBeLessThan(0.1);
+    });
+    test('una tornada antiga també es baixa en bucle', async () => {
+        const gen = jest.fn(() => Promise.resolve(new Float32Array(10)));
+        await R.exportSamples(R.composeJingle('galop', 4), { generate: gen });
+        expect(gen.mock.calls[0][0].loop).toBe(true);
+    });
+    test('codifica a trossos amb lamejs (mono, 22.050 Hz, 64 kbps) i informa del progrés', async () => {
+        const calls = [];
+        const lame = { Mp3Encoder: function (ch, rate, kbps) {
+            calls.push([ch, rate, kbps]);
+            this.encodeBuffer = pcm => new Int8Array(Math.ceil(pcm.length / 10));
+            this.flush = () => new Int8Array(3);
+        } };
+        const progress = [];
+        const samples = new Float32Array(1152 * 130).fill(2);   // fora de rang: es retalla
+        const parts = await R.encodeMp3(samples, lame, { onProgress: p => progress.push(p) });
+        expect(calls).toEqual([[1, 22050, 64]]);
+        expect(parts.length).toBe(131);
+        expect(progress[progress.length - 1]).toBe(1);
+        expect(progress.length).toBeGreaterThan(1);
+        await expect(R.encodeMp3(samples, null)).rejects.toThrow('no-encoder');
+    });
+    test('nom del fitxer llegible i sense caràcters prohibits', () => {
+        const name = R.mp3FileName(R.composeJingle('rumba', 123, { loop: true }));
+        expect(name).toMatch(/^El Tauler - Rumba de la classificacio - .+ - .+\.mp3$/);
+        // Només ASCII: amb accents alguns navegadors el canvien per «download».
+        expect(name).toMatch(/^[\x20-\x7e]+$/);
+        expect(name).not.toMatch(/[\\/:*?"<>|]/);
+        for (const st of R.JINGLES.map(j => j.id)) for (let k = 1; k < 40; k++) expect(R.mp3FileName(R.composeJingle(st, k, { loop: true }))).toMatch(/^[\x20-\x7e]+\.mp3$/);
+    });
+    test('Configuració té el botó de baixada i l’historial ordenat', () => {
+        const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+        const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+        expect(app).toMatch(/data-cm-dl=/);
+        expect(app).toContain("const LAMEJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.1/lame.min.js';");
+        expect(app).toContain('R.registryGroups(list)');
+        expect(app).toContain('R.exportSamples(spec, { cycles: 4 })');
+        expect(html).toMatch(/<symbol id="ic-download"/);
+        // L'MP3 no es carrega amb la pàgina, només quan es baixa una peça.
+        expect(html).not.toMatch(/<script[^>]+lame/);
     });
 });
