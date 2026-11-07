@@ -379,3 +379,14 @@ describe('baixada en MP3', () => {
         expect(html).not.toMatch(/<script[^>]+lame/);
     });
 });
+
+describe('«Atura» de Configuració', () => {
+    test('atura la prova de veu, la música de fons i la peça composta que s’escolti', () => {
+        const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+        expect(app).toContain("$('#tts-stop-preview').off('click').on('click', () => stopSettingsAudioPreview());");
+        const fn = app.slice(app.indexOf('function stopSettingsAudioPreview() {'), app.indexOf('function stopReviewTts() {'));
+        expect(fn).toContain('stopReviewTts();');
+        expect(fn).toContain('coord.stopMusic()');
+        expect(fn).toContain('composedPreviewPlayer.stop(true)');
+    });
+});

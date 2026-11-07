@@ -2193,6 +2193,19 @@ function resetReviewTtsState(keepPaused = false) {
     }
 }
 
+// «Atura» de Configuració: la prova de veu i també la música de fons que
+// l'acompanya (que, si no, continuaria una estona) i la peça composta que
+// s'estigui escoltant a «Música composta per l'app».
+function stopSettingsAudioPreview() {
+    stopReviewTts();
+    const coord = voiceMusicApi();
+    if (coord && typeof coord.stopMusic === 'function') { try { coord.stopMusic(); } catch (e) {} }
+    if (typeof composedPreviewPlayer !== 'undefined' && composedPreviewPlayer) {
+        try { composedPreviewPlayer.stop(true); } catch (e) {}
+        if (composedPreviewKey) { composedPreviewKey = null; try { renderComposedMusicRegistry(); } catch (e) {} }
+    }
+}
+
 function stopReviewTts() {
     if (!reviewTtsSupported()) return;
     REVIEW_TTS_STATE.stopRequested = true;
@@ -25526,7 +25539,7 @@ function setupEvents() {
     $('#tts-preset-story').off('click').on('click', () => { $('#tts-rate-range').val(88); $('#tts-cadence-range').val(70); $('#tts-expressivity-range').val(85).trigger('input'); });
     $('#tts-preset-dictation').off('click').on('click', () => { $('#tts-rate-range').val(72); $('#tts-cadence-range').val(100); $('#tts-expressivity-range').val(0).trigger('input'); });
     $('#tts-preview').off('click').on('click', () => previewCurrentReviewTtsPreset());
-    $('#tts-stop-preview').off('click').on('click', () => stopReviewTts());
+    $('#tts-stop-preview').off('click').on('click', () => stopSettingsAudioPreview());
     $('#tts-save').off('click').on('click', () => saveCurrentReviewTtsPreset());
     $('#tts-delete').off('click').on('click', () => deleteCurrentReviewTtsPreset());
     $('#tts-default').off('click').on('click', () => { setReviewTtsMode('fixed'); saveCurrentReviewTtsPreset(); });
