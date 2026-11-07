@@ -6642,6 +6642,7 @@
         body.epaper-mode #start-screen .engagement-banner .eng-cta { background: #222 !important; color: #fff !important; }
     </style>
     <link rel="stylesheet" href="bulletpractice.css?v=1.2.1">
+    <link rel="stylesheet" href="tallerobertures.css?v=1.0.0">
     <link rel="stylesheet" href="canviapp.css?v=1.0.0">
 </head>
 <body>
@@ -9070,6 +9071,67 @@
                 <div class="app-logo">📖</div>
                 <h1>Obertures</h1>
             </div>
+            <!-- La secció cap en un sol tauler: el taller de la TEVA obertura
+                 (tallerobertures.js). Els blocs antics de sota només surten quan
+                 s'hi entra des d'una altra part de l'app (jeroglífic d'obertura,
+                 errors d'obertura, pràctica des de l'historial). -->
+            <section class="olab" id="opening-lab" aria-label="La teva obertura">
+                <div class="olab-seg" role="group" aria-label="Color">
+                    <button type="button" class="olab-seg-btn is-on" data-olab-color="w" aria-pressed="true">Amb blanques</button>
+                    <button type="button" class="olab-seg-btn" data-olab-color="b" aria-pressed="false">Amb negres</button>
+                </div>
+                <div class="olab-title" id="olab-title">La teva obertura amb blanques</div>
+                <div class="olab-main">
+                    <div class="olab-board-col">
+                        <div class="olab-name" id="olab-name" aria-live="polite"><span class="olab-name-text">Posició inicial</span></div>
+                        <div class="olab-board-wrap board-container" id="olab-board-wrap"><div id="olab-board"></div></div>
+                        <div class="olab-progress" aria-hidden="true"><div class="olab-progress-bar" id="olab-progress-bar"></div></div>
+                        <div class="olab-progress-text" id="olab-progress-text">0/8 jugades teves</div>
+                    </div>
+                    <div class="olab-side">
+                        <div class="olab-moves" id="olab-moves"></div>
+                        <div class="olab-guide" id="olab-guide" aria-live="polite"></div>
+                        <div class="olab-feedback" id="olab-feedback" aria-live="polite"></div>
+                        <div class="olab-actions">
+                            <button type="button" class="btn btn-secondary" id="olab-undo" title="Torna a la teva jugada anterior">↩ Enrere</button>
+                            <button type="button" class="btn btn-hint" id="olab-hint">💡 Pista</button>
+                            <button type="button" class="btn btn-primary" id="olab-new">Nova línia</button>
+                        </div>
+                        <div class="olab-stats" id="olab-stats"></div>
+                        <div class="olab-plan" id="olab-plan"></div>
+                        <div class="olab-issues" id="olab-issues" hidden></div>
+                    </div>
+                </div>
+                <details class="olab-more">
+                    <summary>Com funciona i opcions</summary>
+                    <ol class="olab-howto">
+                        <li><strong>Posició nova:</strong> tria la teva jugada. Stockfish 19 la valida; si és dubtosa, et diu per què i la tornes a provar.</li>
+                        <li><strong>Una posició, una jugada:</strong> cada jugada acceptada queda al teu repertori, també si hi arribes per un altre ordre.</li>
+                        <li><strong>El teu pla:</strong> on va cada peça la primera vegada que la mous. Si una jugada nova el contradiu sense un motiu que Stockfish 19 confirmi, tries: mantens el pla o el canvies. La coherència arriba al 100% quan totes les línies segueixen el mateix pla o en justifiquen l’excepció.</li>
+                        <li><strong>Repàs:</strong> a les posicions que ja tens, has de recordar la teva jugada. El rival tria respostes de la teoria i et porta on et toca repassar o on encara no has decidit.</li>
+                    </ol>
+                    <div class="olab-opts">
+                        <label for="olab-depth">Llargada de la línia</label>
+                        <select id="olab-depth" class="select-control">
+                            <option value="6">6 jugades teves</option>
+                            <option value="8" selected>8 jugades teves</option>
+                            <option value="10">10 jugades teves</option>
+                            <option value="12">12 jugades teves</option>
+                        </select>
+                    </div>
+                    <div class="olab-opts">
+                        <label for="olab-rep-name">Nom de la teva obertura</label>
+                        <input type="text" id="olab-rep-name" class="olab-input" maxlength="60" placeholder="Posa-li nom">
+                    </div>
+                    <div class="olab-opts olab-opts--btns">
+                        <button type="button" class="btn btn-secondary olab-btn-sm" id="olab-forget" hidden>Oblida la jugada d’aquesta posició</button>
+                        <button type="button" class="btn btn-secondary olab-btn-sm" id="olab-reset">Esborra el repertori d’aquest color</button>
+                    </div>
+                </details>
+                <div class="olab-extra">
+                    <button type="button" class="btn btn-secondary" id="olab-hiero"><svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> Jeroglífic d’obertura</button>
+                </div>
+            </section>
             <div class="opening-banner" id="personal-opening-banner">
                 <button type="button" class="opening-banner-head" id="btn-personal-opening-toggle" aria-expanded="false" aria-controls="personal-opening-panel">
                     <svg class="opening-banner-ic" aria-hidden="true"><use href="#ic-compass"/></svg>
@@ -10194,6 +10256,7 @@
     <script src="jeropedagogia.js?v=1.2.1"></script>
     <script src="sons.js?v=1.0.0"></script>
     <script src="tutorial.js?v=1.0.5"></script>
+    <script src="tallerobertures.js?v=1.0.0"></script>
     <script src="veuneural.js?v=1.2.2"></script>
     <script src="radioambient.js?v=2.1.0"></script>
     <script src="musicafons.js?v=1.2.0"></script>
@@ -10223,7 +10286,7 @@
     <script src="boardexperience.js?v=1.0.6"></script>
     <script src="bulletbank.js?v=1.0.0"></script>
     <script src="bulletpractice.js?v=1.2.6"></script>
-    <script src="app.js?v=1.0.146"></script>
+    <script src="app.js?v=1.0.147"></script>
     <!-- Pas a Remigi lliscant el dit pel mig de la portada (mòbil) -->
     <script src="canviapp.js?v=1.0.0"></script>
 

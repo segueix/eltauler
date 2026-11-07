@@ -26,6 +26,20 @@ dos enllaços).
   (MultiPV), i la tria la fa el model de tria humana (§17). Ni la TV ni els jeroglífics recauen al motor antic.
   Antídot usa un worker propi; només si Stockfish 19 falla recau al motor
   ordinari per no bloquejar la partida.
+- **Obertures («La teva obertura», `tallerobertures.js`)**: la secció és un
+  sol tauler amb un worker propi de Stockfish 19 (no comparteix cua amb els
+  jeroglífics). Cada jugada nova de l'usuari s'analitza amb MultiPV 4
+  (profunditat 14, 1,4 s); si la jugada no és entre les quatre, s'analitza la
+  posició resultant. Es rebutja si perd més de 0,90 peons respecte de la
+  millor (≤ 0,20 excel·lent, ≤ 0,50 sòlida, ≤ 0,90 jugable). Una jugada que
+  trenca el pla de l'usuari (una peça que a les altres línies va a una altra
+  casella) només es dona per justificada si la jugada del pla hi perd més de
+  0,30 peons. El rival tria entre la teoria que Stockfish 19 no penalitza més
+  de 0,70 peons (MultiPV 5) i, fora de llibre, entre les seves millors. Les
+  anàlisis es desen a `eltauler_cloud_openingEvals` (fins a 700 posicions,
+  només en aquest aparell) per no repetir-les; el repertori
+  (`chess_openingWorkshop_v1`) viatja amb la sincronització. Sense motor, només s'accepten jugades de teoria com a
+  validades; la resta queden «sense validar» i no compten com a coherents.
 - **Exercicis amb línia** (Tàctiques, Revisa errors, Repàs intel·ligent):
   la línia es prepara amb el worker de Stockfish 19 dels jeroglífics
   (`analyzeExerciseFen`, a la mateixa cua) i només recau al motor ordinari si
