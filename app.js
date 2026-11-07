@@ -10579,7 +10579,6 @@ async function analyzeFenRobust(fen, depth = 15, multiPv = 1, moveTimeMs = 8000,
 // La cua impedeix que MultiPV / bestmove de dues cerques es contaminin.
 let hieroStockfish = null;
 let hieroReadyPromise = null;
-let hieroAnalysisQueue = Promise.resolve();
 // Ús del motor: el planificador el tanca quan fa estona que no es fa servir
 // (en gamma baixa, als 45 s) i així no ocupa memòria durant les partides.
 let hieroLastUsedAt = 0;
@@ -10643,31 +10642,132 @@ function waitHieroStockfishReady(worker, timeoutMs = 5000) {
         try { worker.postMessage('isready'); } catch (e) { finish(false); }
     });
 }
-function analyzeHieroFenRobust(fen, depth = 15, multiPv = 1, moveTimeMs = 8000, shouldAbort = null) {
-    const run = async () => {
+// ── Stockfish 19 compartit ──────────────────────────────────────────────────
+// Un sol worker de Stockfish 19 (el dels jeroglífics) per a tota la feina que
+// no és el rival ordinari de les partides: generació de jeroglífics,
+// preparació d'exercicis, el taller d'obertures i el Rival Antídot. Les feines
+// fan cua amb prioritat:
+//   play (2)       el rival d'una partida en curs (Antídot);
+//   screen (1)     algú espera a la pantalla (taller, exercicis);
+//   background (0) generació de jeroglífics en segon pla.
+// Una feina més prioritària atura la que s'està fent si és de fons o de
+// pantalla ('stop'), i aquesta es torna a fer de zero més tard: mai no es dona
+// per bona una anàlisi a mitges (certifica jeroglífics). Abans de cada feina, 'stop' + 'isready'
+// buida qualsevol resposta antiga perquè no contamini la següent.
+const SF19_PRIORITY = { background: 0, screen: 1, play: 2 };
+const sf19Jobs = [];
+let sf19Current = null;
+let sf19Seq = 0;
+function sf19Busy() { return !!sf19Current || sf19Jobs.length > 0; }
+// run(worker, ctl) → resultat; ctl.preempted() diu si l'han aturada per
+// passar-ne una de més prioritària (el resultat es descartarà).
+function sf19Submit(priority, run, opts = {}) {
+    const level = typeof priority === 'number' ? priority : (SF19_PRIORITY[priority] || 0);
+    return new Promise(resolve => {
+        const job = { priority: level, run, resolve, seq: ++sf19Seq, tag: opts.tag || null,
+            // Tot el que no és el rival d'una partida cedeix davant d'una feina
+            // més prioritària (i es torna a fer després).
+            preemptable: opts.preemptable !== undefined ? !!opts.preemptable : level < SF19_PRIORITY.play,
+            preempted: false, cancelled: false, worker: null };
+        sf19Jobs.push(job);
+        hieroPendingAnalyses++;
+        hieroLastUsedAt = Date.now();
+        const cur = sf19Current;
+        if (cur && cur.preemptable && cur.priority < level && cur.worker) {
+            cur.preempted = true;
+            try { cur.worker.postMessage('stop'); } catch (e) {}
+        }
+        void sf19Pump();
+    });
+}
+async function sf19Pump() {
+    if (sf19Current || !sf19Jobs.length) return;
+    sf19Jobs.sort((a, b) => (b.priority - a.priority) || (a.seq - b.seq));
+    const job = sf19Jobs.shift();
+    sf19Current = job;
+    let result = null;
+    try {
+        if (!job.cancelled && await ensureHieroStockfish()) {
+            const worker = hieroStockfish;
+            if (worker) {
+                job.worker = worker;
+                let clean = true;
+                try { worker.postMessage('stop'); } catch (e) { clean = false; }
+                if (!clean || !await waitHieroStockfishReady(worker)) disposeHieroStockfish();
+                else if (!job.cancelled) result = await job.run(worker, { preempted: () => job.preempted || job.cancelled });
+            }
+        }
+    } catch (e) {
+        console.warn('[SF19] Error en una feina del motor compartit', e);
+        result = null;
+    }
+    sf19Current = null;
+    if (job.preempted && !job.cancelled) {
+        // Aturada per una de més prioritària: es torna a fer més tard.
+        job.preempted = false;
+        job.worker = null;
+        job.seq = ++sf19Seq;
+        sf19Jobs.push(job);
+    } else {
+        hieroPendingAnalyses = Math.max(0, hieroPendingAnalyses - 1);
+        hieroLastUsedAt = Date.now();
+        job.resolve(job.cancelled ? null : result);
+    }
+    void sf19Pump();
+}
+// Atura i descarta les feines d'una etiqueta (p. ex. 'antidote' en sortir).
+function sf19Cancel(tag) {
+    for (let i = sf19Jobs.length - 1; i >= 0; i--) {
+        const job = sf19Jobs[i];
+        if (job.tag !== tag) continue;
+        sf19Jobs.splice(i, 1);
+        job.cancelled = true;
+        hieroPendingAnalyses = Math.max(0, hieroPendingAnalyses - 1);
+        job.resolve(null);
+    }
+    if (sf19Current && sf19Current.tag === tag) {
+        sf19Current.cancelled = true;
+        try { if (sf19Current.worker) sf19Current.worker.postMessage('stop'); } catch (e) {}
+    }
+}
+
+function analyzeHieroFenRobust(fen, depth = 15, multiPv = 1, moveTimeMs = 8000, shouldAbort = null, priority = 'background') {
+    return sf19Submit(priority, async (worker, ctl) => {
+        let w = worker;
         for (let attempt = 0; attempt < 2; attempt++) {
             if (shouldAbort && shouldAbort()) return null;
-            if (!await ensureHieroStockfish()) return null;
-            const worker = hieroStockfish;
-            if (!worker) return null;
-            try { worker.postMessage('stop'); } catch (e) { disposeHieroStockfish(); continue; }
-            if (!await waitHieroStockfishReady(worker)) { disposeHieroStockfish(); continue; }
-            if (shouldAbort && shouldAbort()) return null;
+            if (attempt > 0) {
+                // Segon intent amb un worker nou (l'anterior ha fallat).
+                if (!await ensureHieroStockfish()) return null;
+                w = hieroStockfish;
+                if (!w || !await waitHieroStockfishReady(w)) { disposeHieroStockfish(); return null; }
+            }
             try {
-                const result = await analyzePositionEnrichedTimed(worker, fen, depth, multiPv, moveTimeMs, moveTimeMs + 5000);
+                const result = await analyzePositionEnrichedTimed(w, fen, depth, multiPv, moveTimeMs, moveTimeMs + 5000);
+                if (ctl.preempted()) return null;
                 if (shouldAbort && shouldAbort()) return null;
                 if (result && result.bestMove && uciToSanForFen(fen, result.bestMove.move)) return result;
             } catch (e) { console.warn('[Jeroglífics] Error analitzant amb SF19', e); }
+            if (ctl.preempted()) return null;
             disposeHieroStockfish();
         }
         return null;
-    };
-    hieroPendingAnalyses++;
-    hieroLastUsedAt = Date.now();
-    const task = hieroAnalysisQueue.then(run, run);
-    hieroAnalysisQueue = task.then(() => {}, () => {});
-    task.then(() => {}, () => {}).then(() => { hieroPendingAnalyses = Math.max(0, hieroPendingAnalyses - 1); hieroLastUsedAt = Date.now(); });
-    return task;
+    });
+}
+// Anàlisi per al taller d'obertures (tallerobertures.js): MultiPV amb el
+// motor compartit, a prioritat de pantalla.
+function sf19AnalyzeForLab(fen, p) {
+    return sf19Submit('screen', async worker => {
+        const r = await analyzePositionEnrichedTimed(worker, fen, p.depth, p.multipv, p.movetime, p.movetime + 4000);
+        if (!r || !r.alternatives || !r.alternatives.length) return null;
+        return {
+            depth: r.depth || 0,
+            lines: r.alternatives.filter(a => a && a.move).map((a, i) => ({
+                uci: a.move, multipv: i + 1, depth: a.depth || r.depth || 0,
+                cp: a.evalType === 'mate' ? (a.eval > 0 ? 10000 - a.eval : -10000 - a.eval) : a.eval
+            }))
+        };
+    }, { tag: 'lab' });
 }
 if (typeof window !== 'undefined') window.addEventListener('pagehide', disposeHieroStockfish);
 
@@ -10676,7 +10776,8 @@ if (typeof window !== 'undefined') window.addEventListener('pagehide', disposeHi
 // jeroglífics. Només si el worker de SF19 no arrenca es recau al motor ordinari,
 // perquè la secció no es quedi mai sense exercici.
 async function analyzeExerciseFen(fen, depth = 15, multiPv = 1, moveTimeMs = 8000, shouldAbort = null) {
-    const viaSf19 = await analyzeHieroFenRobust(fen, depth, multiPv, moveTimeMs, shouldAbort);
+    // Algú espera l'exercici: passa davant de la generació de jeroglífics.
+    const viaSf19 = await analyzeHieroFenRobust(fen, depth, multiPv, moveTimeMs, shouldAbort, 'screen');
     if (viaSf19 || (shouldAbort && shouldAbort())) return viaSf19;
     console.warn('[Bundle] Stockfish 19 no ha respost; es recau al motor ordinari');
     return analyzeFenRobust(fen, depth, multiPv, moveTimeMs, shouldAbort);
@@ -25539,6 +25640,9 @@ function setupEvents() {
     if (window.ElTaulerOpeningLab && typeof window.ElTaulerOpeningLab.configure === 'function') {
         window.ElTaulerOpeningLab.configure({
             stockfishUrl: HIERO_STOCKFISH_URL,
+            // Motor compartit (sf19Submit, prioritat de pantalla): el taller no
+            // obre cap worker propi.
+            analyze: (fen, params) => sf19AnalyzeForLab(fen, params),
             getGraph: () => getOpeningPositionGraph(),
             onHiero: () => { initOpeningBundleBoard(); loadDeferredData('openings').then(() => startOpeningTheoryHieroglyphic()); }
         });
@@ -32100,7 +32204,6 @@ const ANTIDOTE_VOICE_KEY = 'eltauler_antidote_veu';
 
 let antidotePlayPending = null;   // petició d'inici (es consumeix a startGame)
 let antidoteState = null;         // estat de la partida Antídot en curs
-let antidoteEngine = null;        // worker dedicat (força màxima + MultiPV)
 let antidoteDetectors = null;     // detectors de core.js lligats a chess.js
 let antidoteProgress = null;      // progrés acumulat entre partides
 let antidoteSearchToken = 0;      // invalida cerques d'una partida anterior
@@ -32126,51 +32229,19 @@ function getAntidoteDetectors() {
     return antidoteDetectors;
 }
 
-// Motor Stockfish 19 independent dels altres modes.
-let antidoteEngineReadyPromise = null;
+// Motor: el Stockfish 19 compartit (sf19Submit), a prioritat «play»: passa
+// davant de tota la resta i atura la generació de jeroglífics de fons. La
+// partida no té cap worker propi.
 function ensureAntidoteEngine() {
-    if (antidoteEngine) return antidoteEngine;
-    let worker;
-    try { worker = new Worker(ANTIDOTE_STOCKFISH_URL); }
-    catch (e) { console.warn('[Antídot] Stockfish 19 no disponible', e); return null; }
-    antidoteEngine = worker;
-    antidoteEngineReadyPromise = new Promise(resolve => {
-        let finished = false;
-        const finish = ok => {
-            if (finished) return;
-            finished = true;
-            clearTimeout(timer);
-            try {
-                worker.removeEventListener('message', onMessage);
-                worker.removeEventListener('error', onError);
-            } catch (e) {}
-            if (!ok && antidoteEngine === worker) releaseAntidoteEngine();
-            resolve(ok);
-        };
-        const onMessage = e => {
-            if (typeof e.data === 'string' && e.data.trim() === 'readyok') finish(true);
-        };
-        const onError = () => finish(false);
-        const timer = setTimeout(() => finish(false), 15000);
-        worker.addEventListener('message', onMessage);
-        worker.addEventListener('error', onError);
-        try {
-            worker.postMessage('uci');
-            worker.postMessage('setoption name UCI_LimitStrength value false');
-            worker.postMessage('ucinewgame');
-            worker.postMessage('isready');
-        } catch (e) { finish(false); }
-    });
-    return antidoteEngine;
+    // Escalfa el motor compartit (WASM carregat i UCI a punt) abans de la
+    // primera resposta del rival.
+    void ensureHieroStockfish();
+    return true;
 }
-
+// Atura la cerca Antídot en curs i descarta les que esperaven torn. El motor
+// compartit continua viu per a la resta de feines.
 function releaseAntidoteEngine() {
-    const worker = antidoteEngine;
-    antidoteEngine = null;
-    antidoteEngineReadyPromise = null;
-    if (!worker) return;
-    try { worker.postMessage('stop'); } catch (e) {}
-    try { worker.terminate(); } catch (e) {}
+    sf19Cancel('antidote');
 }
 
 // ── Preferències del comentari en viu (Configuració) ────────────────────────
@@ -32600,8 +32671,7 @@ function makeAntidoteEngineMove() {
     if (!isAntidoteMode()) return false;
     if (antidoteState.searching) return true;   // ja s'hi està
     const detectors = getAntidoteDetectors();
-    const engine = ensureAntidoteEngine();
-    if (!detectors || !engine) return false;
+    if (!detectors) return false;
 
     const fen = game.fen();
     const generation = gameGeneration;
@@ -32638,32 +32708,36 @@ function makeAntidoteEngineMove() {
 
     const run = async () => {
         try {
-            const ready = await (antidoteEngineReadyPromise || Promise.resolve(false));
-            if (generation !== gameGeneration || token !== antidoteSearchToken || !isAntidoteMode()) return;
-            if (!ready || engine !== antidoteEngine) { bail('uci-not-ready'); return; }
-            // El temps de cerca comença quan el WASM ja està carregat.
-            watchdog = setTimeout(() => {
-                if (settled) return;
-                settled = true;
-                bail('watchdog');
-            }, budget.moveTimeMs + 7000);
-            const analysis = await analyzePositionEnrichedTimed(
-                engine, fen, budget.depth, multiPv, budget.moveTimeMs, budget.moveTimeMs + 4000
-            );
-            if (settled) return;
-            // Una segona passada, molt limitada i només en ritmes prou lents,
-            // comprova si una captura o un escac temptadors serien una errada.
-            // Si falla o s'esgota el temps, manté la selecció original intacta.
-            if (!analysis.timedOut) {
-                try {
-                    await enrichAntidoteProbableReplies(engine, fen, analysis, deviceOpts,
-                        () => !settled && generation === gameGeneration && token === antidoteSearchToken
-                            && isAntidoteMode() && game && game.fen() === fen);
-                } catch (e) {
-                    if (DEBUG_ANTIDOTE) console.warn('[Antídot] sense segon anàlisi:', e);
+            const isCurrent = () => !settled && generation === gameGeneration && token === antidoteSearchToken
+                && isAntidoteMode() && game && game.fen() === fen;
+            // Una feina «play» del motor compartit: passa davant de tot i
+            // atura la generació de jeroglífics de fons.
+            const analysis = await sf19Submit('play', async engine => {
+                if (!isCurrent()) return null;
+                // El temps de cerca comença quan el motor és a punt.
+                watchdog = setTimeout(() => {
+                    if (settled) return;
+                    settled = true;
+                    bail('watchdog');
+                }, budget.moveTimeMs + 7000);
+                const result = await analyzePositionEnrichedTimed(
+                    engine, fen, budget.depth, multiPv, budget.moveTimeMs, budget.moveTimeMs + 4000
+                );
+                // Una segona passada, molt limitada i només en ritmes prou lents,
+                // comprova si una captura o un escac temptadors serien una errada.
+                // Si falla o s'esgota el temps, manté la selecció original intacta.
+                if (result && !result.timedOut && isCurrent()) {
+                    try {
+                        await enrichAntidoteProbableReplies(engine, fen, result, deviceOpts, isCurrent);
+                    } catch (e) {
+                        if (DEBUG_ANTIDOTE) console.warn('[Antídot] sense segon anàlisi:', e);
+                    }
                 }
-            }
+                return result;
+            }, { tag: 'antidote' });
             if (settled) return;
+            if (generation !== gameGeneration || token !== antidoteSearchToken || !isAntidoteMode()) return;
+            if (!analysis) { bail('uci-not-ready'); return; }
             clearTimeout(watchdog);
             if (generation !== gameGeneration || token !== antidoteSearchToken || !isAntidoteMode()) return;
             antidoteState.searching = false;
@@ -32696,7 +32770,7 @@ async function enrichAntidoteProbableReplies(engine, fen, analysis, deviceOpts, 
     const opts = cfg.probableReply;
     if (!analysis || !Array.isArray(analysis.alternatives)
         || analysis.alternatives.length < 1 || !opts || !isCurrent()
-        || !engine || engine !== antidoteEngine || analysis.timedOut) return;
+        || !engine || engine !== hieroStockfish || analysis.timedOut) return;
     // Sense rellotge: 2 comprovacions. Ràpides/clàssiques: només una.
     // Bullet i blitz no pateixen aquest cost addicional.
     const pace = deviceOpts && deviceOpts.timeControlKind;
@@ -32740,7 +32814,7 @@ async function enrichAntidoteProbableReplies(engine, fen, analysis, deviceOpts, 
     const verified = Object.create(null);
     let attempted = 0;
     for (const pick of possible.slice(0, Math.min(opts.maxMainCandidates, possible.length))) {
-        if (!isCurrent() || engine !== antidoteEngine || attempted >= maxProbes) break;
+        if (!isCurrent() || engine !== hieroStockfish || attempted >= maxProbes) break;
         let after;
         try {
             const chess = new Chess(fen);
@@ -32759,8 +32833,9 @@ async function enrichAntidoteProbableReplies(engine, fen, analysis, deviceOpts, 
         if (!isCurrent()) return;
         if (child.timedOut) {
             // El 'bestmove' antic podria arribar després del timeout i contaminar
-            // la següent cerca. No es torna a fer servir aquest worker.
-            releaseAntidoteEngine();
+            // la següent cerca: el worker compartit es descarta (la feina
+            // següent n'arrenca un de nou) i no es continua comprovant.
+            disposeHieroStockfish();
             break;
         }
         const risk = core.antidoteVerifyProbableReply(pick.reply, pick.alt, child);
@@ -32989,7 +33064,7 @@ function antidoteUndoMove() {
     clearEngineMoveTimers();
     isEngineThinking = false;
     engineReplyStartTs = null;
-    try { if (antidoteEngine) antidoteEngine.postMessage('stop'); } catch (e) {}
+    releaseAntidoteEngine();
     try { if (stockfish) stockfish.postMessage('stop'); } catch (e) {}
 
     // La prova que havia creat la jugada del rival que ara desfem no ha

@@ -24,11 +24,26 @@ dos enllaços).
   rellotge (`LLIGA.md` §2), que torna al motor ordinari si no arrenca.
   Des de ROC 872 hi cerca a força màxima i puntua totes les jugades legals
   (MultiPV), i la tria la fa el model de tria humana (§17). Ni la TV ni els jeroglífics recauen al motor antic.
-  Antídot usa un worker propi; només si Stockfish 19 falla recau al motor
-  ordinari per no bloquejar la partida.
+  Antídot fa servir el **motor compartit** (vegeu més avall) a prioritat de
+  partida; només si Stockfish 19 falla recau al motor ordinari per no
+  bloquejar la partida.
+- **Motor compartit** (`app.js`: `sf19Submit`): un sol worker de Stockfish 19
+  (el dels jeroglífics) per a la generació de jeroglífics, la preparació
+  d'exercicis, el taller d'obertures i el Rival Antídot, amb una cua de
+  prioritats: *play* (el rival d'una partida), *screen* (algú espera a la
+  pantalla) i *background* (generació de fons). Una feina més prioritària
+  atura amb `stop` la que s'està fent si és de fons o de pantalla, i aquesta
+  es torna a fer de zero després: mai no es dona per bona una anàlisi a
+  mitges. Abans de cada feina, `stop` + `isready` buiden qualsevol resposta
+  antiga. `sf19Cancel(etiqueta)` atura i descarta les d'una etiqueta (p. ex.
+  en sortir d'una partida Antídot). Mesurat al navegador: abans s'obrien
+  fins a tres workers de Stockfish 19 alhora (jeroglífics, taller i Antídot),
+  ara un; la resposta de l'Antídot triga el mateix, també amb la generació de
+  jeroglífics treballant de fons. El rival de les partides amb rellotge, la
+  TV i el rival ordinari continuen amb el seu motor.
 - **Obertures («La teva obertura», `tallerobertures.js`)**: la secció és un
-  sol tauler amb un worker propi de Stockfish 19 (no comparteix cua amb els
-  jeroglífics). Cada jugada nova de l'usuari s'analitza amb MultiPV 4
+  sol tauler que analitza amb el motor compartit a prioritat de pantalla
+  (`sf19AnalyzeForLab`): passa davant de la generació de jeroglífics. Cada jugada nova de l'usuari s'analitza amb MultiPV 4
   (profunditat 14, 1,4 s); si la jugada no és entre les quatre, s'analitza la
   posició resultant. Es rebutja si perd més de 0,90 peons respecte de la
   millor (≤ 0,20 excel·lent, ≤ 0,50 sòlida, ≤ 0,90 jugable). Una jugada que
@@ -41,8 +56,8 @@ dos enllaços).
   (`chess_openingWorkshop_v1`) viatja amb la sincronització. Sense motor, només s'accepten jugades de teoria com a
   validades; la resta queden «sense validar» i no compten com a coherents.
 - **Exercicis amb línia** (Tàctiques, Revisa errors, Repàs intel·ligent):
-  la línia es prepara amb el worker de Stockfish 19 dels jeroglífics
-  (`analyzeExerciseFen`, a la mateixa cua) i només recau al motor ordinari si
+  la línia es prepara amb el motor compartit a prioritat de pantalla
+  (`analyzeExerciseFen`) i només recau al motor ordinari si
   SF19 no arrenca. La segona jugada del jugador només es conserva si té un
   resultat palpable (`tacticStepVerdict` de `core.js`: mat, mat curt i únic o
   guany net de material dins la PV); si no, l'exercici es queda en un sol pas.
