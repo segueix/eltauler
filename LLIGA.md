@@ -273,6 +273,18 @@ El compte enrere només corre amb l'app a la vista (amb la pestanya amagada
 s'atura) i, si una altra pantalla tanca la finestra, s'atura sense començar
 cap partida d'amagat.
 
+**Tornades musicals.** Durant el compte enrere sona una tornada de 30 s
+(`radioambient.js`, `JINGLES`), generada al dispositiu com la resta de música
+de l'app: *Fanfàrria de jornada*, *Galop del rellotge*, *Rumba de la
+classificació*, *Funk de la jugada* i *Himne de la lliga*. Cada transició en
+tria una de diferent de l'anterior (`eltauler_league_jingle_last`). Comença
+pel punt on va el compte enrere (si generar-la triga una mica) perquè l'acord
+final, entre el segon 26 i el 27, coincideixi amb l'inici de la partida; es
+pausa amb l'app amagada i s'apaga suaument amb «Juga ara», «Inici» o en
+començar la jornada. Segueix la música de Configuració › Veus de lectura
+(només sona si la música hi és activada, amb el seu volum) i la pantalla
+indica quina sona («Sona: …»). Durant la partida amb rellotge no sona res.
+
 **Comprovat a l'app** (1+0, Chromium, Stockfish 19 real): el rival de la
 jornada 1, amb blanques i el Sistema Londres, obre 1.d4; en rendir-se apareix
 el compte enrere amb el proper rival («AlfilFosc, 10è a la lliga, ROC 1106, el

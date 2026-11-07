@@ -326,7 +326,9 @@ describe('partides consecutives a les lligues de 30s i 1+0', () => {
             $: sel => ({ text: v => { texts[sel] = v; }, hide() {} }),
             nowMs: () => now, setInterval: () => 1, clearInterval() {},
             leagueInterlude: null, started: 0, startLeagueRound() { ctx.started++; }, hidePostGameStatusChip() {},
-            currentLeague: { completed: false }
+            currentLeague: { completed: false },
+            // Tornada musical de la pantalla (radioambient.js): aquí només es compta.
+            leagueJinglePlayer: null, musicStops: 0, stopLeagueInterludeMusic() { ctx.musicStops++; }
         });
         ['renderLeagueInterludeCount', 'tickLeagueInterlude', 'stopLeagueInterludeTimer', 'hideLeagueInterlude', 'startLeagueRoundFromInterlude']
             .forEach(n => vm.runInContext(fnSource(n), ctx));
@@ -345,6 +347,8 @@ describe('partides consecutives a les lligues de 30s i 1+0', () => {
         expect(ctx.started).toBe(1);
         expect(ctx.leagueInterlude).toBe(null);
         expect(overlay.style.display).toBe('none');
+        // En començar la jornada, la tornada s'apaga.
+        expect(ctx.musicStops).toBeGreaterThanOrEqual(1);
     });
 
     test('amb l\'app amagada el compte enrere s\'atura', () => {
@@ -513,7 +517,8 @@ describe('pantalla entre partides: poc text i les dues posicions marcades', () =
             currentLeague: { currentRound: 3, completed: false, players, results: [], colors: ['w', 'b', 'b'], division: 2 },
             getLeagueTimeControlId: () => '1+0', syncLeagueUserRoc() {}, getMyOpponentForRound: () => 'bot4',
             getLeaguePlayer: id => players.find(p => p.id === id), nowMs: () => 0, setInterval: () => 1, clearInterval() {},
-            leagueInterlude: null, resultFinalClockHtml: () => '<div>rellotge</div>', escapeHtml: x => x
+            leagueInterlude: null, resultFinalClockHtml: () => '<div>rellotge</div>', escapeHtml: x => x,
+            musicStarts: 0, startLeagueInterludeMusic() { ctx.musicStarts++; }
         });
         vm.runInContext(fnSource('formatPts'), ctx);
         vm.runInContext(fnSource('formatEloChange'), ctx);
@@ -535,6 +540,8 @@ describe('pantalla entre partides: poc text i les dues posicions marcades', () =
         const { ctx, els, overlay } = interCtx();
         expect(ctx.showLeagueInterlude('Victòria per temps! (+13 · Bullet 1+0)', 'win', { eloChange: 13, reason: 'time' })).toBe(true);
         expect(overlay.style.display).toBe('flex');
+        // La tornada musical comença amb el compte enrere.
+        expect(ctx.musicStarts).toBe(1);
         expect(els['#li-result'].text).toBe('Victòria per temps · +13');
         expect(els['#li-round-num'].text).toBe('3');
         expect(els['#li-label'].text).toBe('comença en');

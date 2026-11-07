@@ -5825,6 +5825,48 @@ function applyResult(aId, bId, outcome) {
    a encadenar-se amb la següent, i així fins al final de la temporada. */
 let leagueInterlude = null;   // { remainingMs, lastTs, timer }
 
+// Tornades musicals de la pantalla entre partides (radioambient.js): una peça
+// de 30 s que comença amb el compte enrere i acaba amb un acord final quan
+// comença la partida següent. Cada transició, una de diferent. Respecta la
+// música de Configuració (activada i volum).
+const LEAGUE_JINGLE_LAST_KEY = 'eltauler_league_jingle_last';
+let leagueJinglePlayer = null;
+function leagueJingleWanted() {
+    const R = window.ElTaulerRadioAmbient;
+    if (!R || typeof R.createJinglePlayer !== 'function' || !R.isAllowed()) return null;
+    const coord = voiceMusicApi();
+    const prefs = coord ? coord.prefs() : { music: true, volume: 20 };
+    if (!prefs.music || !(prefs.volume > 0)) return null;
+    return { R, volume: prefs.volume };
+}
+function startLeagueInterludeMusic() {
+    const want = leagueJingleWanted();
+    $('#li-music').text('').hide();
+    if (!want) return;
+    if (!leagueJinglePlayer) leagueJinglePlayer = want.R.createJinglePlayer();
+    if (!leagueJinglePlayer.supported()) return;
+    let last = null;
+    try { last = localStorage.getItem(LEAGUE_JINGLE_LAST_KEY); } catch (e) {}
+    const id = want.R.pickJingle(Math.random, last);
+    try { localStorage.setItem(LEAGUE_JINGLE_LAST_KEY, id); } catch (e) {}
+    const info = want.R.jingleInfo(id);
+    const totalMs = ElTaulerCore.LEAGUE_INTERLUDE_SECONDS * 1000;
+    // Si generar-la triga, comença pel punt on va el compte enrere, perquè
+    // l'acord final coincideixi amb l'inici de la partida.
+    leagueJinglePlayer.play(id, {
+        volume: want.volume,
+        startedAt: () => leagueInterlude ? Math.max(0, (totalMs - leagueInterlude.remainingMs) / 1000) : 0
+    }).then(ok => {
+        if (!ok || !leagueInterlude) return;
+        if (document.hidden) leagueJinglePlayer.pause();
+        $('#li-music').html(`<svg class="btn-ic" aria-hidden="true"><use href="#ic-music"/></svg>Sona: ${escapeHtml(info.name)}`).show();
+    });
+}
+function stopLeagueInterludeMusic() {
+    if (leagueJinglePlayer) leagueJinglePlayer.stop(true);
+    $('#li-music').text('').hide();
+}
+
 function leagueInterludeWanted() {
     return !!(currentLeague && !currentLeague.completed
         && ElTaulerCore.leagueAutoChains(getLeagueTimeControlId()));
@@ -5879,6 +5921,7 @@ function showLeagueInterlude(resultText, outcome, info) {
     renderLeagueInterludeCount();
     overlay.style.display = 'flex';
     leagueInterlude.timer = setInterval(tickLeagueInterlude, 200);
+    startLeagueInterludeMusic();
     return true;
 }
 
@@ -5896,6 +5939,8 @@ function tickLeagueInterlude() {
     const overlay = document.getElementById('league-interlude');
     if (!overlay || overlay.style.display === 'none') { stopLeagueInterludeTimer(); return; }
     const now = nowMs();
+    // La tornada segueix el compte enrere: quieta amb l'app amagada.
+    if (leagueJinglePlayer) { if (document.hidden) leagueJinglePlayer.pause(); else leagueJinglePlayer.resume(); }
     if (!document.hidden) leagueInterlude.remainingMs -= Math.max(0, now - leagueInterlude.lastTs);
     leagueInterlude.lastTs = now;
     renderLeagueInterludeCount();
@@ -5909,6 +5954,7 @@ function stopLeagueInterludeTimer() {
 
 function hideLeagueInterlude() {
     stopLeagueInterludeTimer();
+    stopLeagueInterludeMusic();
     const overlay = document.getElementById('league-interlude');
     if (overlay) overlay.style.display = 'none';
 }
@@ -25405,6 +25451,8 @@ function setupEvents() {
     });
     $('#btn-league-play').click(() => { if (guardCalibrationAccess()) startLeagueRound(); });
     $('#btn-li-play').on('click', () => startLeagueRoundFromInterlude());
+    // Alguns navegadors (iOS) només deixen sonar l'àudio després d'un toc.
+    $('#league-interlude').on('pointerdown', () => { if (leagueJinglePlayer) leagueJinglePlayer.resume(); });
     $('#btn-li-home').on('click', () => leaveLeagueInterludeHome());
     // El taller d'obertures (tallerobertures.js) analitza amb el seu propi
     // worker de Stockfish 19 i anomena les posicions amb el graf de l'app.
