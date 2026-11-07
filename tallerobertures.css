@@ -4,6 +4,17 @@
    (--bg-card, --accent-gold...), que el mode dia i el paper
    electrònic ja redefineixen.
    ============================================================ */
+/* Icona de la capçalera de la secció (#ic-opening, el mateix traç que la TV). */
+.opening-logo-ic {
+    width: 1em;
+    height: 1em;
+    fill: none;
+    stroke: var(--accent-gold);
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
 .olab {
     margin-top: 12px;
     background: var(--bg-warm);

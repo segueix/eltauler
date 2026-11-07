@@ -92,6 +92,8 @@ let savedErrors = [];
 let puzzles = []; // jeroglífics (puzzles tàctics de 3 jugades) generats de partides pròpies
 // Icona de peça de puzle dels jeroglífics (substitueix l'antic emoji 🔮).
 const HG_ICON_SVG = '<svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg>';
+// Icona de la secció d'Obertures (la mateixa que el mosaic de l'inici).
+const OPENING_ICON_SVG = '<svg class="opening-logo-ic" aria-hidden="true"><use href="#ic-opening"/></svg>';
 let currentReview = [];
 let reviewHistory = [];
 let reviewChart = null;
@@ -18376,7 +18378,7 @@ function setOpeningScreenMode(mode = 'overview') {
     const header = document.querySelector('#opening-screen .stats-header h1');
     const logo = document.querySelector('#opening-screen .stats-header .app-logo');
     if (header) header.textContent = isOpeningHiero ? 'Jeroglífic d’obertura' : (isHieroglyphicMode ? 'Jeroglífics' : 'Obertures');
-    if (logo) logo.innerHTML = isHieroglyphicMode ? HG_ICON_SVG : '📖';
+    if (logo) logo.innerHTML = isHieroglyphicMode ? HG_ICON_SVG : OPENING_ICON_SVG;
     // El nom del bloc viu en un span propi: el mode jeroglífic el reescriu sense
     // endur-se la icona ni el xip del número, que s'amaga perquè aquí no hi som
     // per fer el Bloc 2.
@@ -19512,7 +19514,7 @@ function showOpeningErrorSuccessOverlay(noMore) {
             exitOpeningErrorPractice();
             goToHomeScreen();
         },
-        sectionLabel: '<svg class="btn-ic" aria-hidden="true"><use href="#ic-book"/></svg>Obertures',
+        sectionLabel: '<svg class="btn-ic" aria-hidden="true"><use href="#ic-opening"/></svg>Obertures',
         onSection: () => exitOpeningErrorPractice()
     });
 
