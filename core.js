@@ -10132,9 +10132,58 @@
         bullet: { target: 'btn-bullet-practice', title: 'Reflexos bullet', icon: 'ic-zap', tone: 'ocean' },
         tactics: { target: 'btn-tactics', title: 'Tàctiques', icon: 'ic-target', tone: 'plum' },
         bundle: { target: 'btn-bundle-menu', title: 'Revisa errors', icon: 'ic-search', tone: 'ochre' },
-        explorer: { target: 'btn-explorer', title: 'Tauler d\'anàlisi', icon: 'ic-analysis', tone: 'azure' }
+        explorer: { target: 'btn-explorer', title: 'Tauler d\'anàlisi', icon: 'ic-analysis', tone: 'azure' },
+        // Tema feble: no té botó propi a la llista; la proposta crida
+        // startWeakThemeSession (app.js) amb el tema de data-theme.
+        weak: { target: null, title: 'Tema feble', icon: 'ic-target', tone: 'copper' }
     };
-    const ENTRENA_TARGETS = Object.keys(ENTRENA_KINDS).reduce((acc, k) => { acc[ENTRENA_KINDS[k].target] = k; return acc; }, {});
+
+    // Temes de les errades (analyzeWeaknesses) → finals de jeroglífic que hi
+    // fan pensar, per ordre de preferència. Sense motiu tàctic (centre, joc
+    // posicional, obertura) no n'hi ha.
+    const ENTRENA_WEAK_MOTIFS = {
+        fork: ['fork'], pin: ['pin'], skewer: ['skewer'], king_attack: ['mate', 'check'],
+        material: ['major_win'], endgame: ['promotion', 'mate']
+    };
+    const ENTRENA_MOTIF_LABELS = {
+        mate: 'escac i mat', check: 'escac', fork: 'forquilla', pin: 'clavada', skewer: 'enfilada',
+        discovery: 'descoberta', promotion: 'promoció', major_win: 'guany de dama o torre'
+    };
+    const ENTRENA_WEAK_MIN = { total: 5, count: 3, share: 0.2 };
+
+    // Tema on falles més, només si les dades ho diuen clar: prou errors en
+    // total, prou d'aquell tema i una part prou gran. «general» (sense tema
+    // concret) no compta com a tema feble.
+    function entrenaWeakFocus(themeCounts, total) {
+        const counts = themeCounts && typeof themeCounts === 'object' ? themeCounts : {};
+        const all = Math.max(0, Math.floor(Number(total) || 0));
+        if (all < ENTRENA_WEAK_MIN.total) return null;
+        let best = null;
+        Object.keys(counts).forEach(k => {
+            if (k === 'general') return;
+            const n = Math.max(0, Math.floor(Number(counts[k]) || 0));
+            if (!best || n > best.count || (n === best.count && k < best.theme)) best = { theme: k, count: n };
+        });
+        if (!best || best.count < ENTRENA_WEAK_MIN.count || best.count / all < ENTRENA_WEAK_MIN.share) return null;
+        return { theme: best.theme, count: best.count, total: all };
+    }
+
+    // D'on surt l'exercici del tema feble, per ordre: un jeroglífic nou amb el
+    // final del tema, una tàctica del banc del mateix tema, la teva obertura
+    // (si el tema és l'obertura) o les teves errades d'aquell tema.
+    // avail: { hieroByMotif: { motiu: n }, tactics: n, errors: n }
+    function entrenaWeakSource(theme, avail) {
+        const a = avail || {};
+        const motifs = ENTRENA_WEAK_MOTIFS[theme] || [];
+        const byMotif = a.hieroByMotif || {};
+        const motif = motifs.find(m => Number(byMotif[m]) > 0);
+        if (motif) return { source: 'hiero', motif };
+        if (Number(a.tactics) > 0) return { source: 'tactics' };
+        if (theme === 'opening') return { source: 'opening' };
+        if (Number(a.errors) > 0) return { source: 'errors' };
+        return null;
+    }
+    const ENTRENA_TARGETS = Object.keys(ENTRENA_KINDS).reduce((acc, k) => { if (ENTRENA_KINDS[k].target) acc[ENTRENA_KINDS[k].target] = k; return acc; }, {});
 
     function entrenaKindForTarget(id) {
         return Object.prototype.hasOwnProperty.call(ENTRENA_TARGETS, id) ? ENTRENA_TARGETS[id] : null;
@@ -10160,7 +10209,8 @@
     const entrenaPlural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
 
     // ctx: { srsDue, srsNew, hgNew, openingDue, openingName, triaQuestions,
-    //        triaMin, bulletComplete, bulletStarted, done: { tipus: n } }
+    //        triaMin, bulletComplete, bulletStarted, done: { tipus: n },
+    //        weak: { theme, label, count, total, source, motif } }
     function entrenaPickToday(ctx) {
         const c = ctx || {};
         const done = (c.done && typeof c.done === 'object') ? c.done : {};
@@ -10181,7 +10231,27 @@
                 : entrenaPlural(srsDue, 'repàs pendent', 'repassos pendents') + ' avui: si no els fas, la repetició espaiada perd el ritme.';
             return out('srs', reason, 'Repassa');
         }
-        // 2. El que és nou.
+        // El tema on falles més (segons les teves errades), un cop al dia.
+        const weak = c.weak && typeof c.weak === 'object' && c.weak.theme && c.weak.source ? c.weak : null;
+        const weakPick = () => {
+            const label = typeof weak.label === 'string' && weak.label ? weak.label : weak.theme;
+            const why = 'És on falles més: ' + entrenaPlural(n(weak.count), 'error', 'errors') + ' dels ' + n(weak.total) + ' que has comès.';
+            const how = weak.source === 'hiero' ? ' Jeroglífic que acaba en ' + (ENTRENA_MOTIF_LABELS[weak.motif] || weak.motif) + '.'
+                : weak.source === 'tactics' ? ' Tàctiques d\'aquest tema, ja verificades.'
+                    : weak.source === 'opening' ? ' Practica la teva obertura amb el motor.'
+                        : ' Torna a les teves posicions d\'aquest tema.';
+            const p = out('weak', why + how, weak.source === 'hiero' || weak.source === 'tactics' ? 'Resol' : 'Practica');
+            p.title = 'Tema feble: ' + label;
+            p.theme = weak.theme;
+            p.source = weak.source;
+            p.motif = weak.motif || null;
+            return p;
+        };
+        const weakOpen = !!weak && !times('weak') && !(weak.source === 'opening' && times('opening'))
+            && !(weak.source === 'hiero' && times('hiero'));
+        // 2. El que és nou. Si hi ha un jeroglífic nou amb el final del teu
+        //    tema feble, és aquell el que es proposa.
+        if (weakOpen && weak.source === 'hiero' && hgNew > 0) return weakPick();
         if (hgNew > 0 && !times('hiero')) {
             return out('hiero', (hgNew === 1 ? 'Hi ha un jeroglífic nou a punt' : 'Tens jeroglífics nous a punt') + ': troba els tres millors moviments.', 'Resol');
         }
@@ -10189,7 +10259,9 @@
             const name = typeof c.openingName === 'string' && c.openingName.trim() ? c.openingName.trim() : '';
             return out('opening', entrenaPlural(openingDue, 'posició', 'posicions') + (name ? ' de «' + name + '»' : ' del teu repertori') + ' per repassar: fixa-les abans que s\'oblidin.', 'Practica');
         }
-        // 3. Varietat.
+        // 3. El tema feble des d'una altra font (tàctiques, errades, obertura).
+        if (weakOpen) return weakPick();
+        // 4. Varietat.
         if (triaQ >= triaMin && !times('tria')) {
             return out('tria', 'Test amb ' + entrenaPlural(triaQ, 'decisió', 'decisions') + ' de les teves partides: tria el millor dels tres camins.', 'Fes el test');
         }
@@ -10198,7 +10270,7 @@
                 ? 'Acaba el pla de 5 minuts d\'avui: lectura, rellotge i velocitat.'
                 : 'Pla de 5 minuts: llegeix el tauler i mira el rellotge sense perdre temps.', 'Comença');
         }
-        // 4. Recurs: tàctiques (sempre n'hi ha).
+        // 5. Recurs: tàctiques (sempre n'hi ha).
         const allDone = srsDue === 0 && (hgNew === 0 || times('hiero')) && (openingDue === 0 || times('opening'));
         return out('tactics', allDone && Object.keys(done).length
             ? 'Ja has fet la feina important d\'avui. Unes tàctiques de propina?'
@@ -10577,6 +10649,10 @@
         entrenaKindForTarget,
         entrenaDayLog,
         entrenaMarkDone,
-        entrenaPickToday
+        entrenaPickToday,
+        ENTRENA_WEAK_MOTIFS,
+        ENTRENA_MOTIF_LABELS,
+        entrenaWeakFocus,
+        entrenaWeakSource
     };
 });

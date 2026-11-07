@@ -56,9 +56,10 @@ describe('entrenaPickToday: prioritats', () => {
     test('cada tipus té botó, icona i to', () => {
         Object.keys(core.ENTRENA_KINDS).forEach(k => {
             const info = core.ENTRENA_KINDS[k];
-            expect(html).toContain(`id="${info.target}"`);
             expect(html).toContain(`<symbol id="${info.icon}"`);
             expect(html).toMatch(new RegExp(`\\.hb--${info.tone} \\{`));
+            if (k === 'weak') { expect(info.target).toBeNull(); return; }   // la proposta l'obre directament
+            expect(html).toContain(`id="${info.target}"`);
             expect(core.entrenaKindForTarget(info.target)).toBe(k);
         });
         expect(core.entrenaKindForTarget('btn-entrena-today')).toBeNull();
@@ -117,5 +118,74 @@ describe('inici: proposta a dalt i la resta a un toc', () => {
     test('la guia explica la proposta i hi porta', () => {
         expect(tutorial).toContain("title: 'Què toca avui?', action: 'today'");
         expect(tutorial).toContain("'today': () => click('#btn-entrena-today')");
+    });
+});
+
+describe('tema feble', () => {
+    const pick = ctx => core.entrenaPickToday(ctx);
+    const weak = extra => Object.assign({ theme: 'fork', label: 'Forquilles', count: 7, total: 24, source: 'tactics' }, extra);
+
+    test('només amb dades clares i sense comptar «general»', () => {
+        expect(core.entrenaWeakFocus({ fork: 7, general: 12, pin: 2 }, 24)).toEqual({ theme: 'fork', count: 7, total: 24 });
+        expect(core.entrenaWeakFocus({ fork: 3 }, 4)).toBeNull();          // massa poques errades
+        expect(core.entrenaWeakFocus({ fork: 2, pin: 1 }, 6)).toBeNull();  // cap tema amb 3
+        expect(core.entrenaWeakFocus({ fork: 3, general: 30 }, 33)).toBeNull(); // menys del 20 %
+        expect(core.entrenaWeakFocus({ general: 9 }, 9)).toBeNull();
+        expect(core.entrenaWeakFocus({ pin: 4, fork: 4 }, 10).theme).toBe('fork'); // empat: ordre estable
+    });
+    test('font: jeroglífic del motiu, tàctiques, obertura o errades', () => {
+        expect(core.entrenaWeakSource('fork', { hieroByMotif: { fork: 2 }, tactics: 5 })).toEqual({ source: 'hiero', motif: 'fork' });
+        expect(core.entrenaWeakSource('king_attack', { hieroByMotif: { check: 1 } })).toEqual({ source: 'hiero', motif: 'check' });
+        expect(core.entrenaWeakSource('king_attack', { hieroByMotif: { mate: 1, check: 1 } }).motif).toBe('mate');
+        expect(core.entrenaWeakSource('pin', { hieroByMotif: {}, tactics: 3, errors: 2 })).toEqual({ source: 'tactics' });
+        expect(core.entrenaWeakSource('opening', { errors: 4 })).toEqual({ source: 'opening' });
+        expect(core.entrenaWeakSource('center', { errors: 4 })).toEqual({ source: 'errors' });
+        expect(core.entrenaWeakSource('center', {})).toBeNull();
+        Object.keys(core.ENTRENA_WEAK_MOTIFS).forEach(t => core.ENTRENA_WEAK_MOTIFS[t]
+            .forEach(m => expect(html).toContain(`<option value="${m}">`)));
+    });
+    test('un jeroglífic del tema passa davant del jeroglífic genèric', () => {
+        const p = pick({ hgNew: 3, weak: weak({ source: 'hiero', motif: 'fork' }) });
+        expect(p.kind).toBe('weak');
+        expect(p.title).toBe('Tema feble: Forquilles');
+        expect(p.reason).toBe('És on falles més: 7 errors dels 24 que has comès. Jeroglífic que acaba en forquilla.');
+        expect(p).toMatchObject({ theme: 'fork', source: 'hiero', motif: 'fork', target: null });
+        expect(pick({ hgNew: 3, weak: weak({ source: 'hiero', motif: 'fork' }), done: { hiero: 1 } }).kind).not.toBe('weak');
+    });
+    test('els repassos pendents van primer; després, el tema feble abans de la varietat', () => {
+        expect(pick({ srsDue: 2, weak: weak() }).kind).toBe('srs');
+        expect(pick({ hgNew: 3, weak: weak() }).kind).toBe('hiero');
+        const t = pick({ triaQuestions: 20, triaMin: 10, weak: weak() });
+        expect(t.kind).toBe('weak');
+        expect(t.reason).toMatch(/Tàctiques d'aquest tema/);
+        expect(pick({ triaQuestions: 20, triaMin: 10, weak: weak(), done: { weak: 1 } }).kind).toBe('tria');
+        expect(pick({ weak: weak({ source: 'errors' }) }).reason).toMatch(/Torna a les teves posicions/);
+        expect(pick({ weak: weak({ theme: 'opening', source: 'opening' }), done: { opening: 1 } }).kind).toBe('bullet');
+    });
+    test('l’app calcula el tema, la font i obre l’exercici', () => {
+        expect(app).toContain('ElTaulerCore.entrenaWeakFocus(w.theme, w.total)');
+        expect(app).toContain('weak: entrenaWeakContext(done)');
+        const start = app.slice(app.indexOf('function startWeakThemeSession('), app.indexOf('function startWeakThemeSession(') + 700);
+        expect(start).toContain("void hgPlayNext({ pref: motif || 'any' })");
+        expect(start).toContain('startTacticsPuzzle({ theme })');
+        expect(start).toContain('startWeaknessTraining(theme)');
+        // hgPlayNext accepta un final per a aquest cop sense tocar la preferència desada.
+        expect(app).toContain("const pref = opts.pref || hieroglyphicPreferredFinalMotif || 'any';");
+    });
+    test('tàctiques per tema: el tema es manté amb «Una altra tàctica» i es perd des del menú', () => {
+        const st = app.slice(app.indexOf('function startTacticsPuzzle(opts = {}) {'), app.indexOf('function startTacticsPuzzle(opts = {}) {') + 600);
+        expect(st).toContain("tacticsThemeFocus = opts.theme || null");
+        expect(st).toContain('else if (!(opts && opts.continueFocus)) tacticsThemeFocus = null;');
+        expect(app).toContain("startTacticsPuzzle({ continueFocus: true }); });");
+        const pickFen = app.slice(app.indexOf('function pickTacticsFen() {'), app.indexOf('function pickTacticsFen() {') + 300);
+        expect(pickFen).toContain('tacticsFensForTheme(tacticsThemeFocus)');
+    });
+});
+
+describe('la biblioteca d’errors no es buida en obrir un jeroglífic', () => {
+    test('netejarErrorsPerJeroglific no toca savedErrors', () => {
+        const body = app.slice(app.indexOf('function netejarErrorsPerJeroglific() {'), app.indexOf('function netejarErrorsPerJeroglific() {') + 1200);
+        expect(body).not.toMatch(/savedErrors\s*=/);
+        expect(body).toContain('matchErrorQueue = []');
     });
 });

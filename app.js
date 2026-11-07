@@ -617,6 +617,9 @@ let dailyPuzzle = { date: null, solved: false, streak: 0, best: 0, fen: null, la
 let completedOpenings = [];
 let tacticsStats = { solved: 0, attempts: 0, best: 0, streak: 0, recentFens: [] };
 let isTacticsSession = false;
+// Tema de la tanda de tàctiques (null = qualsevol). El fixa «Què toca avui?»
+// quan proposa el tema feble; «Una altra tàctica» el manté.
+let tacticsThemeFocus = null;
 
 // El teu bessó: un rival que juga com tu (llibre d'obertures personal + força
 // per fase treta de les teves partides). Es construeix a l'inici de cada repte.
@@ -9937,7 +9940,7 @@ function updateDisplay() {
     updateCalibrationAccessUI();
     
     let total = savedErrors.length;
-    $('#bundle-info').text(total > 0 ? `${total} errors guardats · tria manual` : 'Biblioteca dels teus errors');
+    $('#bundle-info').text(total > 0 ? `${total} ${total === 1 ? 'error guardat' : 'errors guardats'} · tria manual` : 'Biblioteca dels teus errors');
     $('#game-bundles').text(total);
     // Comptadors de repàs espaiat al menú principal
     const due = getDueErrors().length;
@@ -21206,8 +21209,9 @@ function netejarErrorsPerJeroglific() {
         el.style.display = 'none';
     });
 
-    // 2. Buidar arrays globals que poguessin portar missatges "en vol"
-    if (typeof savedErrors !== 'undefined') savedErrors = [];
+    // 2. Buidar la cua d'errors de la partida que poguessin portar missatges "en vol".
+    //    MAI savedErrors: és la biblioteca d'errors de l'usuari (Revisa errors,
+    //    Repàs intel·ligent) i el pròxim saveStorage l'hauria esborrat del tot.
     if (typeof matchErrorQueue !== 'undefined') matchErrorQueue = [];
     if (typeof currentMatchError !== 'undefined') currentMatchError = null;
 
@@ -23907,7 +23911,9 @@ function hgMigrateMotifLabels() {
 async function hgPlayNext(opts = {}) {
     // La reserva es carrega quan el navegador queda lliure: si encara no hi és, s'espera.
     await loadDeferredData('hieroReserve');
-    const pref = hieroglyphicPreferredFinalMotif || 'any';
+    // opts.pref: final demanat per a aquest cop (el tema feble de «Què toca
+    // avui?»), sense tocar la preferència desada.
+    const pref = opts.pref || hieroglyphicPreferredFinalMotif || 'any';
     const excludeFen = opts.excludeFen || null;
     // 1) Un jeroglífic nou JUGABLE (descartant els malmesos).
     const chosen = hgConsumePlayable(pref, { excludeFen });
@@ -27715,12 +27721,69 @@ function entrenaBulletState() {
         return { complete: !!plan.complete, started: plan.steps.some(s => s.done > 0) };
     } catch (e) { return { complete: false, started: false }; }
 }
+// Tema feble (analyzeWeaknesses) amb la font de l'exercici. L'anàlisi
+// classifica cada errada amb el motor de motius: es desa fins que canvien les
+// errades o l'historial.
+let entrenaWeakCache = { key: null, focus: null };
+function entrenaWeakThemeFocus() {
+    const last = gameHistory.length ? gameHistory[gameHistory.length - 1] : null;
+    const key = savedErrors.length + ':' + gameHistory.length + ':' + (last ? (last.id || last.date || '') : '');
+    if (entrenaWeakCache.key !== key) {
+        let focus = null;
+        try {
+            const w = analyzeWeaknesses();
+            focus = ElTaulerCore.entrenaWeakFocus(w.theme, w.total);
+        } catch (e) { focus = null; }
+        entrenaWeakCache = { key, focus };
+    }
+    return entrenaWeakCache.focus;
+}
+function entrenaWeakAvailability(theme) {
+    const hieroByMotif = {};
+    try {
+        const motifs = ElTaulerCore.ENTRENA_WEAK_MOTIFS[theme] || [];
+        if (motifs.length) {
+            hgEnsureState();
+            hgNewEntries().forEach(e => {
+                const it = e.item || {};
+                motifs.forEach(m => {
+                    if (it.finalType === m || (Array.isArray(it.finalMotifs) && it.finalMotifs.indexOf(m) !== -1)) hieroByMotif[m] = (hieroByMotif[m] || 0) + 1;
+                });
+            });
+        }
+    } catch (e) {}
+    let tactics = 0;
+    try { tactics = tacticsFensForTheme(theme, true).length; } catch (e) {}
+    let errors = 0;
+    try { errors = savedErrors.filter(e => normalizeGrowthTheme(classifyPositionTheme(e.fen, e.bestMove || '')) === theme).length; } catch (e) {}
+    return { hieroByMotif, tactics, errors };
+}
+function entrenaWeakContext(done) {
+    const focus = entrenaWeakThemeFocus();
+    if (!focus) return null;
+    const avail = entrenaWeakAvailability(focus.theme);
+    // Si avui ja has fet jeroglífics, el tema feble ve d'una altra font.
+    if (done && done.hiero) avail.hieroByMotif = {};
+    const src = ElTaulerCore.entrenaWeakSource(focus.theme, avail);
+    if (!src) return null;
+    return Object.assign({ label: WEAKNESS_LABELS[focus.theme] || getThemeLabel(focus.theme) }, focus, src);
+}
+// Obre l'exercici del tema feble des de la font que ha triat la proposta.
+function startWeakThemeSession(theme, source, motif) {
+    if (!theme) return;
+    if (source === 'hiero') { void hgPlayNext({ pref: motif || 'any' }); return; }
+    if (source === 'tactics') { tacticsStats.streak = 0; beginExerciseRun('tactics'); startTacticsPuzzle({ theme }); return; }
+    if (source === 'opening') { const b = document.getElementById('btn-opening'); if (b) b.click(); return; }
+    startWeaknessTraining(theme);
+}
+
 function entrenaTodayContext() {
     const due = getDueErrors();
     let hgNew = 0;
     try { hgNew = hgNewCount(); } catch (e) {}
     const opening = entrenaOpeningDue();
     const bullet = entrenaBulletState();
+    const done = entrenaLoadDay().done;
     return {
         srsDue: due.length,
         srsNew: due.filter(e => !(Number(e.srsReps) > 0)).length,
@@ -27731,7 +27794,8 @@ function entrenaTodayContext() {
         triaMin: entrenaTriaCache ? entrenaTriaCache.min : 1,
         bulletComplete: bullet.complete,
         bulletStarted: bullet.started,
-        done: entrenaLoadDay().done
+        weak: entrenaWeakContext(done),
+        done
     };
 }
 function renderEntrenaToday() {
@@ -27740,8 +27804,11 @@ function renderEntrenaToday() {
     let pick;
     try { pick = ElTaulerCore.entrenaPickToday(entrenaTodayContext()); } catch (e) { console.warn('[Entrena]', e); return; }
     if (!pick) return;
-    card.dataset.target = pick.target;
+    card.dataset.target = pick.target || '';
     card.dataset.kind = pick.kind;
+    card.dataset.theme = pick.theme || '';
+    card.dataset.source = pick.source || '';
+    card.dataset.motif = pick.motif || '';
     card.className = card.className.replace(/\bhb--[a-z]+\b/g, '').replace(/\s+/g, ' ').trim() + ' hb--lg hb--' + pick.tone;
     const icon = document.getElementById('entrena-today-icon');
     if (icon && icon.getAttribute('href') !== '#' + pick.icon) icon.setAttribute('href', '#' + pick.icon);
@@ -27773,6 +27840,13 @@ function initEntrenaToday() {
         if (kind) entrenaMarkDone(kind);
     }, true);
     $('#btn-entrena-today').off('click').on('click', function () {
+        if (this.dataset.kind === 'weak') {
+            entrenaMarkDone('weak');
+            // Un jeroglífic del tema també és el jeroglífic del dia.
+            if (this.dataset.source === 'hiero') entrenaMarkDone('hiero');
+            startWeakThemeSession(this.dataset.theme, this.dataset.source, this.dataset.motif);
+            return;
+        }
         const target = document.getElementById(this.dataset.target || '');
         if (target) target.click();
     });
@@ -29217,7 +29291,33 @@ function pickOfflineTacticsFen(excludeFen = null) {
     return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
 }
 
+// Tema de cada posició del banc (el de la primera jugada de la solució, amb
+// el mateix classificador que les errades). Es calcula un sol cop.
+let tacticsBankThemeCache = null;
+function tacticsBankTheme(fen) {
+    if (!tacticsBankThemeCache) tacticsBankThemeCache = {};
+    if (!(fen in tacticsBankThemeCache)) {
+        const sol = TACTICS_BANK_SOLUTIONS[fen];
+        let th = null;
+        try { th = sol && sol.steps && sol.steps[0] ? normalizeGrowthTheme(classifyPositionTheme(fen, sol.steps[0].move)) : null; } catch (e) { th = null; }
+        tacticsBankThemeCache[fen] = th;
+    }
+    return tacticsBankThemeCache[fen];
+}
+// Posicions jugables del banc d'un tema; primer les del cicle (no resoltes).
+function tacticsFensForTheme(theme, inCycleOnly) {
+    if (!theme) return [];
+    const ok = f => tacticsFenHasTwoSteps(f) && isPlayableExerciseFen(f) && tacticsBankTheme(f) === theme;
+    const cycle = ElTaulerCore.tacticsPickPool(TACTICS_BANK, tacticsStats.recentFens).filter(ok);
+    if (cycle.length || inCycleOnly) return cycle;
+    return TACTICS_BANK.filter(ok);
+}
+
 function pickTacticsFen() {
+    if (tacticsThemeFocus) {
+        const themed = tacticsFensForTheme(tacticsThemeFocus);
+        if (themed.length) return pickPreferPrepared(themed) || themed[Math.floor(Math.random() * themed.length)];
+    }
     // Rotació: les posicions ja resoltes no es repeteixen fins completar el banc.
     const pool = ElTaulerCore.tacticsPickPool(TACTICS_BANK, tacticsStats.recentFens)
         .filter(f => tacticsFenHasTwoSteps(f) && isPlayableExerciseFen(f));
@@ -29227,8 +29327,12 @@ function pickTacticsFen() {
     return pickPreferPrepared(pool) || pool[Math.floor(Math.random() * pool.length)];
 }
 
-function startTacticsPuzzle() {
+function startTacticsPuzzle(opts = {}) {
     if (!guardCalibrationAccess()) return;
+    // Un tema explícit fixa la tanda; continuar-la el manté; qualsevol altra
+    // entrada (menú, missions, problema diari) torna a les tàctiques generals.
+    if (opts && Object.prototype.hasOwnProperty.call(opts, 'theme')) tacticsThemeFocus = opts.theme || null;
+    else if (!(opts && opts.continueFocus)) tacticsThemeFocus = null;
     isTacticsSession = true;
     isDailyPuzzleSession = false;
     isSrsReviewSession = false;
@@ -29277,17 +29381,18 @@ function completeTacticsPuzzle(success, solvedFen) {
 function showTacticsOverlay() {
     const overlay = $('#bundle-success-overlay');
     if (!overlay.length) { isTacticsSession = false; returnToMainMenuImmediate(); return; }
-    overlay.find('.bundle-success-title').text('Tàctica resolta ⚡ (+1 ★)');
+    const focusLabel = tacticsThemeFocus ? (WEAKNESS_LABELS[tacticsThemeFocus] || getThemeLabel(tacticsThemeFocus)) : '';
+    overlay.find('.bundle-success-title').text(focusLabel ? `Tàctica resolta · ${focusLabel} (+1 ★)` : 'Tàctica resolta ⚡ (+1 ★)');
     overlay.find('.bundle-success-remaining').text(`Resoltes en total: ${tacticsStats.solved} · Rècord: ${tacticsStats.best}`).show();
     renderExerciseRunStreak(overlay);
     overlay.find('#btn-bundle-random-again').text('⚡ Una altra tàctica').prop('disabled', false).show()
-        .off('click').on('click', () => { overlay.hide(); startTacticsPuzzle(); });
+        .off('click').on('click', () => { overlay.hide(); startTacticsPuzzle({ continueFocus: true }); });
     wireContinueSolvedFenButton(overlay);
     overlay.css('display', 'flex');
     wireNavTrio(overlay, {
         onHome: () => { isTacticsSession = false; goToHomeScreen(); },
         sectionLabel: '<svg class="btn-ic" aria-hidden="true"><use href="#ic-zap"/></svg>Tàctiques',
-        onSection: () => startTacticsPuzzle()
+        onSection: () => startTacticsPuzzle({ continueFocus: true })
     });
 }
 

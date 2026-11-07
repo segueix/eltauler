@@ -278,6 +278,15 @@ Conduir amb Playwright + Chromium preinstal·lat
     nodes vàlids (cal `san` i `origin`, si no `normalizeStore` els descarta)
     i `due` passat; després `updateDisplay()` i esperar ~150 ms (el repintat
     va amb `scheduleEntrenaToday`, que no fa res si l'inici és amagat).
+    **Tema feble** (`kind: 'weak'`, sense botó a la llista: la proposta crida
+    `startWeakThemeSession`): surt amb ≥ 5 errades i ≥ 3 (i ≥ 20 %) d'un tema
+    que no sigui «general». Per forçar-lo, afegir a `savedErrors` (amb
+    `saveStorage()`, i `srsDue` futur perquè no passi davant el repàs) sis
+    posicions de `TACTICS_BANK` amb `tacticsBankTheme(f) === 'king_attack'` i
+    `bestMove` = primera jugada de `TACTICS_BANK_SOLUTIONS[f]`. Proposa un
+    jeroglífic amb aquell final (`hgPlayNext({ pref })`); amb `done.hiero`,
+    tàctiques del tema (`tacticsThemeFocus`, que «Una altra tàctica» manté i
+    `#btn-tactics` esborra). `analyzeWeaknesses` es desa a `entrenaWeakCache`.
 
 ## Fluxos útils
 

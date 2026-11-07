@@ -727,6 +727,11 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   (`eltauler_entrena_day`) baixa de prioritat el que ja has obert i es buida
   en canviar de dia; cada tipus té botó, icona i to; la llista plegable
   «Més entrenaments» conserva tots els botons en ordre, i la guia hi porta.
+  **Tema feble**: només amb dades clares (≥ 5 errades, ≥ 3 i ≥ 20 % d'un
+  tema concret); la font és un jeroglífic nou amb el final del tema (passa
+  davant del jeroglífic genèric), tàctiques del banc del mateix tema (que es
+  mantenen amb «Una altra tàctica»), la teva obertura o les teves errades.
+  També comprova que obrir un jeroglífic ja no buida `savedErrors`.
 - **`leaguejingles.test.js`** — la **música que compon l'app**
   (`radioambient.js`, `composeJingle`): tornades de 30 s entre partides de la
   lliga i bucles de 32 s per a la TV Stockfish vs Lozza. Cinc estils
