@@ -5884,7 +5884,7 @@ function startLeagueInterludeMusic() {
         try { want.R.registerComposition({ where: 'lliga', style: spec.style, seed: spec.seed, loop: false }); } catch (e) {}
         if (!leagueInterlude) return;
         if (document.hidden) leagueJinglePlayer.pause();
-        $('#li-music').html(`<svg class="btn-ic" aria-hidden="true"><use href="#ic-music"/></svg>Sona: ${escapeHtml(want.R.jingleTitle(spec))} · núm. ${spec.seed % 100000}`)
+        $('#li-music').html(`<svg class="btn-ic" aria-hidden="true"><use href="#ic-music"/></svg>Sona: ${escapeHtml(want.R.jingleTitle(spec))}`)
             .attr('title', 'Peça composta ara mateix per l’app: cada vegada n’és una de nova').show();
     });
 }
@@ -31429,7 +31429,7 @@ function renderComposedMusicRegistry() {
         const playing = composedPreviewKey === key;
         return `<div class="cm-row${playing ? ' is-playing' : ''}">
             <div class="cm-info"><span class="cm-title">${escapeHtml(R.jingleTitle(spec))}</span>
-            <span class="cm-meta">${e.where === 'tv' ? 'Stockfish TV' : 'Lliga'} · ${escapeHtml(date)} · núm. ${e.seed % 100000}</span></div>
+            <span class="cm-meta">${e.where === 'tv' ? 'Stockfish TV' : 'Lliga'} · ${escapeHtml(date)}</span></div>
             <button type="button" class="btn btn-secondary cm-btn" data-cm-play="${escapeHtml(key)}" aria-label="${playing ? 'Atura' : 'Escolta'} ${escapeHtml(R.jingleTitle(spec))}" title="${playing ? 'Atura' : 'Escolta-la'}"><svg class="btn-ic" aria-hidden="true"><use href="#${playing ? 'ic-stop' : 'ic-play'}"/></svg></button>
             <button type="button" class="btn btn-secondary cm-btn cm-fav" data-cm-fav="${escapeHtml(key)}" aria-pressed="${e.fav ? 'true' : 'false'}" title="${e.fav ? 'Treu-la de les preferides' : 'Desa-la com a preferida'}" aria-label="Preferida"><svg class="btn-ic" aria-hidden="true"><use href="#ic-bookmark"/></svg></button>
         </div>`;
