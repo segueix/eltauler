@@ -60,7 +60,7 @@ describe('integració a l\'app', () => {
     test('Tàctiques i Repàs intel·ligent tenen botó per fer-ne un altre, i totes mostren la ratxa', () => {
         const tactics = fnBody('showTacticsOverlay');
         expect(tactics).toMatch(/Una altra tàctica/);
-        expect(tactics).toMatch(/startTacticsPuzzle\(\)/);
+        expect(tactics).toMatch(/startTacticsPuzzle\(\{ continueFocus: true \}\)/);
         const srs = fnBody('showSrsSuccessOverlay');
         expect(srs).toMatch(/Un altre repàs/);
         expect(srs).toMatch(/startNextSrsReview\(\)/);

@@ -126,7 +126,9 @@ describe('Rival Antídot — anàlisi prudent de respostes temptadores', () => {
         expect(section).toContain("pace === 'bullet' || pace === 'blitz'");
         expect(section).toContain('maxProbes');
         expect(section).toContain('Math.min(2, opts.maxProbes)');
-        expect(section).toContain('releaseAntidoteEngine()');
+        // Si una comprovació s'esgota, es descarta el worker compartit (cap
+        // 'bestmove' antic no contamina la feina següent).
+        expect(section).toContain('disposeHieroStockfish()');
         expect(section).toContain('isCurrent()');
         expect(app).toContain('await enrichAntidoteProbableReplies(');
         expect(app).toContain('probableReply: analysis.probableReplies && analysis.probableReplies[alt.move] || null');

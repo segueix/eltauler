@@ -10116,6 +10116,167 @@
         return { title, body };
     }
 
+    // ------------------------------------------------------------------
+    // «Què toca avui?» (secció Entrena de l'inici). Tria UN exercici segons
+    // el progrés: primer el que caduca (repassos pendents, sobretot errors
+    // nous de les teves partides), després el que és nou (jeroglífics, la
+    // teva obertura per repassar), després el que dona varietat (Tres camins,
+    // pla bullet) i, com a recurs, tàctiques. Cada entrenament que ja has
+    // obert avui baixa de prioritat perquè la proposta no es repeteixi.
+    // ------------------------------------------------------------------
+    const ENTRENA_KINDS = {
+        srs: { target: 'btn-srs-review', title: 'Repàs intel·ligent', icon: 'ic-repeat', tone: 'rosewood' },
+        hiero: { target: 'btn-hieroglyphic-banner', title: 'Jeroglífics', icon: 'ic-puzzle-piece', tone: 'violet' },
+        opening: { target: 'btn-opening', title: 'La teva obertura', icon: 'ic-opening', tone: 'indigo' },
+        tria: { target: 'btn-tria-banner', title: 'Tres camins', icon: 'ic-shuffle', tone: 'teal' },
+        bullet: { target: 'btn-bullet-practice', title: 'Reflexos bullet', icon: 'ic-zap', tone: 'ocean' },
+        tactics: { target: 'btn-tactics', title: 'Tàctiques', icon: 'ic-target', tone: 'plum' },
+        bundle: { target: 'btn-bundle-menu', title: 'Revisa errors', icon: 'ic-search', tone: 'ochre' },
+        explorer: { target: 'btn-explorer', title: 'Tauler d\'anàlisi', icon: 'ic-analysis', tone: 'azure' },
+        // Tema feble: no té botó propi a la llista; la proposta crida
+        // startWeakThemeSession (app.js) amb el tema de data-theme.
+        weak: { target: null, title: 'Tema feble', icon: 'ic-target', tone: 'copper' }
+    };
+
+    // Temes de les errades (analyzeWeaknesses) → finals de jeroglífic que hi
+    // fan pensar, per ordre de preferència. Sense motiu tàctic (centre, joc
+    // posicional, obertura) no n'hi ha.
+    const ENTRENA_WEAK_MOTIFS = {
+        fork: ['fork'], pin: ['pin'], skewer: ['skewer'], king_attack: ['mate', 'check'],
+        material: ['major_win'], endgame: ['promotion', 'mate']
+    };
+    const ENTRENA_MOTIF_LABELS = {
+        mate: 'escac i mat', check: 'escac', fork: 'forquilla', pin: 'clavada', skewer: 'enfilada',
+        discovery: 'descoberta', promotion: 'promoció', major_win: 'guany de dama o torre'
+    };
+    const ENTRENA_WEAK_MIN = { total: 5, count: 3, share: 0.2 };
+
+    // Tema on falles més, només si les dades ho diuen clar: prou errors en
+    // total, prou d'aquell tema i una part prou gran. «general» (sense tema
+    // concret) no compta com a tema feble.
+    function entrenaWeakFocus(themeCounts, total) {
+        const counts = themeCounts && typeof themeCounts === 'object' ? themeCounts : {};
+        const all = Math.max(0, Math.floor(Number(total) || 0));
+        if (all < ENTRENA_WEAK_MIN.total) return null;
+        let best = null;
+        Object.keys(counts).forEach(k => {
+            if (k === 'general') return;
+            const n = Math.max(0, Math.floor(Number(counts[k]) || 0));
+            if (!best || n > best.count || (n === best.count && k < best.theme)) best = { theme: k, count: n };
+        });
+        if (!best || best.count < ENTRENA_WEAK_MIN.count || best.count / all < ENTRENA_WEAK_MIN.share) return null;
+        return { theme: best.theme, count: best.count, total: all };
+    }
+
+    // D'on surt l'exercici del tema feble, per ordre: un jeroglífic nou amb el
+    // final del tema, una tàctica del banc del mateix tema, la teva obertura
+    // (si el tema és l'obertura) o les teves errades d'aquell tema.
+    // avail: { hieroByMotif: { motiu: n }, tactics: n, errors: n }
+    function entrenaWeakSource(theme, avail) {
+        const a = avail || {};
+        const motifs = ENTRENA_WEAK_MOTIFS[theme] || [];
+        const byMotif = a.hieroByMotif || {};
+        const motif = motifs.find(m => Number(byMotif[m]) > 0);
+        if (motif) return { source: 'hiero', motif };
+        if (Number(a.tactics) > 0) return { source: 'tactics' };
+        if (theme === 'opening') return { source: 'opening' };
+        if (Number(a.errors) > 0) return { source: 'errors' };
+        return null;
+    }
+    const ENTRENA_TARGETS = Object.keys(ENTRENA_KINDS).reduce((acc, k) => { if (ENTRENA_KINDS[k].target) acc[ENTRENA_KINDS[k].target] = k; return acc; }, {});
+
+    function entrenaKindForTarget(id) {
+        return Object.prototype.hasOwnProperty.call(ENTRENA_TARGETS, id) ? ENTRENA_TARGETS[id] : null;
+    }
+
+    // Registre del dia: { day: 'AAAA-MM-DD', done: { tipus: vegades } }. Un
+    // registre d'un altre dia (o malmès) torna buit.
+    function entrenaDayLog(raw, today) {
+        const ok = raw && typeof raw === 'object' && raw.day === today && raw.done && typeof raw.done === 'object';
+        const done = {};
+        if (ok) Object.keys(raw.done).forEach(k => {
+            const n = Number(raw.done[k]);
+            if (ENTRENA_KINDS[k] && n > 0) done[k] = Math.floor(n);
+        });
+        return { day: today, done };
+    }
+    function entrenaMarkDone(raw, today, kind) {
+        const log = entrenaDayLog(raw, today);
+        if (ENTRENA_KINDS[kind]) log.done[kind] = (log.done[kind] || 0) + 1;
+        return log;
+    }
+
+    const entrenaPlural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+
+    // ctx: { srsDue, srsNew, hgNew, openingDue, openingName, triaQuestions,
+    //        triaMin, bulletComplete, bulletStarted, done: { tipus: n },
+    //        weak: { theme, label, count, total, source, motif } }
+    function entrenaPickToday(ctx) {
+        const c = ctx || {};
+        const done = (c.done && typeof c.done === 'object') ? c.done : {};
+        const n = v => Math.max(0, Math.floor(Number(v) || 0));
+        const times = k => n(done[k]);
+        const srsDue = n(c.srsDue), srsNew = Math.min(n(c.srsNew), srsDue);
+        const hgNew = n(c.hgNew), openingDue = n(c.openingDue);
+        const triaQ = n(c.triaQuestions), triaMin = Math.max(1, n(c.triaMin) || 1);
+        const out = (kind, reason, cta) => Object.assign({ kind, reason, cta: cta || 'Comença' }, ENTRENA_KINDS[kind]);
+
+        // 1. El que caduca: errors de les teves partides per repassar. Dues
+        //    sessions al dia com a màxim; després, varietat.
+        if (srsDue > 0 && times('srs') < 2) {
+            const reason = srsNew > 0
+                ? (srsNew === srsDue
+                    ? entrenaPlural(srsNew, 'error nou', 'errors nous') + ' de les teves partides: corregeix-' + (srsNew === 1 ? 'lo' : 'los') + ' ara que és recent.'
+                    : entrenaPlural(srsNew, 'error nou', 'errors nous') + ' i ' + entrenaPlural(srsDue - srsNew, 'repàs pendent', 'repassos pendents') + ': consolida el que vas fallar.')
+                : entrenaPlural(srsDue, 'repàs pendent', 'repassos pendents') + ' avui: si no els fas, la repetició espaiada perd el ritme.';
+            return out('srs', reason, 'Repassa');
+        }
+        // El tema on falles més (segons les teves errades), un cop al dia.
+        const weak = c.weak && typeof c.weak === 'object' && c.weak.theme && c.weak.source ? c.weak : null;
+        const weakPick = () => {
+            const label = typeof weak.label === 'string' && weak.label ? weak.label : weak.theme;
+            const why = 'És on falles més: ' + entrenaPlural(n(weak.count), 'error', 'errors') + ' dels ' + n(weak.total) + ' que has comès.';
+            const how = weak.source === 'hiero' ? ' Jeroglífic que acaba en ' + (ENTRENA_MOTIF_LABELS[weak.motif] || weak.motif) + '.'
+                : weak.source === 'tactics' ? ' Tàctiques d\'aquest tema, ja verificades.'
+                    : weak.source === 'opening' ? ' Practica la teva obertura amb el motor.'
+                        : ' Torna a les teves posicions d\'aquest tema.';
+            const p = out('weak', why + how, weak.source === 'hiero' || weak.source === 'tactics' ? 'Resol' : 'Practica');
+            p.title = 'Tema feble: ' + label;
+            p.theme = weak.theme;
+            p.source = weak.source;
+            p.motif = weak.motif || null;
+            return p;
+        };
+        const weakOpen = !!weak && !times('weak') && !(weak.source === 'opening' && times('opening'))
+            && !(weak.source === 'hiero' && times('hiero'));
+        // 2. El que és nou. Si hi ha un jeroglífic nou amb el final del teu
+        //    tema feble, és aquell el que es proposa.
+        if (weakOpen && weak.source === 'hiero' && hgNew > 0) return weakPick();
+        if (hgNew > 0 && !times('hiero')) {
+            return out('hiero', (hgNew === 1 ? 'Hi ha un jeroglífic nou a punt' : 'Tens jeroglífics nous a punt') + ': troba els tres millors moviments.', 'Resol');
+        }
+        if (openingDue > 0 && !times('opening')) {
+            const name = typeof c.openingName === 'string' && c.openingName.trim() ? c.openingName.trim() : '';
+            return out('opening', entrenaPlural(openingDue, 'posició', 'posicions') + (name ? ' de «' + name + '»' : ' del teu repertori') + ' per repassar: fixa-les abans que s\'oblidin.', 'Practica');
+        }
+        // 3. El tema feble des d'una altra font (tàctiques, errades, obertura).
+        if (weakOpen) return weakPick();
+        // 4. Varietat.
+        if (triaQ >= triaMin && !times('tria')) {
+            return out('tria', 'Test amb ' + entrenaPlural(triaQ, 'decisió', 'decisions') + ' de les teves partides: tria el millor dels tres camins.', 'Fes el test');
+        }
+        if (!c.bulletComplete && !times('bullet')) {
+            return out('bullet', c.bulletStarted
+                ? 'Acaba el pla de 5 minuts d\'avui: lectura, rellotge i velocitat.'
+                : 'Pla de 5 minuts: llegeix el tauler i mira el rellotge sense perdre temps.', 'Comença');
+        }
+        // 5. Recurs: tàctiques (sempre n'hi ha).
+        const allDone = srsDue === 0 && (hgNew === 0 || times('hiero')) && (openingDue === 0 || times('opening'));
+        return out('tactics', allDone && Object.keys(done).length
+            ? 'Ja has fet la feina important d\'avui. Unes tàctiques de propina?'
+            : 'Combinacions noves per afinar la vista tàctica.', 'Resol');
+    }
+
     return {
         splitPgnGames,
         parsePgnHeaders,
@@ -10483,6 +10644,15 @@
         dailyPickVersion,
         dailyMergeGames,
         mergeSyncSnapshots,
-        syncMergeHieroglyphicHistory
+        syncMergeHieroglyphicHistory,
+        ENTRENA_KINDS,
+        entrenaKindForTarget,
+        entrenaDayLog,
+        entrenaMarkDone,
+        entrenaPickToday,
+        ENTRENA_WEAK_MOTIFS,
+        ENTRENA_MOTIF_LABELS,
+        entrenaWeakFocus,
+        entrenaWeakSource
     };
 });

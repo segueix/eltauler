@@ -110,9 +110,11 @@ Conduir amb Playwright + Chromium preinstal·lat
     `tauler_tv_prefs.radioBackground = { sound: 'music' }`; la melodia que
     sona surt a `#sftv-radio-status` («Ara sona: …») i canvia amb
     `_controller().newGame()`. **Mòbil**: el disseny de la TV depèn de
-    `body.device-desktop`; per veure'l com en un telèfon cal un context amb
-    `hasTouch: true, isMobile: true` (si no, a 420 px surt la graella
-    d'escriptori i el tauler fa 0 px d'amplada).
+    `body.device-desktop` i de l'amplada: en una finestra d'ordinador de
+    menys de 760 px ja surt com al mòbil (abans el tauler hi feia 0 px). Per
+    provar-la com en un telèfon de debò, context amb
+    `hasTouch: true, isMobile: true`. El mateix val per a l'inici (dues
+    columnes a partir de 1000 px) i el taller d'Obertures (760 px).
 
 12. **Inici (bàners per seccions)**: `#start-screen.home-d` agrupa els
     bàners en `.home-sec--juga/avui/entrena/comunitat/apren/final`; els
@@ -172,8 +174,11 @@ Conduir amb Playwright + Chromium preinstal·lat
     `hgNewCount()` i `hgLastGenDiag`; el Chromium de l'entorn té 4 nuclis i va
     en «mode lleuger» (cua de 2). La reserva (`window.ElTaulerHieroReserve`,
     `jeroglifics-reserva.js`) dona un jeroglífic a l'instant amb la cua buida;
-    per provar la generació real sense reserva, buidar-la en carregar la
-    pàgina (`window.ElTaulerHieroReserve.length = 0`).
+    ja no es carrega amb la pàgina sinó quan el navegador queda lliure (com
+    la base d'obertures, `obertures.js`; app.js: `loadDeferredData`). Per
+    provar la generació real sense reserva, esperar-la
+    (`await loadDeferredData('hieroReserve')`) i buidar-la
+    (`window.ElTaulerHieroReserve.length = 0`).
     Per ampliar-la: `node scripts/mine-hieroglyphics.js --minutes 30 --pages 3`
     (els CDN es copien a `.cache/cdn`).
     **Col·lecció**: el banc diari NO es copia a la cua; tots els seus ítems no
@@ -259,6 +264,38 @@ Conduir amb Playwright + Chromium preinstal·lat
     dona la partitura (mateixa llavor = mateixa peça) i `jingleTitle` el nom
     («… · la menor»). Per escoltar-les, generar WAV amb
     `R.jingleSamples(R.composeJingle('rumba', 123), 22050)` des de Node.
+
+20. **Entrena · «Què toca avui?»** (`#btn-entrena-today`): la proposta la
+    tria `ElTaulerCore.entrenaPickToday(entrenaTodayContext())` i el botó
+    clica el de la llista (`data-target`). La resta d'entrenaments són dins
+    `<details id="entrena-more">`: tancat, els botons no es veuen però
+    `element.click()` i jQuery `.click()` hi funcionen (el tutorial ho fa
+    servir); per fer captures o `page.click` reals, obrir-lo abans
+    (`#entrena-more > summary`). Per forçar propostes: posar un error a
+    `savedErrors` amb `srsDue` passat (→ repàs), sembrar
+    `eltauler_entrena_day` = `{ day: entrenaLocalDay(), done: { hiero: 1 } }`
+    (→ salta jeroglífics) i, per a l'obertura, `chess_openingWorkshop_v1` amb
+    nodes vàlids (cal `san` i `origin`, si no `normalizeStore` els descarta)
+    i `due` passat; després `updateDisplay()` i esperar ~150 ms (el repintat
+    va amb `scheduleEntrenaToday`, que no fa res si l'inici és amagat).
+    **Tema feble** (`kind: 'weak'`, sense botó a la llista: la proposta crida
+    `startWeakThemeSession`): surt amb ≥ 5 errades i ≥ 3 (i ≥ 20 %) d'un tema
+    que no sigui «general». Per forçar-lo, afegir a `savedErrors` (amb
+    `saveStorage()`, i `srsDue` futur perquè no passi davant el repàs) sis
+    posicions de `TACTICS_BANK` amb `tacticsBankTheme(f) === 'king_attack'` i
+    `bestMove` = primera jugada de `TACTICS_BANK_SOLUTIONS[f]`. Proposa un
+    jeroglífic amb aquell final (`hgPlayNext({ pref })`); amb `done.hiero`,
+    tàctiques del tema (`tacticsThemeFocus`, que «Una altra tàctica» manté i
+    `#btn-tactics` esborra). `analyzeWeaknesses` es desa a `entrenaWeakCache`.
+    **Banc per temes**: al final de `TACTICS_BANK` hi ha grups (Forquilles,
+    Clavades, Raigs X, Finals) de problemes de Lichess. Per afegir-ne:
+    candidats de `lichess_db_puzzle.csv` amb 4 jugades a `Moves` (FEN després
+    de la primera), comprovar al navegador que `classifyPositionTheme(fen,
+    primera jugada)` dona el tema, afegir-los i córrer
+    `node scripts/gen-tactics-solutions.js --only "fen1|fen2"` (~45 s per
+    posició; reescriu app.js en acabar, no l'editeu mentrestant). Treure del
+    banc les que llisti com a «SENSE resultat palpable» i les que tinguin un
+    moviment de rei tranquil com a segona jugada (tactics.test.js).
 
 ## Fluxos útils
 

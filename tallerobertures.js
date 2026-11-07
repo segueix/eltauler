@@ -1119,7 +1119,10 @@
             after: { multipv: 1, depth: 12, movetime: 800 }
         };
         const RIVAL_MIN_MS = 450;
-        const cfg = { stockfishUrl: 'stockfish-19-lite-single.js', getGraph: null, onHiero: null, onHome: null };
+        // analyze(fen, { multipv, depth, movetime }) → Promise<{ depth, lines }>:
+        // si l'app el dona, el taller fa servir el seu motor compartit i no
+        // n'obre cap de propi.
+        const cfg = { stockfishUrl: 'stockfish-19-lite-single.js', getGraph: null, onHiero: null, onHome: null, analyze: null };
         const ui = {
             store: null, trie: null, board: null, game: null, sans: [], marks: [],
             color: 'w', depth: L.DEFAULT_DEPTH, phase: 'idle', token: 0,
@@ -1260,7 +1263,11 @@
             return { analyze, dispose, isDead: () => dead, revive: () => { dead = false; } };
         }
         function engine() {
-            if (!ui.engine) ui.engine = createEngine(cfg.stockfishUrl);
+            if (!ui.engine) {
+                ui.engine = typeof cfg.analyze === 'function'
+                    ? { analyze: (fen, p) => Promise.resolve(cfg.analyze(fen, p)).catch(() => null), dispose() {}, isDead: () => false, revive() {} }
+                    : createEngine(cfg.stockfishUrl);
+            }
             return ui.engine;
         }
         function linesWithSan(fen, raw) {

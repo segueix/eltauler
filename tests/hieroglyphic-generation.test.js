@@ -100,7 +100,8 @@ test('el generador mai no publica un mat en 1 o en 2', async () => {
 test('la creació de jeroglífics té motor SF19 independent i sense fallback antic', () => {
     expect(source).toContain('const HIERO_STOCKFISH_URL = `stockfish-19-lite-single.js?v=${APP_VERSION}`;');
     expect(source).toContain('new Worker(HIERO_STOCKFISH_URL)');
-    expect(source).toContain('hieroAnalysisQueue.then(run, run)');
+    // Les anàlisis van al motor compartit de Stockfish 19 (cua amb prioritats).
+    expect(source).toMatch(/function analyzeHieroFenRobust\([^)]*priority = 'background'\) \{\n    return sf19Submit\(priority,/);
     expect(source).toContain('createVerifier(Chess, analyzeHieroFenRobust)');
     const generator = between('async function hgGenerateOne(', '// Text llegible del motiu');
     expect(generator).toContain('await ensureHieroStockfish()');

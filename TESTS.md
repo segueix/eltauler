@@ -719,6 +719,25 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   hi encadena amb un fos, baixa el volum quan parla la veu, i es comporta bé
   sense Web Audio, amb errors i amb un context que es reprèn tard. Els sons
   antics (`studio`, `tuning`, `theme`) es llegeixen com a música.
+- **`tactics-themes.test.js`** — el **banc de tàctiques per temes** que fa
+  servir el tema feble de «Què toca avui?»: quatre grups (forquilles,
+  clavades, raigs X i finals) amb prou posicions cadascun, totes de la base
+  oberta de problemes de Lichess (CC0) amb la referència i la dificultat al
+  costat, sense repeticions, dins de 900–2000 i amb la línia de dues jugades
+  verificada per Stockfish 19 al rebost.
+- **`entrena-today.test.js`** — la secció **Entrena** de l'inici: una sola
+  proposta «Què toca avui?» (`entrenaPickToday`) amb les prioritats
+  repassos pendents (errors nous destacats, màxim dues sessions al dia) →
+  jeroglífics nous → posicions de la teva obertura → Tres camins (només si
+  el test es pot fer) → pla bullet → tàctiques; el registre del dia
+  (`eltauler_entrena_day`) baixa de prioritat el que ja has obert i es buida
+  en canviar de dia; cada tipus té botó, icona i to; la llista plegable
+  «Més entrenaments» conserva tots els botons en ordre, i la guia hi porta.
+  **Tema feble**: només amb dades clares (≥ 5 errades, ≥ 3 i ≥ 20 % d'un
+  tema concret); la font és un jeroglífic nou amb el final del tema (passa
+  davant del jeroglífic genèric), tàctiques del banc del mateix tema (que es
+  mantenen amb «Una altra tàctica»), la teva obertura o les teves errades.
+  També comprova que obrir un jeroglífic ja no buida `savedErrors`.
 - **`leaguejingles.test.js`** — la **música que compon l'app**
   (`radioambient.js`, `composeJingle`): tornades de 30 s entre partides de la
   lliga i bucles de 32 s per a la TV Stockfish vs Lozza. Cinc estils

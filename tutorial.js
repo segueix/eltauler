@@ -275,11 +275,13 @@
         },
         {
             id: 'entrenar', title: 'Entrenar', items: [
+                { id: 'avui', icon: 'ic-target', title: 'Què toca avui?', action: 'today', cta: 'Mira la proposta',
+                  text: 'A dalt de la secció <strong>Entrena</strong> de l\'inici hi ha una sola proposta, triada segons el teu progrés: primer els <strong>repassos pendents</strong> (sobretot els errors nous de les teves partides), després el que és nou (<strong>jeroglífics</strong>, posicions de <strong>la teva obertura</strong> per repassar) i després varietat (Tres camins, pla bullet, tàctiques). El que ja has obert avui baixa de prioritat. La resta d\'entrenaments són a <strong>Més entrenaments</strong>, a un toc.' },
                 { id: 'jeroglifics', icon: 'ic-puzzle-piece', title: 'Jeroglífics', action: 'hieroglyphics', cta: 'Resol-ne un',
                   text: 'Exercicis generats de les <strong>teves partides</strong>: has de trobar els tres millors moviments seguits. Es preparen en segon pla mentre fas servir l\'app, i pots triar quin <strong>final</strong> han de tenir (mat, forquilla, clavada, coronació...). L\'historial de jeroglífics guarda els que has resolt.' },
                 { id: 'tria', icon: 'ic-shuffle', title: 'Tres camins', action: 'tria', cta: 'Fer el test',
                   text: 'Test de 20 preguntes fet amb posicions de les teves partides on no vas jugar la millor. A cada pregunta veus les <strong>tres millors jugades</strong> (A, B i C, cadascuna amb el seu tauler) i la que vas fer de veritat: tria la bona. La dificultat s\'ajusta al teu nivell.' },
-                { id: 'tactiques', icon: 'ic-zap', title: 'Tàctiques', action: 'tactics', cta: 'Entrena',
+                { id: 'tactiques', icon: 'ic-target', title: 'Tàctiques', action: 'tactics', cta: 'Entrena',
                   text: 'Banc de posicions tàctiques verificades amb Stockfish, en què has de trobar la millor jugada (i completar la seqüència). Funciona fins i tot sense motor, perquè les línies ja venen resoltes.' },
                 { id: 'errors', icon: 'ic-book', title: 'Els teus errors i el repàs intel·ligent', action: 'errors', cta: 'Revisa errors',
                   text: 'Cada errada de les teves partides es guarda amb la seva posició. A <strong>Revisa errors</strong> les practiques per categoria (o a l\'atzar) rectificant-les al tauler. El <strong>Repàs intel·ligent</strong> és una cua de repetició espaiada: et torna a posar cada errada quan toca, fins que la tens dominada.' }
@@ -287,7 +289,7 @@
         },
         {
             id: 'obertures', title: 'Obertures i anàlisi', items: [
-                { id: 'obertures', icon: 'ic-book', title: 'Obertures', action: 'openings', cta: 'Obre les obertures',
+                { id: 'obertures', icon: 'ic-opening', title: 'Obertures', action: 'openings', cta: 'Obre les obertures',
                   text: 'Repertori recomanat amb blanques i defenses amb negres, amb <strong>lliçons guiades</strong>, correcció immediata i càlcul de precisió. <strong>La teva obertura</strong> construeix un repertori personal a partir del que ja jugues, reforçat pel motor on falla. I els <strong>jeroglífics d\'obertura</strong> et fan trobar la jugada teòrica a partir d\'una pista.' },
                 { id: 'analisi', icon: 'ic-analysis', title: 'Tauler d\'anàlisi', action: 'explorer', cta: 'Obre el tauler',
                   text: 'Analitza qualsevol posició: carrega una FEN, munta-la amb l\'<strong>editor</strong> o enganxa un PGN. Veus la <strong>barra d\'avaluació</strong> i les línies del motor, pots jugar la millor jugada, navegar la línia i <strong>jugar la posició contra Stockfish</strong> (sense puntuar ELO).' },
@@ -327,7 +329,7 @@
     // Lògica pura
     // ------------------------------------------------------------------
     const STEP_KINDS = ['text', 'explore', 'square', 'task'];
-    const ACTION_IDS = ['new-game', 'daily', 'positional', 'antidote', 'league', 'hieroglyphics', 'tria',
+    const ACTION_IDS = ['new-game', 'daily', 'positional', 'antidote', 'league', 'today', 'hieroglyphics', 'tria',
         'tactics', 'errors', 'openings', 'explorer', 'tv', 'catalans', 'ranking', 'history', 'stats', 'settings', 'tutorial'];
     const PREDICATES = ['checkmate', 'capture', 'castle', 'promote', 'enpassant', 'check', 'any'];
     const SQUARE_RE = /^[a-h][1-8]$/;
@@ -537,6 +539,7 @@
         'positional': () => click('#btn-positional-game'),
         'antidote': () => click('#btn-antidote-game'),
         'league': () => click('#btn-league'),
+        'today': () => click('#btn-entrena-today'),
         'hieroglyphics': () => click('#btn-hieroglyphic-banner'),
         'tria': () => click('#btn-tria-banner'),
         'tactics': () => click('#btn-tactics'),

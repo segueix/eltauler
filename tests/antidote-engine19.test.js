@@ -4,7 +4,7 @@ const src = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
 
 describe('Rival Antídot — integració Stockfish 19', () => {
     const section = src.slice(
-        src.indexOf('let antidoteEngineReadyPromise = null;'),
+        src.indexOf('// Motor: el Stockfish 19 compartit (sf19Submit)'),
         src.indexOf('// ── Preferències del comentari en viu')
     );
     const search = src.slice(
@@ -12,19 +12,18 @@ describe('Rival Antídot — integració Stockfish 19', () => {
         src.indexOf('function applyAntidoteAnalysis(')
     );
 
-    test('comparteix binaris Stockfish 19 però no el worker de jeroglífics', () => {
+    test('fa servir el Stockfish 19 compartit, sense cap worker propi', () => {
         expect(src).toContain('const ANTIDOTE_STOCKFISH_URL = HIERO_STOCKFISH_URL;');
         expect(src).toContain('stockfish-19-lite-single.js');
-        expect(section).toContain('new Worker(ANTIDOTE_STOCKFISH_URL)');
-        expect(section).not.toContain('createStockfishWorker()');
-        expect(section).toContain('worker.terminate()');
+        expect(section).not.toContain('new Worker(');
+        expect(section).toContain('void ensureHieroStockfish();');
+        // Sortir de la partida atura la cerca i descarta les pendents.
+        expect(section).toContain("sf19Cancel('antidote');");
     });
 
-    test('espera la inicialització UCI abans de començar la cerca', () => {
-        expect(section).toContain("worker.postMessage('uci')");
-        expect(section).toContain("worker.postMessage('isready')");
-        expect(section).toContain("event.data.trim() === 'readyok'".replace('event', 'e'));
-        expect(search).toContain('await (antidoteEngineReadyPromise || Promise.resolve(false))');
+    test('la cerca és una feina «play»: passa davant de tot', () => {
+        expect(search).toContain("await sf19Submit('play', async engine => {");
+        expect(search).toContain("{ tag: 'antidote' }");
         expect(search).toContain("bail('uci-not-ready')");
     });
 

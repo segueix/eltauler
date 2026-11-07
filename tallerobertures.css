@@ -61,11 +61,15 @@ body.epaper-mode .olab-seg-btn.is-on { background: #222; color: #fff; }
 }
 
 .olab-main { display: flex; flex-direction: column; gap: 10px; }
-body.device-desktop .olab-main {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(280px, 380px);
-    align-items: start;
-    gap: 16px;
+/* Tauler i guia en dues columnes només amb la finestra prou ampla (en una
+   finestra estreta d'ordinador el tauler quedava de 4 px). */
+@media (min-width: 760px) {
+    body.device-desktop .olab-main {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(280px, 380px);
+        align-items: start;
+        gap: 16px;
+    }
 }
 .olab-board-col, .olab-side { min-width: 0; }
 

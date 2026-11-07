@@ -617,6 +617,9 @@ let dailyPuzzle = { date: null, solved: false, streak: 0, best: 0, fen: null, la
 let completedOpenings = [];
 let tacticsStats = { solved: 0, attempts: 0, best: 0, streak: 0, recentFens: [] };
 let isTacticsSession = false;
+// Tema de la tanda de tàctiques (null = qualsevol). El fixa «Què toca avui?»
+// quan proposa el tema feble; «Una altra tàctica» el manté.
+let tacticsThemeFocus = null;
 
 // El teu bessó: un rival que juga com tu (llibre d'obertures personal + força
 // per fase treta de les teves partides). Es construeix a l'inici de cada repte.
@@ -972,6 +975,8 @@ function navGoBack() {
         $('#start-screen').show();
     }
     navStack.pop();
+    // De tornada a l'inici, la proposta d'Entrena té en compte el que acabes de fer.
+    if (typeof scheduleEntrenaToday === 'function') scheduleEntrenaToday();
 }
 window.addEventListener('popstate', function(e) {
     const cid = customGameIdFromUrl();
@@ -3473,10 +3478,57 @@ function parsePgnToMoves(pgn) {
     return ElTaulerCore.parsePgnToMoves(pgn);
 }
 
+/* ---- Dades grans que es carreguen quan el navegador queda lliure ----
+   La base d'obertures (obertures.js, 454 KB) i la reserva de jeroglífics
+   (jeroglifics-reserva.js, 220 KB) no calen per pintar l'inici: no es
+   carreguen amb la pàgina, sinó just després (requestIdleCallback) o en el
+   moment que una funció les demana. Cada funció que les fa servir ja comprova
+   si hi són; les que les necessiten de seguida esperen loadDeferredData(). */
+const DEFERRED_DATA = {
+    openings: { src: 'obertures.js?v=1.0.3', ready: () => typeof OPENINGS_DATA !== 'undefined' },
+    hieroReserve: { src: 'jeroglifics-reserva.js?v=1.0.0', ready: () => Array.isArray(window.ElTaulerHieroReserve) }
+};
+const deferredDataLoads = {};
+function loadDeferredData(name) {
+    const d = DEFERRED_DATA[name];
+    if (!d) return Promise.resolve(false);
+    if (d.ready()) return Promise.resolve(true);
+    if (deferredDataLoads[name]) return deferredDataLoads[name];
+    const job = new Promise(resolve => {
+        const el = document.createElement('script');
+        el.src = d.src;
+        el.async = true;
+        el.onload = () => resolve(d.ready());
+        el.onerror = () => resolve(false);
+        document.head.appendChild(el);
+    }).then(ok => {
+        if (!ok) { delete deferredDataLoads[name]; return false; }
+        onDeferredDataLoaded(name);
+        return true;
+    });
+    deferredDataLoads[name] = job;
+    return job;
+}
+function onDeferredDataLoaded(name) {
+    if (name === 'hieroReserve') {
+        // La rajola de l'inici compta els jeroglífics nous (els de la reserva inclosos).
+        try { renderHieroglyphicBanner(); } catch (e) {}
+    } else if (name === 'openings') {
+        try { if (window.ElTaulerOpeningLab && $('#opening-screen').is(':visible')) window.ElTaulerOpeningLab.refresh(); } catch (e) {}
+    }
+}
+function scheduleDeferredData() {
+    const go = () => { void loadDeferredData('hieroReserve'); void loadDeferredData('openings'); };
+    if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(go, { timeout: 2500 });
+    else setTimeout(go, 1200);
+}
+
 // Construeix el trie d'obertures per cerca eficient
 function buildOpeningTrie() {
     if (typeof OPENINGS_DATA === 'undefined') {
-        console.warn('[Openings] OPENINGS_DATA no disponible');
+        // Encara no ha arribat: es demana i el trie es farà en una crida posterior.
+        void loadDeferredData('openings');
+        console.warn('[Openings] OPENINGS_DATA encara no disponible');
         return null;
     }
 
@@ -3493,7 +3545,7 @@ function initOpeningSystem() {
         openingTrie = buildOpeningTrie();
         if (openingTrie) {
             console.log('[Openings] Sistema d\'obertures inicialitzat correctament');
-        } else {
+        } else if (typeof OPENINGS_DATA !== 'undefined') {
             console.error('[Openings] ERROR: No s\'ha pogut construir el trie d\'obertures');
         }
     }
@@ -7233,7 +7285,8 @@ function openOpeningHieroglyphicFromHome() {
     if (typeof guardCalibrationAccess === 'function' && !guardCalibrationAccess()) return;
     $('#btn-opening').click();
     initOpeningBundleBoard();
-    startOpeningTheoryHieroglyphic();
+    // Les branques surten de la base d'obertures, que pot estar arribant.
+    loadDeferredData('openings').then(() => startOpeningTheoryHieroglyphic());
 }
 
 // Engega una partida d'un ritme des d'Estadístiques: fixa el rellotge triat i
@@ -8643,6 +8696,8 @@ let humanBookIndexCache = null;
 function getHumanBookIndex() {
     if (!humanBookIndexCache && typeof OPENINGS_DATA !== 'undefined') {
         humanBookIndexCache = ElTaulerCore.humanBookIndex(OPENINGS_DATA);
+    } else if (!humanBookIndexCache) {
+        void loadDeferredData('openings');
     }
     return humanBookIndexCache;
 }
@@ -9885,7 +9940,7 @@ function updateDisplay() {
     updateCalibrationAccessUI();
     
     let total = savedErrors.length;
-    $('#bundle-info').text(total > 0 ? `${total} errors guardats · tria manual` : 'Biblioteca dels teus errors');
+    $('#bundle-info').text(total > 0 ? `${total} ${total === 1 ? 'error guardat' : 'errors guardats'} · tria manual` : 'Biblioteca dels teus errors');
     $('#game-bundles').text(total);
     // Comptadors de repàs espaiat al menú principal
     const due = getDueErrors().length;
@@ -9899,6 +9954,7 @@ function updateDisplay() {
     // cada dia; aquí només el pinta amb el text vigent).
     renderCoachDiagnosis();
     try { refreshTriaBanner(); } catch (e) {}
+    try { scheduleEntrenaToday(); } catch (e) {}
     if (typeof updateCloudRecoverButton === 'function') updateCloudRecoverButton();
     try { renderLiveGameBanner(); } catch (e) {}
     try { renderUntimedGamesPanel(); } catch (e) {}
@@ -10529,7 +10585,6 @@ async function analyzeFenRobust(fen, depth = 15, multiPv = 1, moveTimeMs = 8000,
 // La cua impedeix que MultiPV / bestmove de dues cerques es contaminin.
 let hieroStockfish = null;
 let hieroReadyPromise = null;
-let hieroAnalysisQueue = Promise.resolve();
 // Ús del motor: el planificador el tanca quan fa estona que no es fa servir
 // (en gamma baixa, als 45 s) i així no ocupa memòria durant les partides.
 let hieroLastUsedAt = 0;
@@ -10593,31 +10648,132 @@ function waitHieroStockfishReady(worker, timeoutMs = 5000) {
         try { worker.postMessage('isready'); } catch (e) { finish(false); }
     });
 }
-function analyzeHieroFenRobust(fen, depth = 15, multiPv = 1, moveTimeMs = 8000, shouldAbort = null) {
-    const run = async () => {
+// ── Stockfish 19 compartit ──────────────────────────────────────────────────
+// Un sol worker de Stockfish 19 (el dels jeroglífics) per a tota la feina que
+// no és el rival ordinari de les partides: generació de jeroglífics,
+// preparació d'exercicis, el taller d'obertures i el Rival Antídot. Les feines
+// fan cua amb prioritat:
+//   play (2)       el rival d'una partida en curs (Antídot);
+//   screen (1)     algú espera a la pantalla (taller, exercicis);
+//   background (0) generació de jeroglífics en segon pla.
+// Una feina més prioritària atura la que s'està fent si és de fons o de
+// pantalla ('stop'), i aquesta es torna a fer de zero més tard: mai no es dona
+// per bona una anàlisi a mitges (certifica jeroglífics). Abans de cada feina, 'stop' + 'isready'
+// buida qualsevol resposta antiga perquè no contamini la següent.
+const SF19_PRIORITY = { background: 0, screen: 1, play: 2 };
+const sf19Jobs = [];
+let sf19Current = null;
+let sf19Seq = 0;
+function sf19Busy() { return !!sf19Current || sf19Jobs.length > 0; }
+// run(worker, ctl) → resultat; ctl.preempted() diu si l'han aturada per
+// passar-ne una de més prioritària (el resultat es descartarà).
+function sf19Submit(priority, run, opts = {}) {
+    const level = typeof priority === 'number' ? priority : (SF19_PRIORITY[priority] || 0);
+    return new Promise(resolve => {
+        const job = { priority: level, run, resolve, seq: ++sf19Seq, tag: opts.tag || null,
+            // Tot el que no és el rival d'una partida cedeix davant d'una feina
+            // més prioritària (i es torna a fer després).
+            preemptable: opts.preemptable !== undefined ? !!opts.preemptable : level < SF19_PRIORITY.play,
+            preempted: false, cancelled: false, worker: null };
+        sf19Jobs.push(job);
+        hieroPendingAnalyses++;
+        hieroLastUsedAt = Date.now();
+        const cur = sf19Current;
+        if (cur && cur.preemptable && cur.priority < level && cur.worker) {
+            cur.preempted = true;
+            try { cur.worker.postMessage('stop'); } catch (e) {}
+        }
+        void sf19Pump();
+    });
+}
+async function sf19Pump() {
+    if (sf19Current || !sf19Jobs.length) return;
+    sf19Jobs.sort((a, b) => (b.priority - a.priority) || (a.seq - b.seq));
+    const job = sf19Jobs.shift();
+    sf19Current = job;
+    let result = null;
+    try {
+        if (!job.cancelled && await ensureHieroStockfish()) {
+            const worker = hieroStockfish;
+            if (worker) {
+                job.worker = worker;
+                let clean = true;
+                try { worker.postMessage('stop'); } catch (e) { clean = false; }
+                if (!clean || !await waitHieroStockfishReady(worker)) disposeHieroStockfish();
+                else if (!job.cancelled) result = await job.run(worker, { preempted: () => job.preempted || job.cancelled });
+            }
+        }
+    } catch (e) {
+        console.warn('[SF19] Error en una feina del motor compartit', e);
+        result = null;
+    }
+    sf19Current = null;
+    if (job.preempted && !job.cancelled) {
+        // Aturada per una de més prioritària: es torna a fer més tard.
+        job.preempted = false;
+        job.worker = null;
+        job.seq = ++sf19Seq;
+        sf19Jobs.push(job);
+    } else {
+        hieroPendingAnalyses = Math.max(0, hieroPendingAnalyses - 1);
+        hieroLastUsedAt = Date.now();
+        job.resolve(job.cancelled ? null : result);
+    }
+    void sf19Pump();
+}
+// Atura i descarta les feines d'una etiqueta (p. ex. 'antidote' en sortir).
+function sf19Cancel(tag) {
+    for (let i = sf19Jobs.length - 1; i >= 0; i--) {
+        const job = sf19Jobs[i];
+        if (job.tag !== tag) continue;
+        sf19Jobs.splice(i, 1);
+        job.cancelled = true;
+        hieroPendingAnalyses = Math.max(0, hieroPendingAnalyses - 1);
+        job.resolve(null);
+    }
+    if (sf19Current && sf19Current.tag === tag) {
+        sf19Current.cancelled = true;
+        try { if (sf19Current.worker) sf19Current.worker.postMessage('stop'); } catch (e) {}
+    }
+}
+
+function analyzeHieroFenRobust(fen, depth = 15, multiPv = 1, moveTimeMs = 8000, shouldAbort = null, priority = 'background') {
+    return sf19Submit(priority, async (worker, ctl) => {
+        let w = worker;
         for (let attempt = 0; attempt < 2; attempt++) {
             if (shouldAbort && shouldAbort()) return null;
-            if (!await ensureHieroStockfish()) return null;
-            const worker = hieroStockfish;
-            if (!worker) return null;
-            try { worker.postMessage('stop'); } catch (e) { disposeHieroStockfish(); continue; }
-            if (!await waitHieroStockfishReady(worker)) { disposeHieroStockfish(); continue; }
-            if (shouldAbort && shouldAbort()) return null;
+            if (attempt > 0) {
+                // Segon intent amb un worker nou (l'anterior ha fallat).
+                if (!await ensureHieroStockfish()) return null;
+                w = hieroStockfish;
+                if (!w || !await waitHieroStockfishReady(w)) { disposeHieroStockfish(); return null; }
+            }
             try {
-                const result = await analyzePositionEnrichedTimed(worker, fen, depth, multiPv, moveTimeMs, moveTimeMs + 5000);
+                const result = await analyzePositionEnrichedTimed(w, fen, depth, multiPv, moveTimeMs, moveTimeMs + 5000);
+                if (ctl.preempted()) return null;
                 if (shouldAbort && shouldAbort()) return null;
                 if (result && result.bestMove && uciToSanForFen(fen, result.bestMove.move)) return result;
             } catch (e) { console.warn('[Jeroglífics] Error analitzant amb SF19', e); }
+            if (ctl.preempted()) return null;
             disposeHieroStockfish();
         }
         return null;
-    };
-    hieroPendingAnalyses++;
-    hieroLastUsedAt = Date.now();
-    const task = hieroAnalysisQueue.then(run, run);
-    hieroAnalysisQueue = task.then(() => {}, () => {});
-    task.then(() => {}, () => {}).then(() => { hieroPendingAnalyses = Math.max(0, hieroPendingAnalyses - 1); hieroLastUsedAt = Date.now(); });
-    return task;
+    });
+}
+// Anàlisi per al taller d'obertures (tallerobertures.js): MultiPV amb el
+// motor compartit, a prioritat de pantalla.
+function sf19AnalyzeForLab(fen, p) {
+    return sf19Submit('screen', async worker => {
+        const r = await analyzePositionEnrichedTimed(worker, fen, p.depth, p.multipv, p.movetime, p.movetime + 4000);
+        if (!r || !r.alternatives || !r.alternatives.length) return null;
+        return {
+            depth: r.depth || 0,
+            lines: r.alternatives.filter(a => a && a.move).map((a, i) => ({
+                uci: a.move, multipv: i + 1, depth: a.depth || r.depth || 0,
+                cp: a.evalType === 'mate' ? (a.eval > 0 ? 10000 - a.eval : -10000 - a.eval) : a.eval
+            }))
+        };
+    }, { tag: 'lab' });
 }
 if (typeof window !== 'undefined') window.addEventListener('pagehide', disposeHieroStockfish);
 
@@ -10626,7 +10782,8 @@ if (typeof window !== 'undefined') window.addEventListener('pagehide', disposeHi
 // jeroglífics. Només si el worker de SF19 no arrenca es recau al motor ordinari,
 // perquè la secció no es quedi mai sense exercici.
 async function analyzeExerciseFen(fen, depth = 15, multiPv = 1, moveTimeMs = 8000, shouldAbort = null) {
-    const viaSf19 = await analyzeHieroFenRobust(fen, depth, multiPv, moveTimeMs, shouldAbort);
+    // Algú espera l'exercici: passa davant de la generació de jeroglífics.
+    const viaSf19 = await analyzeHieroFenRobust(fen, depth, multiPv, moveTimeMs, shouldAbort, 'screen');
     if (viaSf19 || (shouldAbort && shouldAbort())) return viaSf19;
     console.warn('[Bundle] Stockfish 19 no ha respost; es recau al motor ordinari');
     return analyzeFenRobust(fen, depth, multiPv, moveTimeMs, shouldAbort);
@@ -21052,8 +21209,9 @@ function netejarErrorsPerJeroglific() {
         el.style.display = 'none';
     });
 
-    // 2. Buidar arrays globals que poguessin portar missatges "en vol"
-    if (typeof savedErrors !== 'undefined') savedErrors = [];
+    // 2. Buidar la cua d'errors de la partida que poguessin portar missatges "en vol".
+    //    MAI savedErrors: és la biblioteca d'errors de l'usuari (Revisa errors,
+    //    Repàs intel·ligent) i el pròxim saveStorage l'hauria esborrat del tot.
     if (typeof matchErrorQueue !== 'undefined') matchErrorQueue = [];
     if (typeof currentMatchError !== 'undefined') currentMatchError = null;
 
@@ -23561,6 +23719,7 @@ function renderHieroglyphicBanner() {
         genBtn.classList.remove('is-generating');
         genBtn.textContent = '⚡ Generar ara';
     }
+    try { scheduleEntrenaToday(); } catch (e) {}
 }
 
 // ── Generació manual "sota demanda" amb barra de progrés ────────────────────
@@ -23750,7 +23909,11 @@ function hgMigrateMotifLabels() {
 // Si no n'hi ha cap, se'n busca un de nou sota demanda (encara que la generació
 // en segon pla estigui desactivada, perquè és una petició explícita de l'usuari).
 async function hgPlayNext(opts = {}) {
-    const pref = hieroglyphicPreferredFinalMotif || 'any';
+    // La reserva es carrega quan el navegador queda lliure: si encara no hi és, s'espera.
+    await loadDeferredData('hieroReserve');
+    // opts.pref: final demanat per a aquest cop (el tema feble de «Què toca
+    // avui?»), sense tocar la preferència desada.
+    const pref = opts.pref || hieroglyphicPreferredFinalMotif || 'any';
     const excludeFen = opts.excludeFen || null;
     // 1) Un jeroglífic nou JUGABLE (descartant els malmesos).
     const chosen = hgConsumePlayable(pref, { excludeFen });
@@ -24059,9 +24222,12 @@ let openingBranchIndexBuilt = false;
 
 function getOpeningBranchIndex() {
     if (openingBranchIndexBuilt) return openingBranchIndex;
+    // La base d'obertures arriba després de la pàgina: fins llavors no es
+    // dona l'índex per fet (es tornarà a provar a la crida següent).
+    if (typeof OPENINGS_DATA === 'undefined') { void loadDeferredData('openings'); return null; }
     openingBranchIndexBuilt = true;
     try {
-        if (typeof OPENINGS_DATA === 'undefined' || typeof ElTaulerCore === 'undefined') return null;
+        if (typeof ElTaulerCore === 'undefined') return null;
         openingBranchIndex = ElTaulerCore.buildOpeningBranchIndex(CURATED_OPENINGS, OPENINGS_DATA, { parsePgn: parsePgnToMoves });
         console.log(`[OpeningHiero] Índex de branques: ${openingBranchIndex.slots.length} exercicis de ${CURATED_OPENINGS.length} obertures`);
     } catch (e) {
@@ -24082,14 +24248,13 @@ function countOpeningHieroglyphicExercises() {
         openingHieroglyphicCandidateCount = index.slots.length;
         return openingHieroglyphicCandidateCount;
     }
-    // Sense base ECO només queda el repertori catalogat.
+    // Sense base ECO només queda el repertori catalogat (si la base encara ha
+    // d'arribar, el recompte no es guarda: es refarà quan hi sigui).
     const helpers = getOpeningHieroglyphicHelpers();
-    try {
-        openingHieroglyphicCandidateCount = helpers ? helpers.openingHieroglyphicCandidates(CURATED_OPENINGS).length : 0;
-    } catch (e) {
-        openingHieroglyphicCandidateCount = 0;
-    }
-    return openingHieroglyphicCandidateCount;
+    let count = 0;
+    try { count = helpers ? helpers.openingHieroglyphicCandidates(CURATED_OPENINGS).length : 0; } catch (e) { count = 0; }
+    if (typeof OPENINGS_DATA !== 'undefined') openingHieroglyphicCandidateCount = count;
+    return count;
 }
 
 function renderOpeningHieroglyphicBanner() {
@@ -25485,8 +25650,11 @@ function setupEvents() {
     if (window.ElTaulerOpeningLab && typeof window.ElTaulerOpeningLab.configure === 'function') {
         window.ElTaulerOpeningLab.configure({
             stockfishUrl: HIERO_STOCKFISH_URL,
+            // Motor compartit (sf19Submit, prioritat de pantalla): el taller no
+            // obre cap worker propi.
+            analyze: (fen, params) => sf19AnalyzeForLab(fen, params),
             getGraph: () => getOpeningPositionGraph(),
-            onHiero: () => { initOpeningBundleBoard(); startOpeningTheoryHieroglyphic(); }
+            onHiero: () => { initOpeningBundleBoard(); loadDeferredData('openings').then(() => startOpeningTheoryHieroglyphic()); }
         });
     }
     $('#btn-opening').click(() => {
@@ -25497,6 +25665,8 @@ function setupEvents() {
         $('#opening-screen').show();
         navPush('opening-screen');
         if (window.ElTaulerOpeningLab && typeof window.ElTaulerOpeningLab.open === 'function') window.ElTaulerOpeningLab.open();
+        // Si la base d'obertures encara no ha arribat, el taller es repinta en arribar.
+        void loadDeferredData('openings');
         setTimeout(() => resizeOpeningBoardToViewport(), 50);
     });
     $(document).on('click', '.opening-lesson-btn', function() {
@@ -26163,6 +26333,7 @@ function setupEvents() {
     });
 
     $('#btn-srs-review').click(() => startSrsReview());
+    initEntrenaToday();
     $('#btn-tactics').click(() => {
         // Reset de ratxa quan s'inicia des del menú (no des de "Una altra")
         tacticsStats.streak = 0;
@@ -27474,6 +27645,7 @@ function refreshTriaBanner() {
     const min = ElTaulerCore.TRIA_CONFIG.minTestSize;
     const size = ElTaulerCore.TRIA_CONFIG.testSize;
     const history = loadTriaHistory();
+    entrenaTriaCache = { questions: questions, min: min };
     if (questions < min) {
         banner.addClass('is-locked');
         meta.text(counts.mastered > 0
@@ -27490,6 +27662,203 @@ function refreshTriaBanner() {
     bits.push(`${available} jugades al fons`);
     if (last) bits.push(`últim test: ${last.accuracy}%`);
     meta.text(bits.join(' · '));
+}
+
+/* ---- Entrena: «Què toca avui?» ---- */
+// Una sola proposta a dalt de la secció (la tria ElTaulerCore.entrenaPickToday
+// segons el progrés) i la resta d'entrenaments a un toc, dins «Més
+// entrenaments». El registre del dia (què has obert avui) viatja al núvol
+// perquè la proposta no es repeteixi en un altre aparell; l'estat obert o
+// tancat de la llista és només d'aquest aparell.
+const ENTRENA_DAY_KEY = 'eltauler_entrena_day';
+const ENTRENA_MORE_OPEN_KEY = 'tauler_ui_entrenaMoreOpen';
+let entrenaTriaCache = null;   // { questions, min } que deixa refreshTriaBanner
+let entrenaRenderTimer = null;
+
+function entrenaLocalDay(ts) {
+    const d = ts ? new Date(ts) : new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function entrenaLoadDay() {
+    let raw = null;
+    try { raw = JSON.parse(localStorage.getItem(ENTRENA_DAY_KEY) || 'null'); } catch (e) { raw = null; }
+    return ElTaulerCore.entrenaDayLog(raw, entrenaLocalDay());
+}
+function entrenaMarkDone(kind) {
+    if (!ElTaulerCore.ENTRENA_KINDS[kind]) return;
+    let raw = null;
+    try { raw = JSON.parse(localStorage.getItem(ENTRENA_DAY_KEY) || 'null'); } catch (e) { raw = null; }
+    const log = ElTaulerCore.entrenaMarkDone(raw, entrenaLocalDay(), kind);
+    try { localStorage.setItem(ENTRENA_DAY_KEY, JSON.stringify(log)); } catch (e) {}
+}
+// Posicions del repertori propi (Obertures) que ja toca repassar, del costat
+// que en té més, amb el nom que li hagis posat.
+function entrenaOpeningDue() {
+    const L = window.ElTaulerOpeningLab;
+    if (!L || typeof L.normalizeStore !== 'function' || typeof L.repertoireReport !== 'function') return { due: 0, name: '' };
+    let raw = null;
+    try { raw = JSON.parse(localStorage.getItem(L.STORE_KEY) || 'null'); } catch (e) { raw = null; }
+    if (!raw) return { due: 0, name: '' };
+    const store = L.normalizeStore(raw);
+    let best = { due: 0, name: '' };
+    ['w', 'b'].forEach(c => {
+        const side = store.sides && store.sides[c];
+        if (!side || !side.nodes || !Object.keys(side.nodes).length) return;
+        try {
+            const r = L.repertoireReport(side);
+            if (r.due > best.due) best = { due: r.due, name: side.name || '' };
+        } catch (e) {}
+    });
+    return best;
+}
+function entrenaBulletState() {
+    const B = window.ElTaulerBulletPractice;
+    if (!B || typeof B.planToday !== 'function' || typeof B.normalizeProgress !== 'function') return { complete: false, started: false };
+    let raw = null;
+    try { raw = JSON.parse(localStorage.getItem(B.KEY) || 'null'); } catch (e) { raw = null; }
+    try {
+        const plan = B.planToday(B.normalizeProgress(raw));
+        return { complete: !!plan.complete, started: plan.steps.some(s => s.done > 0) };
+    } catch (e) { return { complete: false, started: false }; }
+}
+// Tema feble (analyzeWeaknesses) amb la font de l'exercici. L'anàlisi
+// classifica cada errada amb el motor de motius: es desa fins que canvien les
+// errades o l'historial.
+let entrenaWeakCache = { key: null, focus: null };
+function entrenaWeakThemeFocus() {
+    const last = gameHistory.length ? gameHistory[gameHistory.length - 1] : null;
+    const key = savedErrors.length + ':' + gameHistory.length + ':' + (last ? (last.id || last.date || '') : '');
+    if (entrenaWeakCache.key !== key) {
+        let focus = null;
+        try {
+            const w = analyzeWeaknesses();
+            focus = ElTaulerCore.entrenaWeakFocus(w.theme, w.total);
+        } catch (e) { focus = null; }
+        entrenaWeakCache = { key, focus };
+    }
+    return entrenaWeakCache.focus;
+}
+function entrenaWeakAvailability(theme) {
+    const hieroByMotif = {};
+    try {
+        const motifs = ElTaulerCore.ENTRENA_WEAK_MOTIFS[theme] || [];
+        if (motifs.length) {
+            hgEnsureState();
+            hgNewEntries().forEach(e => {
+                const it = e.item || {};
+                motifs.forEach(m => {
+                    if (it.finalType === m || (Array.isArray(it.finalMotifs) && it.finalMotifs.indexOf(m) !== -1)) hieroByMotif[m] = (hieroByMotif[m] || 0) + 1;
+                });
+            });
+        }
+    } catch (e) {}
+    let tactics = 0;
+    try { tactics = tacticsFensForTheme(theme, true).length; } catch (e) {}
+    let errors = 0;
+    try { errors = savedErrors.filter(e => normalizeGrowthTheme(classifyPositionTheme(e.fen, e.bestMove || '')) === theme).length; } catch (e) {}
+    return { hieroByMotif, tactics, errors };
+}
+function entrenaWeakContext(done) {
+    const focus = entrenaWeakThemeFocus();
+    if (!focus) return null;
+    const avail = entrenaWeakAvailability(focus.theme);
+    // Si avui ja has fet jeroglífics, el tema feble ve d'una altra font.
+    if (done && done.hiero) avail.hieroByMotif = {};
+    const src = ElTaulerCore.entrenaWeakSource(focus.theme, avail);
+    if (!src) return null;
+    return Object.assign({ label: WEAKNESS_LABELS[focus.theme] || getThemeLabel(focus.theme) }, focus, src);
+}
+// Obre l'exercici del tema feble des de la font que ha triat la proposta.
+function startWeakThemeSession(theme, source, motif) {
+    if (!theme) return;
+    if (source === 'hiero') { void hgPlayNext({ pref: motif || 'any' }); return; }
+    if (source === 'tactics') { tacticsStats.streak = 0; beginExerciseRun('tactics'); startTacticsPuzzle({ theme }); return; }
+    if (source === 'opening') { const b = document.getElementById('btn-opening'); if (b) b.click(); return; }
+    startWeaknessTraining(theme);
+}
+
+function entrenaTodayContext() {
+    const due = getDueErrors();
+    let hgNew = 0;
+    try { hgNew = hgNewCount(); } catch (e) {}
+    const opening = entrenaOpeningDue();
+    const bullet = entrenaBulletState();
+    const done = entrenaLoadDay().done;
+    return {
+        srsDue: due.length,
+        srsNew: due.filter(e => !(Number(e.srsReps) > 0)).length,
+        hgNew,
+        openingDue: opening.due,
+        openingName: opening.name,
+        triaQuestions: entrenaTriaCache ? entrenaTriaCache.questions : 0,
+        triaMin: entrenaTriaCache ? entrenaTriaCache.min : 1,
+        bulletComplete: bullet.complete,
+        bulletStarted: bullet.started,
+        weak: entrenaWeakContext(done),
+        done
+    };
+}
+function renderEntrenaToday() {
+    const card = document.getElementById('btn-entrena-today');
+    if (!card) return;
+    let pick;
+    try { pick = ElTaulerCore.entrenaPickToday(entrenaTodayContext()); } catch (e) { console.warn('[Entrena]', e); return; }
+    if (!pick) return;
+    card.dataset.target = pick.target || '';
+    card.dataset.kind = pick.kind;
+    card.dataset.theme = pick.theme || '';
+    card.dataset.source = pick.source || '';
+    card.dataset.motif = pick.motif || '';
+    card.className = card.className.replace(/\bhb--[a-z]+\b/g, '').replace(/\s+/g, ' ').trim() + ' hb--lg hb--' + pick.tone;
+    const icon = document.getElementById('entrena-today-icon');
+    if (icon && icon.getAttribute('href') !== '#' + pick.icon) icon.setAttribute('href', '#' + pick.icon);
+    $('#entrena-today-title').text(pick.title);
+    $('#entrena-today-reason').text(pick.reason);
+    $('#entrena-today-cta').text(pick.cta + ' ›');
+    card.setAttribute('aria-label', 'Què toca avui? ' + pick.title + '. ' + pick.reason);
+}
+// Coalesceix les crides (el bàner de jeroglífics es repinta sovint mentre en genera).
+function scheduleEntrenaToday() {
+    if (entrenaRenderTimer) return;
+    entrenaRenderTimer = setTimeout(() => {
+        entrenaRenderTimer = null;
+        const home = document.getElementById('start-screen');
+        if (home && home.style.display === 'none') return;
+        renderEntrenaToday();
+    }, 120);
+}
+function initEntrenaToday() {
+    const section = document.querySelector('#start-screen .home-sec--entrena');
+    if (!section || section.dataset.entrenaReady) return;
+    section.dataset.entrenaReady = '1';
+    // Qualsevol entrenament obert des de la secció (proposta o llista) compta
+    // com a fet avui. La proposta clica el botó de la llista, de manera que
+    // només es registra una vegada.
+    section.addEventListener('click', e => {
+        const btn = e.target && e.target.closest ? e.target.closest('button[id]') : null;
+        const kind = btn ? ElTaulerCore.entrenaKindForTarget(btn.id) : null;
+        if (kind) entrenaMarkDone(kind);
+    }, true);
+    $('#btn-entrena-today').off('click').on('click', function () {
+        if (this.dataset.kind === 'weak') {
+            entrenaMarkDone('weak');
+            // Un jeroglífic del tema també és el jeroglífic del dia.
+            if (this.dataset.source === 'hiero') entrenaMarkDone('hiero');
+            startWeakThemeSession(this.dataset.theme, this.dataset.source, this.dataset.motif);
+            return;
+        }
+        const target = document.getElementById(this.dataset.target || '');
+        if (target) target.click();
+    });
+    const more = document.getElementById('entrena-more');
+    if (more) {
+        try { if (localStorage.getItem(ENTRENA_MORE_OPEN_KEY) === '1') more.open = true; } catch (e) {}
+        more.addEventListener('toggle', () => {
+            try { localStorage.setItem(ENTRENA_MORE_OPEN_KEY, more.open ? '1' : '0'); } catch (e) {}
+        });
+    }
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) scheduleEntrenaToday(); });
+    renderEntrenaToday();
 }
 
 /* ---- Sessió ---- */
@@ -28147,7 +28516,74 @@ const TACTICS_BANK = [
     // attraction (Lichess 0VHFU): Qxf1+ Kxf1 Bxg2+
     '8/5k2/4r3/1pB2qp1/3Pb2p/4Q2P/6P1/5RK1 b - - 1 35',
     // doubleCheck (Lichess 1XL2s): Nf3+ Kh1 Nxh4
-    '2r1k2r/1p3ppp/p3p3/2qpP3/3n1PPQ/N2B3P/PPP5/R4RK1 b k - 0 17'
+    '2r1k2r/1p3ppp/p3p3/2qpP3/3n1PPQ/N2B3P/PPP5/R4RK1 b k - 0 17',
+    // ── Temes concrets per a «Què toca avui?» (tema feble): problemes de la
+    // base oberta de Lichess (https://database.lichess.org/#puzzles, domini
+    // públic CC0), presos just després de la jugada del rival. Només hi ha els
+    // que el classificador de l'app (classifyPositionTheme) posa al mateix tema
+    // i que Stockfish 19 confirma amb resultat palpable (scripts/gen-tactics-solutions.js).
+    // Forquilles
+    '2rr2k1/p6p/1p4p1/5p2/4pP2/PN2N1P1/1P5P/1K5R b - - 1 25', // Lichess 03E3Y · 1192
+    '4r1k1/6p1/2pqpnQp/p2n4/1p1P2P1/8/PP2RB1P/4R1K1 b - - 0 33', // Lichess 02n1N · 1266
+    'r1bqk2r/p4ppp/1p1bpn2/3pn3/3P4/2P3B1/PP1N1PPP/R2QKB1R w KQkq - 0 10', // Lichess 03ffj · 1325
+    '3r1rk1/pbp2pqp/2p3p1/4R1Q1/3P4/P1PB3P/5PP1/4R1K1 b - - 4 22', // Lichess 03mo2 · 1359
+    'r2q1Bk1/pppb1pp1/2n4p/3nP3/8/2P2N2/P3QPPP/R2R2K1 b - - 0 14', // Lichess 01X4v · 1400
+    'r2q1rk1/pp3ppp/2p1b3/2R5/2P5/3P1Q1P/P1P2PP1/R1B3K1 b - - 2 15', // Lichess 03BHm · 1546
+    'rnbq1rk1/p3b1pp/4pP2/1Pp3B1/8/5N2/Pp3PPP/R2QKB1R w KQ - 0 12', // Lichess 02Dnf · 1592
+    '6r1/1p1k3p/8/1p4p1/3b4/1P2N1B1/2P3PP/1b2R1K1 w - - 6 23', // Lichess 02fsg · 1606
+    '3r1rk1/p1p2pbp/1p4p1/7n/4P2q/1P2BP2/P1B3QP/3R1R1K w - - 7 24', // Lichess 00Uwn · 1631
+    '3rr1k1/4qppp/p4n2/8/1N6/1P1R1QP1/Pb3P1P/3R2K1 w - - 1 26', // Lichess 03FGq · 1642
+    'r3k2r/1p3ppp/p7/3npbB1/1n6/2N5/PP2PPPP/R2K1B1R w kq - 0 13', // Lichess 017Bw · 1774
+    '1rb2rk1/p1q2pnp/2pR1Q2/1p4P1/4P3/1P3NNP/P7/1K5R b - - 0 27', // Lichess 03zfX · 1906
+    '4r1k1/pp3ppb/1qpb4/3pnPP1/3N4/2N1B2Q/PPP3B1/R5K1 b - - 5 23', // Lichess 01yU9 · 1950
+    // Clavades
+    '5kr1/p6p/4r3/2qp1p2/8/2P1R1P1/P4K1P/RNB5 w - - 0 30', // Lichess 08PBw · 932
+    '2b2rk1/p3p1Bp/2pp2p1/1q6/4Q3/1P6/PP3PPP/1K1R3R b - - 0 20', // Lichess 06APo · 1103
+    '1k4r1/7p/1p4r1/pPp1qp2/P1Pp1R2/3Q1RNP/2P4K/8 b - - 5 32', // Lichess 00n3G · 1163
+    'r4rk1/pp1n1ppp/2pbpn2/q2p1b2/2PP4/1P2PN2/PB1QBPPP/R3KN1R b KQ - 4 10', // Lichess 07LV1 · 1181
+    '6k1/5p2/8/1B4q1/P7/8/5R2/5K2 w - - 0 42', // Lichess 07lZC · 1220
+    '2kr1b1r/1p3p2/pq1p1p2/3Bp2p/4P3/1P3P2/1PPQ2PP/2KR2R1 b - - 0 16', // Lichess 06v4c · 1258
+    '2kr1b1r/1p6/2p1qN2/3pP3/2nP3n/1Q5p/7K/2RB1R2 w - - 2 36', // Lichess 04btL · 1277
+    '3q2k1/R3r1pp/2p1p3/1pPp4/1P1Pb1p1/Q3P1BP/5P2/6K1 w - - 0 27', // Lichess 047bE · 1467
+    'r1bq1rk1/pp1n1pbp/4p1p1/4Pn2/8/2N2N2/PPPQBBPP/2KR3R b - - 4 14', // Lichess 05r44 · 1525
+    'r1b1rnk1/pp4pp/2pbqp2/4p3/4Q2N/2PB2B1/P1P2PPP/R3R1K1 w - - 4 17', // Lichess 07Khq · 1602
+    'r7/6k1/p1b1pp2/1p4qr/3Q3N/5P1R/P4KP1/3R4 w - - 7 33', // Lichess 064iW · 1639
+    'r2qkb1r/pppb1ppp/2n2n2/1B1pP1B1/8/2Q2N2/PPP2PPP/RN2K2R b KQkq - 0 8', // Lichess 07eDk · 1654
+    'r4rk1/1p3pq1/p1np3p/4p3/2B5/P3BP1P/1PPQK3/R7 w - - 0 24', // Lichess 074Aw · 1736
+    'r1b1k2r/4qpbp/p1n1pnp1/1p6/Q7/2N2N2/PP1B1PPP/2KR1B1R w kq b6 0 15', // Lichess 01xUb · 1946
+    // Raigs X (enfilades)
+    '3r2k1/5p1p/p2qb1p1/1p6/3P4/1P1R4/P2Q1PPP/1B4K1 b - - 2 29', // Lichess 0EjG0 · 1324
+    'r1b2rk1/1pq3b1/p4pp1/4p2p/4N3/2P1BQ2/PP3PPP/R2R2K1 b - - 1 17', // Lichess 0Enjj · 1327
+    '1r4k1/2qb1ppp/n3p3/3pP3/8/2PQBN2/1P3PPP/5RK1 b - - 2 18', // Lichess 0M0ka · 1328
+    'r4rk1/pp1bbppp/4p3/3pn3/1P1q4/P5P1/3N1PBP/1RBQ1RK1 w - - 1 15', // Lichess 0LyCR · 1357
+    '3r2k1/ppq2pp1/2pb2p1/3p4/3P2N1/2P1Q2P/PP3PP1/2R3K1 b - - 0 21', // Lichess 0Nciy · 1434
+    'r2r2k1/1b1p1pp1/2p1p2p/p1P5/5P2/P2Q1R2/1q2B1PP/5R1K w - - 2 21', // Lichess 0PLx1 · 1440
+    'r1b2rk1/7p/1qn1pbp1/p2p4/Pp1P4/1P1QPN2/2B2NPP/2R2RK1 b - - 1 25', // Lichess 0PJMt · 1450
+    'r2q1k1r/p3bp2/6pp/1p1pQ2n/8/5N2/PPP2PPP/RN2R1K1 b - - 1 17', // Lichess 0UhFt · 1460
+    '2k1r2r/ppq2p2/2pb4/2p2P1p/4P2P/1PQ2RP1/P1P2P2/R1B3K1 b - - 0 23', // Lichess 02dUE · 1524
+    '2b1k2r/1p1p1ppp/r3pn2/p1q1B3/8/R3P3/2PP1PPP/3QK1NR w Kk - 1 15', // Lichess 0DhFF · 1567
+    'r4rk1/p2b1pp1/3bp2p/3pq3/2pN4/P1P1B1P1/1P1Q1P1P/R4RK1 w - - 0 21', // Lichess 03COV · 1598
+    '2kr3r/ppq3p1/2pbp3/5b1p/7P/2P1BQ2/PP3PP1/3RRNK1 b - - 0 22', // Lichess 0Ed5w · 1633
+    '8/6pk/1pqr2bp/8/2P2Q2/7P/3R2PK/5R2 b - - 1 40', // Lichess 05eZx · 1665
+    '2r3k1/5p1p/1qP1p1p1/2QpP3/Pr3P2/R6P/6P1/2R3K1 b - - 4 27', // Lichess 04Kar · 1855
+    '5rk1/p1p3p1/1p5p/2q2n2/6Q1/3P4/PP1B2PP/R6K w - - 0 23', // Lichess 0DcV3 · 1932
+    'rn1q1rk1/p4ppp/1p3n2/2bPQ3/2P2B2/5N2/PP2B1PP/1R3R1K b - - 0 13', // Lichess 0DCLc · 1952
+    // Finals
+    '1k6/8/8/6p1/1pp4P/p4PP1/N1P5/7K b - h3 0 38', // Lichess 00FON · 934
+    '8/7k/R6p/3p4/5r2/2P1p2P/P5P1/6K1 b - - 0 40', // Lichess 008tL · 1105
+    '8/1k6/1P1Kp1p1/3pP3/7P/8/8/8 b - - 2 48', // Lichess 01nyk · 1140
+    '8/7p/6p1/2Q5/8/2pK1PP1/1r5P/1k6 b - - 11 58', // Lichess 01jE5 · 1364
+    '7r/4kpRp/2p2p1P/p1P1n3/Pp6/1B6/5PP1/6K1 w - - 3 36', // Lichess 00KSB · 1464
+    '8/5pk1/P4b2/6p1/6Pp/3R3K/R1P1r2P/8 b - - 0 45', // Lichess 01T20 · 1641
+    '8/4n3/Qp2k3/8/P2qp3/5pP1/1r1p1P1P/3R1RK1 b - - 3 45', // Lichess 021wj · 1710
+    '8/p2k4/1p4R1/2p2Pp1/2P3P1/3p1P2/PP4K1/7r b - - 1 38', // Lichess 04EiV · 907
+    '8/7k/1p4p1/p1p2p1p/P7/1Pr2P1P/4K1P1/1R6 w - - 2 43', // Lichess 0A4iH · 1229
+    '6k1/6p1/4Pq1p/2p2P2/2PpQ1P1/1P6/r1B4P/7K w - - 0 44', // Lichess 04gj5 · 1353
+    '8/8/6pR/2k2p2/2B1p2P/1P2P1P1/1q3PK1/8 b - - 2 36', // Lichess 07eU3 · 1423
+    '8/4pk1p/4n1p1/Nr4P1/R4P2/P3K3/8/8 b - - 0 56', // Lichess 08AbD · 1498
+    '8/5pk1/pQp1n3/P3p1p1/2P1P2p/1P2qP1P/4N1P1/4K3 b - - 2 35', // Lichess 090LN · 1658
+    '8/4ppk1/3p2p1/3Pb3/5q2/5P1p/6PP/5RQK b - - 1 40', // Lichess 07YZu · 1729
+    '8/8/5Qp1/6Pp/4p2P/p4k2/5p2/1K6 b - - 3 51', // Lichess 06Qu1 · 1748
 ];
 
 // Rebost estàtic del banc: la línia de cada posició ja ve resolta amb el MATEIX
@@ -28722,6 +29158,992 @@ const TACTICS_BANK_SOLUTIONS = {
         ],
         replies: [{ move: 'g1h1', eval: -699, evalType: 'cp' }]
     },
+    '2rr2k1/p6p/1p4p1/5p2/4pP2/PN2N1P1/1P5P/1K5R b - - 1 25': {
+        totalSteps: 2,
+        sanLine: ['Rd3', 'Re1', 'Rxb3'],
+        steps: [
+            {
+                move: 'd8d3', eval: 531, evalType: 'cp',
+                pv: ['d8d3', 'h1e1', 'd3b3', 'g3g4', 'b3e3', 'e1e3', 'f5g4', 'e3e4'],
+                alternatives: [{ move: 'd8d3', eval: 531, evalType: 'cp' }, { move: 'h7h5', eval: 52, evalType: 'cp' }]
+            },
+            {
+                move: 'd3b3', eval: 559, evalType: 'cp',
+                pv: ['d3b3', 'b1a2', 'b3d3', 'g3g4', 'c8c5', 'g4f5', 'g6f5', 'a2b1'],
+                alternatives: [{ move: 'd3b3', eval: 559, evalType: 'cp' }, { move: 'b6b5', eval: 36, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'h1e1', eval: -566, evalType: 'cp' }]
+    },
+    '4r1k1/6p1/2pqpnQp/p2n4/1p1P2P1/8/PP2RB1P/4R1K1 b - - 0 33': {
+        totalSteps: 2,
+        sanLine: ['Nf4', 'Rxe6', 'Rxe6'],
+        steps: [
+            {
+                move: 'd5f4', eval: 663, evalType: 'cp',
+                pv: ['d5f4', 'e2e6', 'e8e6', 'e1e6', 'd6e6', 'g6f5', 'e6f5', 'g4f5'],
+                alternatives: [{ move: 'd5f4', eval: 663, evalType: 'cp' }, { move: 'b4b3', eval: -13, evalType: 'cp' }]
+            },
+            {
+                move: 'e8e6', eval: 672, evalType: 'cp',
+                pv: ['e8e6', 'e1e6', 'd6e6', 'g6f5', 'e6f5', 'g4f5', 'f4d3', 'g1f1'],
+                alternatives: [{ move: 'e8e6', eval: 672, evalType: 'cp' }, { move: 'f4h3', eval: 619, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e2e6', eval: -663, evalType: 'cp' }]
+    },
+    'r1bqk2r/p4ppp/1p1bpn2/3pn3/3P4/2P3B1/PP1N1PPP/R2QKB1R w KQkq - 0 10': {
+        totalSteps: 2,
+        sanLine: ['dxe5', 'Be7', 'exf6'],
+        steps: [
+            {
+                move: 'd4e5', eval: 552, evalType: 'cp',
+                pv: ['d4e5', 'd6e7', 'e5f6', 'e7f6', 'f1b5', 'c8d7', 'b5d7', 'd8d7'],
+                alternatives: [{ move: 'd4e5', eval: 552, evalType: 'cp' }, { move: 'g3e5', eval: 25, evalType: 'cp' }]
+            },
+            {
+                move: 'e5f6', eval: 539, evalType: 'cp',
+                pv: ['e5f6', 'e7f6', 'f1b5', 'c8d7', 'b5d7', 'd8d7', 'e1g1', 'e8g8'],
+                alternatives: [{ move: 'e5f6', eval: 539, evalType: 'cp' }, { move: 'f1d3', eval: 38, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'd6e7', eval: -548, evalType: 'cp' }]
+    },
+    '3r1rk1/pbp2pqp/2p3p1/4R1Q1/3P4/P1PB3P/5PP1/4R1K1 b - - 4 22': {
+        totalSteps: 2,
+        sanLine: ['f6', 'Qe3', 'fxe5'],
+        steps: [
+            {
+                move: 'f7f6', eval: 489, evalType: 'cp',
+                pv: ['f7f6', 'd3c4', 'g8h8', 'g5e3', 'f6e5', 'd4e5', 'b7c8', 'e5e6'],
+                alternatives: [{ move: 'f7f6', eval: 489, evalType: 'cp' }, { move: 'd8d5', eval: -296, evalType: 'cp' }]
+            },
+            {
+                move: 'f6e5', eval: 512, evalType: 'cp',
+                pv: ['f6e5', 'd4e5', 'b7c8', 'd3c4', 'g8h8', 'e5e6', 'f8e8', 'e3f3'],
+                alternatives: [{ move: 'f6e5', eval: 512, evalType: 'cp' }, { move: 'd8d7', eval: -466, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'g5e3', eval: -495, evalType: 'cp' }]
+    },
+    'r2q1Bk1/pppb1pp1/2n4p/3nP3/8/2P2N2/P3QPPP/R2R2K1 b - - 0 14': {
+        totalSteps: 2,
+        sanLine: ['Nxc3', 'Qc2', 'Nxd1'],
+        steps: [
+            {
+                move: 'd5c3', eval: 356, evalType: 'cp',
+                pv: ['d5c3', 'e2c2', 'c3d1', 'a1d1', 'd8e8', 'f8a3', 'd7g4', 'a3b2'],
+                alternatives: [{ move: 'd5c3', eval: 356, evalType: 'cp' }, { move: 'd7e6', eval: -184, evalType: 'cp' }]
+            },
+            {
+                move: 'c3d1', eval: 379, evalType: 'cp',
+                pv: ['c3d1', 'a1d1', 'd8e8', 'f8a3', 'd7g4', 'a3b2', 'e8e6', 'a2a4'],
+                alternatives: [{ move: 'c3d1', eval: 379, evalType: 'cp' }, { move: 'd8e8', eval: -235, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e2c2', eval: -365, evalType: 'cp' }]
+    },
+    'r2q1rk1/pp3ppp/2p1b3/2R5/2P5/3P1Q1P/P1P2PP1/R1B3K1 b - - 2 15': {
+        totalSteps: 2,
+        sanLine: ['Qd4', 'Rb1', 'Qxc5'],
+        steps: [
+            {
+                move: 'd8d4', eval: 524, evalType: 'cp',
+                pv: ['d8d4', 'a1b1', 'd4c5', 'b1b7', 'f7f6', 'c1e3', 'c5d6', 'e3f4'],
+                alternatives: [{ move: 'd8d4', eval: 524, evalType: 'cp' }, { move: 'e6h3', eval: -30, evalType: 'cp' }]
+            },
+            {
+                move: 'd4c5', eval: 527, evalType: 'cp',
+                pv: ['d4c5', 'b1b7', 'c5f5', 'f3g3', 'f8e8', 'c1b2', 'f5g6', 'g3g6'],
+                alternatives: [{ move: 'd4c5', eval: 527, evalType: 'cp' }, { move: 'f7f6', eval: -121, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'a1b1', eval: -522, evalType: 'cp' }]
+    },
+    'rnbq1rk1/p3b1pp/4pP2/1Pp3B1/8/5N2/Pp3PPP/R2QKB1R w KQ - 0 12': {
+        totalSteps: 2,
+        sanLine: ['fxe7', 'Qxd1+', 'Rxd1'],
+        steps: [
+            {
+                move: 'f6e7', eval: 591, evalType: 'cp',
+                pv: ['f6e7', 'd8d1', 'a1d1', 'f8e8', 'f1c4', 'h7h6', 'g5e3', 'b8d7'],
+                alternatives: [{ move: 'f6e7', eval: 591, evalType: 'cp' }, { move: 'a1b1', eval: -69, evalType: 'cp' }]
+            },
+            {
+                move: 'a1d1', eval: 598, evalType: 'cp',
+                pv: ['a1d1', 'f8e8', 'f1c4', 'h7h6', 'g5h4', 'g7g5', 'h4g3', 'e8e7'],
+                alternatives: [{ move: 'a1d1', eval: 598, evalType: 'cp' }, { move: 'e1d1', eval: -805, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'd8d1', eval: -627, evalType: 'cp' }]
+    },
+    '6r1/1p1k3p/8/1p4p1/3b4/1P2N1B1/2P3PP/1b2R1K1 w - - 6 23': {
+        totalSteps: 2,
+        sanLine: ['Rd1', 'Rc8', 'Rxd4+'],
+        steps: [
+            {
+                move: 'e1d1', eval: 631, evalType: 'cp',
+                pv: ['e1d1', 'g8c8', 'd1d4', 'd7e8', 'd4d2', 'c8c3', 'g3f2', 'g5g4'],
+                alternatives: [{ move: 'e1d1', eval: 631, evalType: 'cp' }, { move: 'e1b1', eval: 0, evalType: 'cp' }]
+            },
+            {
+                move: 'd1d4', eval: 665, evalType: 'cp',
+                pv: ['d1d4', 'd7e8', 'd4d2', 'c8c3', 'g1f2', 'e8f7', 'f2e2', 'h7h5'],
+                alternatives: [{ move: 'd1d4', eval: 665, evalType: 'cp' }, { move: 'c2c4', eval: 557, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'g8c8', eval: -645, evalType: 'cp' }]
+    },
+    '3r1rk1/p1p2pbp/1p4p1/7n/4P2q/1P2BP2/P1B3QP/3R1R1K w - - 7 24': {
+        totalSteps: 2,
+        sanLine: ['Bg5', 'Ng3+', 'Qxg3'],
+        steps: [
+            {
+                move: 'e3g5', eval: 525, evalType: 'cp',
+                pv: ['e3g5', 'h5g3', 'g2g3', 'h4g3', 'h2g3', 'd8d1', 'f1d1', 'f8e8'],
+                alternatives: [{ move: 'e3g5', eval: 525, evalType: 'cp' }, { move: 'g2g5', eval: -48, evalType: 'cp' }]
+            },
+            {
+                move: 'g2g3', eval: 536, evalType: 'cp',
+                pv: ['g2g3', 'd8d1', 'f1d1', 'h4g3', 'h2g3', 'a7a5', 'g5f4', 'b6b5'],
+                alternatives: [{ move: 'g2g3', eval: 536, evalType: 'cp' }, { move: 'h1g1', eval: -285, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'h5g3', eval: -530, evalType: 'cp' }]
+    },
+    '3rr1k1/4qppp/p4n2/8/1N6/1P1R1QP1/Pb3P1P/3R2K1 w - - 1 26': {
+        totalSteps: 2,
+        sanLine: ['Nc6', 'Qe1+', 'Rxe1'],
+        steps: [
+            {
+                move: 'b4c6', eval: 509, evalType: 'cp',
+                pv: ['b4c6', 'e7e1', 'd1e1', 'e8e1', 'g1g2', 'd8e8', 'd3d2', 'b2a1'],
+                alternatives: [{ move: 'b4c6', eval: 509, evalType: 'cp' }, { move: 'd3d8', eval: -370, evalType: 'cp' }]
+            },
+            {
+                move: 'd1e1', eval: 550, evalType: 'cp',
+                pv: ['d1e1', 'e8e1', 'g1g2', 'd8e8', 'd3d8', 'e8d8', 'c6d8', 'e1e8'],
+                alternatives: [{ move: 'd1e1', eval: 550, evalType: 'cp' }, { move: 'g1g2', eval: -403, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e7e1', eval: -539, evalType: 'cp' }]
+    },
+    'r3k2r/1p3ppp/p7/3npbB1/1n6/2N5/PP2PPPP/R2K1B1R w kq - 0 13': {
+        totalSteps: 2,
+        sanLine: ['e4', 'h6', 'Bd2'],
+        steps: [
+            {
+                move: 'e2e4', eval: 432, evalType: 'cp',
+                pv: ['e2e4', 'd5e7', 'e4f5', 'e8c8', 'd1c1', 'f7f6', 'a2a3', 'b4c6'],
+                alternatives: [{ move: 'e2e4', eval: 432, evalType: 'cp' }, { move: 'f2f3', eval: -21, evalType: 'cp' }]
+            },
+            {
+                move: 'g5d2', eval: 439, evalType: 'cp',
+                pv: ['g5d2', 'd5c3', 'b2c3', 'f5e4', 'c3b4', 'e8g8', 'h2h4', 'f8d8'],
+                alternatives: [{ move: 'g5d2', eval: 439, evalType: 'cp' }, { move: 'g5c1', eval: 241, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'h7h6', eval: -440, evalType: 'cp' }]
+    },
+    '1rb2rk1/p1q2pnp/2pR1Q2/1p4P1/4P3/1P3NNP/P7/1K5R b - - 0 27': {
+        totalSteps: 2,
+        sanLine: ['Ne8', 'Rhd1', 'Nxf6'],
+        steps: [
+            {
+                move: 'g7e8', eval: 467, evalType: 'cp',
+                pv: ['g7e8', 'h1d1', 'e8f6', 'g5f6', 'g8h8', 'f3e5', 'c6c5', 'g3h5'],
+                alternatives: [{ move: 'g7e8', eval: 467, evalType: 'cp' }, { move: 'c6c5', eval: -20, evalType: 'cp' }]
+            },
+            {
+                move: 'e8f6', eval: 553, evalType: 'cp',
+                pv: ['e8f6', 'g5f6', 'c6c5', 'd6d5', 'c7g3', 'd5g5', 'g3g5', 'f3g5'],
+                alternatives: [{ move: 'e8f6', eval: 553, evalType: 'cp' }, { move: 'c7d6', eval: 277, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'h1d1', eval: -526, evalType: 'cp' }]
+    },
+    '4r1k1/pp3ppb/1qpb4/3pnPP1/3N4/2N1B2Q/PPP3B1/R5K1 b - - 5 23': {
+        totalSteps: 2,
+        sanLine: ['Qxb2', 'Rb1', 'Qxc3'],
+        steps: [
+            {
+                move: 'b6b2', eval: 330, evalType: 'cp',
+                pv: ['b6b2', 'a1b1', 'b2c3', 'e3f2', 'c3h3', 'g2h3', 'c6c5', 'g5g6'],
+                alternatives: [{ move: 'b6b2', eval: 330, evalType: 'cp' }, { move: 'e5g4', eval: -198, evalType: 'cp' }]
+            },
+            {
+                move: 'b2c3', eval: 400, evalType: 'cp',
+                pv: ['b2c3', 'g2f1', 'b7b6', 'e3f2', 'c3h3', 'f1h3', 'c6c5', 'd4b5'],
+                alternatives: [{ move: 'b2c3', eval: 400, evalType: 'cp' }, { move: 'b2a3', eval: -304, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'a1b1', eval: -366, evalType: 'cp' }]
+    },
+    '5kr1/p6p/4r3/2qp1p2/8/2P1R1P1/P4K1P/RNB5 w - - 0 30': {
+        totalSteps: 2,
+        sanLine: ['Ba3', 'Qxa3', 'Nxa3'],
+        steps: [
+            {
+                move: 'c1a3', eval: 527, evalType: 'cp',
+                pv: ['c1a3', 'c5a3', 'b1a3', 'e6b6', 'a3c2', 'f5f4', 'g3f4', 'g8g4'],
+                alternatives: [{ move: 'c1a3', eval: 527, evalType: 'cp' }, { move: 'f2f1', eval: -583, evalType: 'cp' }]
+            },
+            {
+                move: 'b1a3', eval: 568, evalType: 'cp',
+                pv: ['b1a3', 'e6b6', 'a3c2', 'f5f4', 'g3f4', 'b6h6', 'a1h1', 'g8g4'],
+                alternatives: [{ move: 'b1a3', eval: 568, evalType: 'cp' }, { move: 'e3e6', eval: -642, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'c5a3', eval: -561, evalType: 'cp' }]
+    },
+    '2b2rk1/p3p1Bp/2pp2p1/1q6/4Q3/1P6/PP3PPP/1K1R3R b - - 0 20': {
+        totalSteps: 2,
+        sanLine: ['Bf5', 'Bxf8', 'Bxe4+'],
+        steps: [
+            {
+                move: 'c8f5', eval: 650, evalType: 'cp',
+                pv: ['c8f5', 'h1e1', 'g8g7', 'f2f3', 'f5e4', 'e1e4', 'f8f7', 'h2h4'],
+                alternatives: [{ move: 'c8f5', eval: 650, evalType: 'cp' }, { move: 'b5f5', eval: -381, evalType: 'cp' }]
+            },
+            {
+                move: 'f5e4', eval: 664, evalType: 'cp',
+                pv: ['f5e4', 'b1a1', 'g8f8', 'f2f3', 'e4d5', 'h1e1', 'd5f7', 'd1c1'],
+                alternatives: [{ move: 'f5e4', eval: 664, evalType: 'cp' }, { move: 'g8f8', eval: 8, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'g7f8', eval: -658, evalType: 'cp' }]
+    },
+    '1k4r1/7p/1p4r1/pPp1qp2/P1Pp1R2/3Q1RNP/2P4K/8 b - - 5 32': {
+        totalSteps: 2,
+        sanLine: ['Rxg3', 'Rxg3', 'Qxf4'],
+        steps: [
+            {
+                move: 'g6g3', eval: 191, evalType: 'cp',
+                pv: ['g6g3', 'f3g3', 'e5f4', 'd3f3', 'f4f3', 'g3f3', 'g8e8', 'f3f5'],
+                alternatives: [{ move: 'g6g3', eval: 191, evalType: 'cp' }, { move: 'h7h5', eval: -526, evalType: 'cp' }]
+            },
+            {
+                move: 'e5f4', eval: 197, evalType: 'cp',
+                pv: ['e5f4', 'd3f3', 'f4f3', 'g3f3', 'g8e8', 'h2g3', 'e8e2', 'f3f5'],
+                alternatives: [{ move: 'e5f4', eval: 197, evalType: 'cp' }, { move: 'g8f8', eval: -554, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'f3g3', eval: -190, evalType: 'cp' }]
+    },
+    'r4rk1/pp1n1ppp/2pbpn2/q2p1b2/2PP4/1P2PN2/PB1QBPPP/R3KN1R b KQ - 4 10': {
+        totalSteps: 2,
+        sanLine: ['Bb4', 'Qxb4', 'Qxb4+'],
+        steps: [
+            {
+                move: 'd6b4', eval: 713, evalType: 'cp',
+                pv: ['d6b4', 'd2b4', 'a5b4', 'f1d2', 'b4a5', 'g2g4', 'f5g4', 'e1c1'],
+                alternatives: [{ move: 'd6b4', eval: 713, evalType: 'cp' }, { move: 'a5d8', eval: 30, evalType: 'cp' }]
+            },
+            {
+                move: 'a5b4', eval: 699, evalType: 'cp',
+                pv: ['a5b4', 'f1d2', 'd5c4', 'g2g4', 'c4c3', 'g4f5', 'c3b2', 'a1b1'],
+                alternatives: [{ move: 'a5b4', eval: 699, evalType: 'cp' }, { move: 'a5d8', eval: -589, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'd2b4', eval: -701, evalType: 'cp' }]
+    },
+    '6k1/5p2/8/1B4q1/P7/8/5R2/5K2 w - - 0 42': {
+        totalSteps: 2,
+        sanLine: ['Rg2', 'Qxg2+', 'Kxg2'],
+        steps: [
+            {
+                move: 'f2g2', eval: 738, evalType: 'cp',
+                pv: ['f2g2', 'g5g2', 'f1g2', 'g8f8', 'a4a5', 'f8e7', 'a5a6', 'e7d6'],
+                alternatives: [{ move: 'f2g2', eval: 738, evalType: 'cp' }, { move: 'b5e8', eval: -24, evalType: 'cp' }]
+            },
+            {
+                move: 'f1g2', eval: 1000, evalType: 'cp',
+                pv: ['f1g2', 'f7f5', 'a4a5', 'g8f8', 'a5a6', 'f8e7', 'a6a7', 'e7d6'],
+                alternatives: [{ move: 'f1g2', eval: 1000, evalType: 'cp' }, { move: 'f1e1', eval: -725, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'g5g2', eval: -974, evalType: 'cp' }]
+    },
+    '2kr1b1r/1p3p2/pq1p1p2/3Bp2p/4P3/1P3P2/1PPQ2PP/2KR2R1 b - - 0 16': {
+        totalSteps: 2,
+        sanLine: ['Bh6', 'f4', 'Bxf4'],
+        steps: [
+            {
+                move: 'f8h6', eval: 580, evalType: 'cp',
+                pv: ['f8h6', 'f3f4', 'h6f4', 'g1f1', 'f4d2', 'd1d2', 'd8d7', 'd2f2'],
+                alternatives: [{ move: 'f8h6', eval: 580, evalType: 'cp' }, { move: 'b6g1', eval: -12, evalType: 'cp' }]
+            },
+            {
+                move: 'h6f4', eval: 608, evalType: 'cp',
+                pv: ['h6f4', 'g1f1', 'f4d2', 'd1d2', 'd8d7', 'c2c3', 'h8h6', 'c1c2'],
+                alternatives: [{ move: 'h6f4', eval: 608, evalType: 'cp' }, { move: 'b6g1', eval: 176, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'f3f4', eval: -603, evalType: 'cp' }]
+    },
+    '2kr1b1r/1p6/2p1qN2/3pP3/2nP3n/1Q5p/7K/2RB1R2 w - - 2 36': {
+        totalSteps: 2,
+        sanLine: ['Bg4', 'Qxg4', 'Nxg4'],
+        steps: [
+            {
+                move: 'd1g4', eval: 503, evalType: 'cp',
+                pv: ['d1g4', 'e6g4', 'f6g4', 'c4d2', 'b3b6', 'd2f1', 'c1f1', 'f8e7'],
+                alternatives: [{ move: 'd1g4', eval: 503, evalType: 'cp' }, { move: 'c1a1', eval: -162, evalType: 'cp' }]
+            },
+            {
+                move: 'f6g4', eval: 563, evalType: 'cp',
+                pv: ['f6g4', 'f8d6', 'f1f7', 'd6c7', 'c1a1', 'c8b8', 'h2h1', 'h8g8'],
+                alternatives: [{ move: 'f6g4', eval: 563, evalType: 'cp' }, { move: 'b3b7', eval: -544, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e6g4', eval: -564, evalType: 'cp' }]
+    },
+    '3q2k1/R3r1pp/2p1p3/1pPp4/1P1Pb1p1/Q3P1BP/5P2/6K1 w - - 0 27': {
+        totalSteps: 2,
+        sanLine: ['Ra8', 'Qe8', 'Rxe8+'],
+        steps: [
+            {
+                move: 'a7a8', eval: 707, evalType: 'cp',
+                pv: ['a7a8', 'd8e8', 'a8e8', 'e7e8', 'a3a7', 'e8f8', 'g3e5', 'f8f6'],
+                alternatives: [{ move: 'a7a8', eval: 707, evalType: 'cp' }, { move: 'g3e5', eval: 23, evalType: 'cp' }]
+            },
+            {
+                move: 'a8e8', eval: 763, evalType: 'cp',
+                pv: ['a8e8', 'e7e8', 'a3a7', 'e8f8', 'g3e5', 'f8f6', 'h3g4', 'e4f3'],
+                alternatives: [{ move: 'a8e8', eval: 763, evalType: 'cp' }, { move: 'g3d6', eval: 733, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'd8e8', eval: -727, evalType: 'cp' }]
+    },
+    'r1bq1rk1/pp1n1pbp/4p1p1/4Pn2/8/2N2N2/PPPQBBPP/2KR3R b - - 4 14': {
+        totalSteps: 2,
+        sanLine: ['Bh6', 'g4', 'Bxd2+'],
+        steps: [
+            {
+                move: 'g7h6', eval: 357, evalType: 'cp',
+                pv: ['g7h6', 'g2g4', 'h6d2', 'f3d2', 'f5g7', 'd2e4', 'd8c7', 'h2h4'],
+                alternatives: [{ move: 'g7h6', eval: 357, evalType: 'cp' }, { move: 'd8a5', eval: -20, evalType: 'cp' }]
+            },
+            {
+                move: 'h6d2', eval: 368, evalType: 'cp',
+                pv: ['h6d2', 'f3d2', 'f5g7', 'h2h4', 'd8c7', 'd2e4', 'g7e8', 'h4h5'],
+                alternatives: [{ move: 'h6d2', eval: 368, evalType: 'cp' }, { move: 'f7f6', eval: -6, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'g2g4', eval: -376, evalType: 'cp' }]
+    },
+    'r1b1rnk1/pp4pp/2pbqp2/4p3/4Q2N/2PB2B1/P1P2PPP/R3R1K1 w - - 4 17': {
+        totalSteps: 2,
+        sanLine: ['Bc4', 'Qxc4', 'Qxc4+'],
+        steps: [
+            {
+                move: 'd3c4', eval: 551, evalType: 'cp',
+                pv: ['d3c4', 'd6c5', 'c4e6', 'c8e6', 'a1d1', 'a8d8', 'h4f5', 'h7h5'],
+                alternatives: [{ move: 'd3c4', eval: 551, evalType: 'cp' }, { move: 'g3e5', eval: -9, evalType: 'cp' }]
+            },
+            {
+                move: 'e4c4', eval: 540, evalType: 'cp',
+                pv: ['e4c4', 'c8e6', 'c4f1', 'd6c5', 'g1h1', 'a8d8', 'f2f4', 'e5f4'],
+                alternatives: [{ move: 'e4c4', eval: 540, evalType: 'cp' }, { move: 'f2f4', eval: -757, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e6c4', eval: -565, evalType: 'cp' }]
+    },
+    'r7/6k1/p1b1pp2/1p4qr/3Q3N/5P1R/P4KP1/3R4 w - - 7 33': {
+        totalSteps: 2,
+        sanLine: ['Rg3', 'Qxg3+', 'Kxg3'],
+        steps: [
+            {
+                move: 'h3g3', eval: 674, evalType: 'cp',
+                pv: ['h3g3', 'g5g3', 'f2g3', 'c6d5', 'd1c1', 'a8f8', 'c1c7', 'g7g8'],
+                alternatives: [{ move: 'h3g3', eval: 674, evalType: 'cp' }, { move: 'f3f4', eval: -82, evalType: 'cp' }]
+            },
+            {
+                move: 'f2g3', eval: 705, evalType: 'cp',
+                pv: ['f2g3', 'g7f7', 'd4b6', 'a8g8', 'g3f2', 'c6d5', 'b6c7', 'f7e8'],
+                alternatives: [{ move: 'f2g3', eval: 705, evalType: 'cp' }, { move: 'f2g1', eval: -901, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'g5g3', eval: -687, evalType: 'cp' }]
+    },
+    'r2qkb1r/pppb1ppp/2n2n2/1B1pP1B1/8/2Q2N2/PPP2PPP/RN2K2R b KQkq - 0 8': {
+        totalSteps: 2,
+        sanLine: ['Bb4', 'exf6', 'gxf6'],
+        steps: [
+            {
+                move: 'f8b4', eval: 359, evalType: 'cp',
+                pv: ['f8b4', 'b5c6', 'b4c3', 'b1c3', 'b7c6', 'e5f6', 'g7f6', 'g5f4'],
+                alternatives: [{ move: 'f8b4', eval: 359, evalType: 'cp' }, { move: 'd5d4', eval: -107, evalType: 'cp' }]
+            },
+            {
+                move: 'g7f6', eval: 403, evalType: 'cp',
+                pv: ['g7f6', 'g5e3', 'b4c3', 'b1c3', 'c6e5', 'e1c1', 'c7c6', 'b5e2'],
+                alternatives: [{ move: 'g7f6', eval: 403, evalType: 'cp' }, { move: 'b4c3', eval: 403, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e5f6', eval: -413, evalType: 'cp' }]
+    },
+    'r4rk1/1p3pq1/p1np3p/4p3/2B5/P3BP1P/1PPQK3/R7 w - - 0 24': {
+        totalSteps: 2,
+        sanLine: ['Rg1', 'Qxg1', 'Bxg1'],
+        steps: [
+            {
+                move: 'a1g1', eval: 617, evalType: 'cp',
+                pv: ['a1g1', 'g7g1', 'e3g1', 'd6d5', 'd2d5', 'a8d8', 'd5e4', 'g8h8'],
+                alternatives: [{ move: 'a1g1', eval: 617, evalType: 'cp' }, { move: 'c2c3', eval: 0, evalType: 'cp' }]
+            },
+            {
+                move: 'e3g1', eval: 650, evalType: 'cp',
+                pv: ['e3g1', 'a8c8', 'd2d6', 'c6e7', 'c4d3', 'e5e4', 'd3e4', 'f8e8'],
+                alternatives: [{ move: 'e3g1', eval: 650, evalType: 'cp' }, { move: 'c4f7', eval: 40, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'g7g1', eval: -658, evalType: 'cp' }]
+    },
+    'r1b1k2r/4qpbp/p1n1pnp1/1p6/Q7/2N2N2/PP1B1PPP/2KR1B1R w kq b6 0 15': {
+        totalSteps: 2,
+        sanLine: ['Bxb5', 'O-O', 'Bxc6'],
+        steps: [
+            {
+                move: 'f1b5', eval: 345, evalType: 'cp',
+                pv: ['f1b5', 'e8g8', 'b5c6', 'c8b7', 'c1b1', 'b7c6', 'a4c6', 'f8c8'],
+                alternatives: [{ move: 'f1b5', eval: 345, evalType: 'cp' }, { move: 'a4h4', eval: -311, evalType: 'cp' }]
+            },
+            {
+                move: 'b5c6', eval: 366, evalType: 'cp',
+                pv: ['b5c6', 'c8b7', 'c1b1', 'b7c6', 'a4c6', 'f6g4', 'h1f1', 'f8c8'],
+                alternatives: [{ move: 'b5c6', eval: 366, evalType: 'cp' }, { move: 'b5e2', eval: -277, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e8g8', eval: -337, evalType: 'cp' }]
+    },
+    '3r2k1/5p1p/p2qb1p1/1p6/3P4/1P1R4/P2Q1PPP/1B4K1 b - - 2 29': {
+        totalSteps: 2,
+        sanLine: ['Bf5', 'Re3', 'Bxb1'],
+        steps: [
+            {
+                move: 'e6f5', eval: 485, evalType: 'cp',
+                pv: ['e6f5', 'd3e3', 'f5b1', 'd2e1', 'b1f5', 'e3e8', 'd8e8', 'e1e8'],
+                alternatives: [{ move: 'e6f5', eval: 485, evalType: 'cp' }, { move: 'd6b6', eval: 0, evalType: 'cp' }]
+            },
+            {
+                move: 'f5b1', eval: 516, evalType: 'cp',
+                pv: ['f5b1', 'g2g4', 'g6g5', 'h2h3', 'd6d5', 'd2c1', 'b1g6', 'e3e5'],
+                alternatives: [{ move: 'f5b1', eval: 516, evalType: 'cp' }, { move: 'd6d4', eval: 18, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'd3e3', eval: -508, evalType: 'cp' }]
+    },
+    'r1b2rk1/1pq3b1/p4pp1/4p2p/4N3/2P1BQ2/PP3PPP/R2R2K1 b - - 1 17': {
+        totalSteps: 2,
+        sanLine: ['Bg4', 'Qg3', 'Bxd1'],
+        steps: [
+            {
+                move: 'c8g4', eval: 458, evalType: 'cp',
+                pv: ['c8g4', 'f3g3', 'g4d1', 'a1d1', 'f6f5', 'e4c5', 'f8d8', 'g3f3'],
+                alternatives: [{ move: 'c8g4', eval: 458, evalType: 'cp' }, { move: 'c7c6', eval: 20, evalType: 'cp' }]
+            },
+            {
+                move: 'g4d1', eval: 503, evalType: 'cp',
+                pv: ['g4d1', 'a1d1', 'f6f5', 'e4c5', 'a8d8', 'g3f3', 'd8d1', 'f3d1'],
+                alternatives: [{ move: 'g4d1', eval: 503, evalType: 'cp' }, { move: 'f6f5', eval: 100, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'f3g3', eval: -474, evalType: 'cp' }]
+    },
+    '1r4k1/2qb1ppp/n3p3/3pP3/8/2PQBN2/1P3PPP/5RK1 b - - 2 18': {
+        totalSteps: 2,
+        sanLine: ['Bb5', 'Qb1', 'Bxf1'],
+        steps: [
+            {
+                move: 'd7b5', eval: 319, evalType: 'cp',
+                pv: ['d7b5', 'd3c2', 'b5f1', 'f3g5', 'g7g6', 'g1f1', 'c7e5', 'c2a4'],
+                alternatives: [{ move: 'd7b5', eval: 319, evalType: 'cp' }, { move: 'c7c4', eval: -172, evalType: 'cp' }]
+            },
+            {
+                move: 'b5f1', eval: 357, evalType: 'cp',
+                pv: ['b5f1', 'f3g5', 'g7g6', 'b1f1', 'b8b2', 'g2g3', 'c7c4', 'f1c4'],
+                alternatives: [{ move: 'b5f1', eval: 357, evalType: 'cp' }, { move: 'd5d4', eval: 3, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'd3b1', eval: -343, evalType: 'cp' }]
+    },
+    'r4rk1/pp1bbppp/4p3/3pn3/1P1q4/P5P1/3N1PBP/1RBQ1RK1 w - - 1 15': {
+        totalSteps: 2,
+        sanLine: ['Bb2', 'Qd3', 'Bxe5'],
+        steps: [
+            {
+                move: 'c1b2', eval: 206, evalType: 'cp',
+                pv: ['c1b2', 'd4d3', 'b2e5', 'd3a3', 'd2e4', 'f7f6', 'e5b2', 'a3a4'],
+                alternatives: [{ move: 'c1b2', eval: 206, evalType: 'cp' }, { move: 'h2h3', eval: -365, evalType: 'cp' }]
+            },
+            {
+                move: 'b2e5', eval: 208, evalType: 'cp',
+                pv: ['b2e5', 'd3a3', 'd2f3', 'a8c8', 'b1a1', 'a3b4', 'a1b1', 'd7a4'],
+                alternatives: [{ move: 'b2e5', eval: 208, evalType: 'cp' }, { move: 'f1e1', eval: -236, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'd4d3', eval: -191, evalType: 'cp' }]
+    },
+    '3r2k1/ppq2pp1/2pb2p1/3p4/3P2N1/2P1Q2P/PP3PP1/2R3K1 b - - 0 21': {
+        totalSteps: 2,
+        sanLine: ['Bf4', 'Qe1', 'Bxc1'],
+        steps: [
+            {
+                move: 'd6f4', eval: 439, evalType: 'cp',
+                pv: ['d6f4', 'e3e1', 'f4c1', 'e1c1', 'c6c5', 'c1e3', 'c5d4', 'e3d4'],
+                alternatives: [{ move: 'd6f4', eval: 439, evalType: 'cp' }, { move: 'c7c8', eval: -13, evalType: 'cp' }]
+            },
+            {
+                move: 'f4c1', eval: 438, evalType: 'cp',
+                pv: ['f4c1', 'e1c1', 'c6c5', 'c1e3', 'c5d4', 'e3d4', 'c7e7', 'd4a7'],
+                alternatives: [{ move: 'f4c1', eval: 438, evalType: 'cp' }, { move: 'f7f5', eval: 63, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e3e1', eval: -445, evalType: 'cp' }]
+    },
+    'r2r2k1/1b1p1pp1/2p1p2p/p1P5/5P2/P2Q1R2/1q2B1PP/5R1K w - - 2 21': {
+        totalSteps: 2,
+        sanLine: ['Rb1', 'Qa2', 'Rxb7'],
+        steps: [
+            {
+                move: 'f1b1', eval: 307, evalType: 'cp',
+                pv: ['f1b1', 'b2a2', 'b1b7', 'a8b8', 'b7b6', 'b8b6', 'c5b6', 'a2b2'],
+                alternatives: [{ move: 'f1b1', eval: 307, evalType: 'cp' }, { move: 'd3d1', eval: -213, evalType: 'cp' }]
+            },
+            {
+                move: 'b1b7', eval: 328, evalType: 'cp',
+                pv: ['b1b7', 'a8b8', 'b7b6', 'b8b6', 'c5b6', 'd8b8', 'e2f1', 'd7d5'],
+                alternatives: [{ move: 'b1b7', eval: 328, evalType: 'cp' }, { move: 'b1b6', eval: -71, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'b2a2', eval: -349, evalType: 'cp' }]
+    },
+    'r1b2rk1/7p/1qn1pbp1/p2p4/Pp1P4/1P1QPN2/2B2NPP/2R2RK1 b - - 1 25': {
+        totalSteps: 2,
+        sanLine: ['Ba6', 'Qd2', 'Bxf1'],
+        steps: [
+            {
+                move: 'c8a6', eval: 344, evalType: 'cp',
+                pv: ['c8a6', 'd3d2', 'a6f1', 'c1f1', 'a8c8', 'h2h4', 'c6e7', 'h4h5'],
+                alternatives: [{ move: 'c8a6', eval: 344, evalType: 'cp' }, { move: 'c8d7', eval: -26, evalType: 'cp' }]
+            },
+            {
+                move: 'a6f1', eval: 345, evalType: 'cp',
+                pv: ['a6f1', 'c1f1', 'a8c8', 'f2g4', 'f6g7', 'd2e2', 'c6d8', 'g2g3'],
+                alternatives: [{ move: 'a6f1', eval: 345, evalType: 'cp' }, { move: 'c6e7', eval: -56, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'd3d2', eval: -348, evalType: 'cp' }]
+    },
+    'r2q1k1r/p3bp2/6pp/1p1pQ2n/8/5N2/PPP2PPP/RN2R1K1 b - - 1 17': {
+        totalSteps: 2,
+        sanLine: ['Bf6', 'Qe3', 'Bxb2'],
+        steps: [
+            {
+                move: 'e7f6', eval: 464, evalType: 'cp',
+                pv: ['e7f6', 'e5e3', 'f6b2', 'b1c3', 'b2a1', 'e1a1', 'f8g7', 'c3b5'],
+                alternatives: [{ move: 'e7f6', eval: 464, evalType: 'cp' }, { move: 'h8g8', eval: -105, evalType: 'cp' }]
+            },
+            {
+                move: 'f6b2', eval: 439, evalType: 'cp',
+                pv: ['f6b2', 'b1c3', 'b5b4', 'c3b5', 'b2a1', 'e1a1', 'f8g7', 'a2a3'],
+                alternatives: [{ move: 'f6b2', eval: 439, evalType: 'cp' }, { move: 'f8g7', eval: 45, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e5e3', eval: -447, evalType: 'cp' }]
+    },
+    '2k1r2r/ppq2p2/2pb4/2p2P1p/4P2P/1PQ2RP1/P1P2P2/R1B3K1 b - - 0 23': {
+        totalSteps: 2,
+        sanLine: ['Be5', 'Qe1', 'Bxa1'],
+        steps: [
+            {
+                move: 'd6e5', eval: 286, evalType: 'cp',
+                pv: ['d6e5', 'c3e1', 'e5a1', 'c2c3', 'c7a5', 'g1g2', 'a5a2', 'c1f4'],
+                alternatives: [{ move: 'd6e5', eval: 286, evalType: 'cp' }, { move: 'h8g8', eval: -277, evalType: 'cp' }]
+            },
+            {
+                move: 'e5a1', eval: 301, evalType: 'cp',
+                pv: ['e5a1', 'c2c3', 'c7a5', 'c1g5', 'a5a2', 'g1g2', 'a1b2', 'e1d1'],
+                alternatives: [{ move: 'e5a1', eval: 301, evalType: 'cp' }, { move: 'h8g8', eval: -268, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'c3e1', eval: -292, evalType: 'cp' }]
+    },
+    '2b1k2r/1p1p1ppp/r3pn2/p1q1B3/8/R3P3/2PP1PPP/3QK1NR w Kk - 1 15': {
+        totalSteps: 2,
+        sanLine: ['Rc3', 'Qxe5', 'Rxc8+'],
+        steps: [
+            {
+                move: 'a3c3', eval: 430, evalType: 'cp',
+                pv: ['a3c3', 'c5e5', 'c3c8', 'e8e7', 'g1f3', 'e5b2', 'c8h8', 'a5a4'],
+                alternatives: [{ move: 'a3c3', eval: 430, evalType: 'cp' }, { move: 'd1a1', eval: -64, evalType: 'cp' }]
+            },
+            {
+                move: 'c3c8', eval: 487, evalType: 'cp',
+                pv: ['c3c8', 'e8e7', 'g1f3', 'e5d6', 'c8h8', 'a5a4', 'e1g1', 'a4a3'],
+                alternatives: [{ move: 'c3c8', eval: 487, evalType: 'cp' }, { move: 'h2h4', eval: -599, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'c5e5', eval: -443, evalType: 'cp' }]
+    },
+    'r4rk1/p2b1pp1/3bp2p/3pq3/2pN4/P1P1B1P1/1P1Q1P1P/R4RK1 w - - 0 21': {
+        totalSteps: 2,
+        sanLine: ['Bf4', 'Qf6', 'Bxd6'],
+        steps: [
+            {
+                move: 'e3f4', eval: 446, evalType: 'cp',
+                pv: ['e3f4', 'e5f6', 'f4d6', 'e6e5', 'd6f8', 'e5d4', 'f8c5', 'f6f3'],
+                alternatives: [{ move: 'e3f4', eval: 446, evalType: 'cp' }, { move: 'b2b4', eval: -217, evalType: 'cp' }]
+            },
+            {
+                move: 'f4d6', eval: 478, evalType: 'cp',
+                pv: ['f4d6', 'e6e5', 'd6f8', 'e5d4', 'f8c5', 'd4d3', 'f2f3', 'd7h3'],
+                alternatives: [{ move: 'f4d6', eval: 478, evalType: 'cp' }, { move: 'f4e3', eval: -375, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e5f6', eval: -456, evalType: 'cp' }]
+    },
+    '2kr3r/ppq3p1/2pbp3/5b1p/7P/2P1BQ2/PP3PP1/3RRNK1 b - - 0 22': {
+        totalSteps: 2,
+        sanLine: ['Bg4', 'Qe4', 'Bxd1'],
+        steps: [
+            {
+                move: 'f5g4', eval: 462, evalType: 'cp',
+                pv: ['f5g4', 'f3e4', 'g4d1', 'f2f3', 'd1f3', 'g2f3', 'h8f8', 'g1g2'],
+                alternatives: [{ move: 'f5g4', eval: 462, evalType: 'cp' }, { move: 'c7a5', eval: -60, evalType: 'cp' }]
+            },
+            {
+                move: 'g4d1', eval: 478, evalType: 'cp',
+                pv: ['g4d1', 'f2f3', 'd1f3', 'g2f3', 'h8f8', 'g1g2', 'd6f4', 'e4e6'],
+                alternatives: [{ move: 'g4d1', eval: 478, evalType: 'cp' }, { move: 'd6h2', eval: -19, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'f3e4', eval: -479, evalType: 'cp' }]
+    },
+    '8/6pk/1pqr2bp/8/2P2Q2/7P/3R2PK/5R2 b - - 1 40': {
+        totalSteps: 2,
+        sanLine: ['Rf6', 'Qb8', 'Rxf1'],
+        steps: [
+            {
+                move: 'd6f6', eval: 491, evalType: 'cp',
+                pv: ['d6f6', 'f4f6', 'g7f6', 'f1f3', 'g6f7', 'd2f2', 'c6d6', 'h2h1'],
+                alternatives: [{ move: 'd6f6', eval: 491, evalType: 'cp' }, { move: 'd6d2', eval: -128, evalType: 'cp' }]
+            },
+            {
+                move: 'f6f1', eval: 545, evalType: 'cp',
+                pv: ['f6f1', 'd2d8', 'g6f7', 'd8h8', 'h7g6', 'b8g3', 'g6f6', 'g3h4'],
+                alternatives: [{ move: 'f6f1', eval: 545, evalType: 'cp' }, { move: 'g6f7', eval: -268, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'f4b8', eval: -529, evalType: 'cp' }]
+    },
+    '2r3k1/5p1p/1qP1p1p1/2QpP3/Pr3P2/R6P/6P1/2R3K1 b - - 4 27': {
+        totalSteps: 2,
+        sanLine: ['Rxc6', 'Qxb6', 'Rxc1+'],
+        steps: [
+            {
+                move: 'c8c6', eval: 720, evalType: 'cp',
+                pv: ['c8c6', 'a4a5', 'b6c5', 'c1c5', 'c6c5', 'a3a1', 'c5c8', 'g2g4'],
+                alternatives: [{ move: 'c8c6', eval: 720, evalType: 'cp' }, { move: 'b6c5', eval: -104, evalType: 'cp' }]
+            },
+            {
+                move: 'c6c1', eval: 712, evalType: 'cp',
+                pv: ['c6c1', 'g1h2', 'b4b6', 'a4a5', 'b6a6', 'h2g3', 'c1c8', 'a3a1'],
+                alternatives: [{ move: 'c6c1', eval: 712, evalType: 'cp' }, { move: 'c6b6', eval: 47, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'c5b6', eval: -724, evalType: 'cp' }]
+    },
+    '5rk1/p1p3p1/1p5p/2q2n2/6Q1/3P4/PP1B2PP/R6K w - - 0 23': {
+        totalSteps: 2,
+        sanLine: ['Bb4', 'Qf2', 'Bxf8'],
+        steps: [
+            {
+                move: 'd2b4', eval: 463, evalType: 'cp',
+                pv: ['d2b4', 'c5f2', 'b4f8', 'g8f8', 'b2b4', 'c7c6', 'g4e4', 'f5d4'],
+                alternatives: [{ move: 'd2b4', eval: 463, evalType: 'cp' }, { move: 'd2c3', eval: -35, evalType: 'cp' }]
+            },
+            {
+                move: 'b4f8', eval: 498, evalType: 'cp',
+                pv: ['b4f8', 'g8f8', 'b2b4', 'c7c6', 'g4e4', 'f5d4', 'a1e1', 'f8g8'],
+                alternatives: [{ move: 'b4f8', eval: 498, evalType: 'cp' }, { move: 'b4c3', eval: -49, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'c5f2', eval: -480, evalType: 'cp' }]
+    },
+    'rn1q1rk1/p4ppp/1p3n2/2bPQ3/2P2B2/5N2/PP2B1PP/1R3R1K b - - 0 13': {
+        totalSteps: 2,
+        sanLine: ['Re8', 'Qc3', 'Rxe2'],
+        steps: [
+            {
+                move: 'f8e8', eval: 334, evalType: 'cp',
+                pv: ['f8e8', 'e5g5', 'e8e2', 'b2b4', 'c5f8', 'f3d4', 'e2e4', 'd4f5'],
+                alternatives: [{ move: 'f8e8', eval: 334, evalType: 'cp' }, { move: 'b8d7', eval: -189, evalType: 'cp' }]
+            },
+            {
+                move: 'e8e2', eval: 370, evalType: 'cp',
+                pv: ['e8e2', 'b2b4', 'c5f8', 'd5d6', 'a7a5', 'a2a3', 'a5b4', 'a3b4'],
+                alternatives: [{ move: 'e8e2', eval: 370, evalType: 'cp' }, { move: 'b8d7', eval: -188, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e5c3', eval: -364, evalType: 'cp' }]
+    },
+    '1k6/8/8/6p1/1pp4P/p4PP1/N1P5/7K b - h3 0 38': {
+        totalSteps: 2,
+        sanLine: ['b3', 'cxb3', 'cxb3'],
+        steps: [
+            {
+                move: 'b4b3', eval: 688, evalType: 'cp',
+                pv: ['b4b3', 'c2b3', 'c4b3', 'a2c3', 'g5h4', 'g3h4', 'a3a2', 'c3a2'],
+                alternatives: [{ move: 'b4b3', eval: 688, evalType: 'cp' }, { move: 'g5h4', eval: -608, evalType: 'cp' }]
+            },
+            {
+                move: 'c4b3', eval: 717, evalType: 'cp',
+                pv: ['c4b3', 'a2c3', 'a3a2', 'c3a2', 'b3a2', 'h1g2', 'b8c7', 'h4g5'],
+                alternatives: [{ move: 'c4b3', eval: 717, evalType: 'cp' }, { move: 'g5h4', eval: -660, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'c2b3', eval: -720, evalType: 'cp' }]
+    },
+    '8/7k/R6p/3p4/5r2/2P1p2P/P5P1/6K1 b - - 0 40': {
+        totalSteps: 2,
+        sanLine: ['e2', 'Re6', 'Rf1+'],
+        steps: [
+            {
+                move: 'e3e2', eval: 675, evalType: 'cp',
+                pv: ['e3e2', 'a6e6', 'f4f1', 'g1h2', 'e2e1q', 'e6e1', 'f1e1', 'h2g3'],
+                alternatives: [{ move: 'e3e2', eval: 675, evalType: 'cp' }, { move: 'f4c4', eval: 10, evalType: 'cp' }]
+            },
+            {
+                move: 'f4f1', eval: 671, evalType: 'cp',
+                pv: ['f4f1', 'g1h2', 'e2e1q', 'e6e1', 'f1e1', 'h2g3', 'e1c1', 'g3f4'],
+                alternatives: [{ move: 'f4f1', eval: 671, evalType: 'cp' }, { move: 'f4c4', eval: 0, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'a6e6', eval: -679, evalType: 'cp' }]
+    },
+    '8/1k6/1P1Kp1p1/3pP3/7P/8/8/8 b - - 2 48': {
+        totalSteps: 2,
+        sanLine: ['d4', 'Kxe6', 'd3'],
+        steps: [
+            {
+                move: 'd5d4', eval: 662, evalType: 'cp',
+                pv: ['d5d4', 'd6e6', 'd4d3', 'e6f6', 'd3d2', 'e5e6', 'd2d1q', 'f6g6'],
+                alternatives: [{ move: 'd5d4', eval: 662, evalType: 'cp' }, { move: 'b7b6', eval: -5, evalType: 'cp' }]
+            },
+            {
+                move: 'd4d3', eval: 659, evalType: 'cp',
+                pv: ['d4d3', 'e6f6', 'd3d2', 'f6g6', 'd2d1q', 'h4h5', 'd1g4', 'g6h6'],
+                alternatives: [{ move: 'd4d3', eval: 659, evalType: 'cp' }, { move: 'b7b6', eval: 0, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'd6e6', eval: -662, evalType: 'cp' }]
+    },
+    '8/7p/6p1/2Q5/8/2pK1PP1/1r5P/1k6 b - - 11 58': {
+        totalSteps: 2,
+        sanLine: ['c2', 'Qxc2+', 'Rxc2'],
+        steps: [
+            {
+                move: 'c3c2', eval: 606, evalType: 'cp',
+                pv: ['c3c2', 'c5c2', 'b2c2', 'h2h4', 'b1c1', 'g3g4', 'c2h2', 'h4h5'],
+                alternatives: [{ move: 'c3c2', eval: 606, evalType: 'cp' }, { move: 'b2d2', eval: -728, evalType: 'cp' }]
+            },
+            {
+                move: 'b2c2', eval: 636, evalType: 'cp',
+                pv: ['b2c2', 'h2h4', 'b1c1', 'd3e3', 'c2c3', 'e3e2', 'c3b3', 'g3g4'],
+                alternatives: [{ move: 'b2c2', eval: 636, evalType: 'cp' }, { move: 'b1a1', eval: -737, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'c5c2', eval: -615, evalType: 'cp' }]
+    },
+    '7r/4kpRp/2p2p1P/p1P1n3/Pp6/1B6/5PP1/6K1 w - - 3 36': {
+        totalSteps: 2,
+        sanLine: ['f4', 'Ng6', 'Rxf7+'],
+        steps: [
+            {
+                move: 'f2f4', eval: 342, evalType: 'cp',
+                pv: ['f2f4', 'e5d7', 'g7f7', 'e7e8', 'f7g7', 'd7c5', 'b3c2', 'c5e6'],
+                alternatives: [{ move: 'f2f4', eval: 342, evalType: 'cp' }, { move: 'g1f1', eval: -34, evalType: 'cp' }]
+            },
+            {
+                move: 'g7f7', eval: 483, evalType: 'cp',
+                pv: ['g7f7', 'e7d8', 'f7a7', 'f6f5', 'a7a5', 'd8c8', 'a5a7', 'c8b8'],
+                alternatives: [{ move: 'g7f7', eval: 483, evalType: 'cp' }, { move: 'b3f7', eval: 327, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e5g6', eval: -412, evalType: 'cp' }]
+    },
+    '8/5pk1/P4b2/6p1/6Pp/3R3K/R1P1r2P/8 b - - 0 45': {
+        totalSteps: 2,
+        sanLine: ['Be5', 'Rg3', 'hxg3'],
+        steps: [
+            {
+                move: 'f6e5', eval: 182, evalType: 'cp',
+                pv: ['f6e5', 'd3g3', 'h4g3', 'h2g3', 'e2e3', 'h3g2', 'e3g3', 'g2f2'],
+                alternatives: [{ move: 'f6e5', eval: 182, evalType: 'cp' }, { move: 'g7g6', eval: -601, evalType: 'cp' }]
+            },
+            {
+                move: 'h4g3', eval: 236, evalType: 'cp',
+                pv: ['h4g3', 'h2g3', 'e2e3', 'h3g2', 'e3g3', 'g2f2', 'g3g4', 'a6a7'],
+                alternatives: [{ move: 'h4g3', eval: 236, evalType: 'cp' }, { move: 'e5b8', eval: -187, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'd3g3', eval: -230, evalType: 'cp' }]
+    },
+    '8/4n3/Qp2k3/8/P2qp3/5pP1/1r1p1P1P/3R1RK1 b - - 3 45': {
+        totalSteps: 2,
+        sanLine: ['e3', 'Qa8', 'e2'],
+        steps: [
+            {
+                move: 'e4e3', eval: 510, evalType: 'cp',
+                pv: ['e4e3', 'f2e3', 'd4e3', 'f1f2', 'b2c2', 'g1f1', 'e7d5', 'a6a8'],
+                alternatives: [{ move: 'e4e3', eval: 510, evalType: 'cp' }, { move: 'e7d5', eval: 136, evalType: 'cp' }]
+            },
+            {
+                move: 'e3e2', eval: 616, evalType: 'cp',
+                pv: ['e3e2', 'a8f3', 'e2d1q', 'f1d1', 'e7d5', 'g1f1', 'e6d7', 'f3f5'],
+                alternatives: [{ move: 'e3e2', eval: 616, evalType: 'cp' }, { move: 'e7d5', eval: 63, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'a6a8', eval: -576, evalType: 'cp' }]
+    },
+    '8/p2k4/1p4R1/2p2Pp1/2P3P1/3p1P2/PP4K1/7r b - - 1 38': {
+        totalSteps: 2,
+        sanLine: ['d2', 'Kxh1', 'd1=Q+'],
+        steps: [
+            {
+                move: 'd3d2', eval: 496, evalType: 'cp',
+                pv: ['d3d2', 'g2h1', 'd2d1q', 'h1g2', 'd1d2', 'g2h3', 'd2f4', 'h3g2'],
+                alternatives: [{ move: 'd3d2', eval: 496, evalType: 'cp' }, { move: 'h1b1', eval: 11, evalType: 'cp' }]
+            },
+            {
+                move: 'd2d1q', eval: 531, evalType: 'cp',
+                pv: ['d2d1q', 'h1g2', 'd1e2', 'g2g3', 'e2e5', 'g3h3', 'e5f4', 'h3g2'],
+                alternatives: [{ move: 'd2d1q', eval: 531, evalType: 'cp' }, { move: 'd7e7', eval: 0, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'g2h1', eval: -524, evalType: 'cp' }]
+    },
+    '8/7k/1p4p1/p1p2p1p/P7/1Pr2P1P/4K1P1/1R6 w - - 2 43': {
+        totalSteps: 2,
+        sanLine: ['Kd2', 'Rxf3', 'gxf3'],
+        steps: [
+            {
+                move: 'e2d2', eval: 636, evalType: 'cp',
+                pv: ['e2d2', 'c3f3', 'g2f3', 'h7g7', 'd2d3', 'g7f6', 'd3c4', 'f6e5'],
+                alternatives: [{ move: 'e2d2', eval: 636, evalType: 'cp' }, { move: 'h3h4', eval: -220, evalType: 'cp' }]
+            },
+            {
+                move: 'g2f3', eval: 633, evalType: 'cp',
+                pv: ['g2f3', 'h5h4', 'd2d3', 'h7h6', 'd3c4', 'h6g5', 'c4b5', 'g5f4'],
+                alternatives: [{ move: 'g2f3', eval: 633, evalType: 'cp' }, { move: 'b3b4', eval: -476, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'c3f3', eval: -637, evalType: 'cp' }]
+    },
+    '6k1/6p1/4Pq1p/2p2P2/2PpQ1P1/1P6/r1B4P/7K w - - 0 44': {
+        totalSteps: 2,
+        sanLine: ['e7', 'Qxe7', 'Qxe7'],
+        steps: [
+            {
+                move: 'e6e7', eval: 851, evalType: 'cp',
+                pv: ['e6e7', 'f6e7', 'e4e7', 'a2c2', 'e7e8', 'g8h7', 'e8g6', 'h7h8'],
+                alternatives: [{ move: 'e6e7', eval: 851, evalType: 'cp' }, { move: 'c2b1', eval: 24, evalType: 'cp' }]
+            },
+            {
+                move: 'e4e7', eval: 888, evalType: 'cp',
+                pv: ['e4e7', 'a2c2', 'e7e8', 'g8h7', 'e8g6', 'h7h8', 'f5f6', 'c2c1'],
+                alternatives: [{ move: 'e4e7', eval: 888, evalType: 'cp' }, { move: 'h1g1', eval: -630, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'f6e7', eval: -948, evalType: 'cp' }]
+    },
+    '8/8/6pR/2k2p2/2B1p2P/1P2P1P1/1q3PK1/8 b - - 2 36': {
+        totalSteps: 2,
+        sanLine: ['Qg7', 'Rxg6', 'Qxg6'],
+        steps: [
+            {
+                move: 'b2g7', eval: 367, evalType: 'cp',
+                pv: ['b2g7', 'h6g6', 'g7g6', 'g2h2', 'g6g4', 'h2h1', 'c5d6', 'c4f7'],
+                alternatives: [{ move: 'b2g7', eval: 367, evalType: 'cp' }, { move: 'f5f4', eval: 70, evalType: 'cp' }]
+            },
+            {
+                move: 'g7g6', eval: 413, evalType: 'cp',
+                pv: ['g7g6', 'g2f1', 'g6g7', 'c4e6', 'g7g4', 'e6c4', 'g4d1', 'f1g2'],
+                alternatives: [{ move: 'g7g6', eval: 413, evalType: 'cp' }, { move: 'g7h8', eval: -344, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'h6g6', eval: -385, evalType: 'cp' }]
+    },
+    '8/4pk1p/4n1p1/Nr4P1/R4P2/P3K3/8/8 b - - 0 56': {
+        totalSteps: 2,
+        sanLine: ['Nc5', 'Rc4', 'Rxa5'],
+        steps: [
+            {
+                move: 'e6c5', eval: 620, evalType: 'cp',
+                pv: ['e6c5', 'a4c4', 'b5a5', 'e3e2', 'c5e6', 'a3a4', 'e6c5', 'c4c3'],
+                alternatives: [{ move: 'e6c5', eval: 620, evalType: 'cp' }, { move: 'h7h6', eval: 24, evalType: 'cp' }]
+            },
+            {
+                move: 'b5a5', eval: 618, evalType: 'cp',
+                pv: ['b5a5', 'c4c3', 'c5e6', 'e3e4', 'a5a4', 'e4d5', 'a4f4', 'c3g3'],
+                alternatives: [{ move: 'b5a5', eval: 618, evalType: 'cp' }, { move: 'f7e6', eval: 17, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'a4c4', eval: -613, evalType: 'cp' }]
+    },
+    '8/5pk1/pQp1n3/P3p1p1/2P1P2p/1P2qP1P/4N1P1/4K3 b - - 2 35': {
+        totalSteps: 2,
+        sanLine: ['Nd4', 'Kf1', 'Qxe2+'],
+        steps: [
+            {
+                move: 'e6d4', eval: 718, evalType: 'cp',
+                pv: ['e6d4', 'e1f1', 'e3e2', 'f1g1', 'e2e1', 'g1h2', 'd4f3', 'g2f3'],
+                alternatives: [{ move: 'e6d4', eval: 718, evalType: 'cp' }, { move: 'c6c5', eval: 142, evalType: 'cp' }]
+            },
+            {
+                move: 'e3e2', eval: 764, evalType: 'cp',
+                pv: ['e3e2', 'f1g1', 'e2e1', 'g1h2', 'd4f3', 'g2f3', 'e1g3', 'h2h1'],
+                alternatives: [{ move: 'e3e2', eval: 764, evalType: 'cp' }, { move: 'e3d3', eval: 646, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e1f1', eval: -785, evalType: 'cp' }]
+    },
+    '8/4ppk1/3p2p1/3Pb3/5q2/5P1p/6PP/5RQK b - - 1 40': {
+        totalSteps: 2,
+        sanLine: ['Bd4', 'Rf2', 'Bxf2'],
+        steps: [
+            {
+                move: 'e5d4', eval: 588, evalType: 'cp',
+                pv: ['e5d4', 'g2g3', 'f4f6', 'f1f2', 'f6e5', 'g1f1', 'd4f2', 'f1f2'],
+                alternatives: [{ move: 'e5d4', eval: 588, evalType: 'cp' }, { move: 'f4c4', eval: 13, evalType: 'cp' }]
+            },
+            {
+                move: 'd4f2', eval: 675, evalType: 'cp',
+                pv: ['d4f2', 'g1f2', 'f4c1', 'f2g1', 'h3g2', 'h1g2', 'c1g5', 'g2f1'],
+                alternatives: [{ move: 'd4f2', eval: 675, evalType: 'cp' }, { move: 'f4e3', eval: 667, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'f1f2', eval: -645, evalType: 'cp' }]
+    },
+    '8/8/5Qp1/6Pp/4p2P/p4k2/5p2/1K6 b - - 3 51': {
+        totalSteps: 2,
+        sanLine: ['Kg2', 'Ka2', 'f1=Q'],
+        steps: [
+            {
+                move: 'f3g2', eval: 619, evalType: 'cp',
+                pv: ['f3g2', 'b1a2', 'f2f1q', 'f6g6', 'f1c4', 'a2a3', 'e4e3', 'g6h5'],
+                alternatives: [{ move: 'f3g2', eval: 619, evalType: 'cp' }, { move: 'f3e2', eval: -33, evalType: 'cp' }]
+            },
+            {
+                move: 'f2f1q', eval: 650, evalType: 'cp',
+                pv: ['f2f1q', 'f6g6', 'f1c4', 'a2a3', 'e4e3', 'g6h5', 'e3e2', 'h5e2'],
+                alternatives: [{ move: 'f2f1q', eval: 650, evalType: 'cp' }, { move: 'e4e3', eval: 245, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'b1a2', eval: -593, evalType: 'cp' }]
+    },
     'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 4 4': {
         totalSteps: 1,
         sanLine: ['Qxf7#'],
@@ -28922,7 +30344,33 @@ function pickOfflineTacticsFen(excludeFen = null) {
     return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
 }
 
+// Tema de cada posició del banc (el de la primera jugada de la solució, amb
+// el mateix classificador que les errades). Es calcula un sol cop.
+let tacticsBankThemeCache = null;
+function tacticsBankTheme(fen) {
+    if (!tacticsBankThemeCache) tacticsBankThemeCache = {};
+    if (!(fen in tacticsBankThemeCache)) {
+        const sol = TACTICS_BANK_SOLUTIONS[fen];
+        let th = null;
+        try { th = sol && sol.steps && sol.steps[0] ? normalizeGrowthTheme(classifyPositionTheme(fen, sol.steps[0].move)) : null; } catch (e) { th = null; }
+        tacticsBankThemeCache[fen] = th;
+    }
+    return tacticsBankThemeCache[fen];
+}
+// Posicions jugables del banc d'un tema; primer les del cicle (no resoltes).
+function tacticsFensForTheme(theme, inCycleOnly) {
+    if (!theme) return [];
+    const ok = f => tacticsFenHasTwoSteps(f) && isPlayableExerciseFen(f) && tacticsBankTheme(f) === theme;
+    const cycle = ElTaulerCore.tacticsPickPool(TACTICS_BANK, tacticsStats.recentFens).filter(ok);
+    if (cycle.length || inCycleOnly) return cycle;
+    return TACTICS_BANK.filter(ok);
+}
+
 function pickTacticsFen() {
+    if (tacticsThemeFocus) {
+        const themed = tacticsFensForTheme(tacticsThemeFocus);
+        if (themed.length) return pickPreferPrepared(themed) || themed[Math.floor(Math.random() * themed.length)];
+    }
     // Rotació: les posicions ja resoltes no es repeteixen fins completar el banc.
     const pool = ElTaulerCore.tacticsPickPool(TACTICS_BANK, tacticsStats.recentFens)
         .filter(f => tacticsFenHasTwoSteps(f) && isPlayableExerciseFen(f));
@@ -28932,8 +30380,12 @@ function pickTacticsFen() {
     return pickPreferPrepared(pool) || pool[Math.floor(Math.random() * pool.length)];
 }
 
-function startTacticsPuzzle() {
+function startTacticsPuzzle(opts = {}) {
     if (!guardCalibrationAccess()) return;
+    // Un tema explícit fixa la tanda; continuar-la el manté; qualsevol altra
+    // entrada (menú, missions, problema diari) torna a les tàctiques generals.
+    if (opts && Object.prototype.hasOwnProperty.call(opts, 'theme')) tacticsThemeFocus = opts.theme || null;
+    else if (!(opts && opts.continueFocus)) tacticsThemeFocus = null;
     isTacticsSession = true;
     isDailyPuzzleSession = false;
     isSrsReviewSession = false;
@@ -28982,17 +30434,18 @@ function completeTacticsPuzzle(success, solvedFen) {
 function showTacticsOverlay() {
     const overlay = $('#bundle-success-overlay');
     if (!overlay.length) { isTacticsSession = false; returnToMainMenuImmediate(); return; }
-    overlay.find('.bundle-success-title').text('Tàctica resolta ⚡ (+1 ★)');
+    const focusLabel = tacticsThemeFocus ? (WEAKNESS_LABELS[tacticsThemeFocus] || getThemeLabel(tacticsThemeFocus)) : '';
+    overlay.find('.bundle-success-title').text(focusLabel ? `Tàctica resolta · ${focusLabel} (+1 ★)` : 'Tàctica resolta ⚡ (+1 ★)');
     overlay.find('.bundle-success-remaining').text(`Resoltes en total: ${tacticsStats.solved} · Rècord: ${tacticsStats.best}`).show();
     renderExerciseRunStreak(overlay);
     overlay.find('#btn-bundle-random-again').text('⚡ Una altra tàctica').prop('disabled', false).show()
-        .off('click').on('click', () => { overlay.hide(); startTacticsPuzzle(); });
+        .off('click').on('click', () => { overlay.hide(); startTacticsPuzzle({ continueFocus: true }); });
     wireContinueSolvedFenButton(overlay);
     overlay.css('display', 'flex');
     wireNavTrio(overlay, {
         onHome: () => { isTacticsSession = false; goToHomeScreen(); },
         sectionLabel: '<svg class="btn-ic" aria-hidden="true"><use href="#ic-zap"/></svg>Tàctiques',
-        onSection: () => startTacticsPuzzle()
+        onSection: () => startTacticsPuzzle({ continueFocus: true })
     });
 }
 
@@ -32044,7 +33497,6 @@ const ANTIDOTE_VOICE_KEY = 'eltauler_antidote_veu';
 
 let antidotePlayPending = null;   // petició d'inici (es consumeix a startGame)
 let antidoteState = null;         // estat de la partida Antídot en curs
-let antidoteEngine = null;        // worker dedicat (força màxima + MultiPV)
 let antidoteDetectors = null;     // detectors de core.js lligats a chess.js
 let antidoteProgress = null;      // progrés acumulat entre partides
 let antidoteSearchToken = 0;      // invalida cerques d'una partida anterior
@@ -32070,51 +33522,19 @@ function getAntidoteDetectors() {
     return antidoteDetectors;
 }
 
-// Motor Stockfish 19 independent dels altres modes.
-let antidoteEngineReadyPromise = null;
+// Motor: el Stockfish 19 compartit (sf19Submit), a prioritat «play»: passa
+// davant de tota la resta i atura la generació de jeroglífics de fons. La
+// partida no té cap worker propi.
 function ensureAntidoteEngine() {
-    if (antidoteEngine) return antidoteEngine;
-    let worker;
-    try { worker = new Worker(ANTIDOTE_STOCKFISH_URL); }
-    catch (e) { console.warn('[Antídot] Stockfish 19 no disponible', e); return null; }
-    antidoteEngine = worker;
-    antidoteEngineReadyPromise = new Promise(resolve => {
-        let finished = false;
-        const finish = ok => {
-            if (finished) return;
-            finished = true;
-            clearTimeout(timer);
-            try {
-                worker.removeEventListener('message', onMessage);
-                worker.removeEventListener('error', onError);
-            } catch (e) {}
-            if (!ok && antidoteEngine === worker) releaseAntidoteEngine();
-            resolve(ok);
-        };
-        const onMessage = e => {
-            if (typeof e.data === 'string' && e.data.trim() === 'readyok') finish(true);
-        };
-        const onError = () => finish(false);
-        const timer = setTimeout(() => finish(false), 15000);
-        worker.addEventListener('message', onMessage);
-        worker.addEventListener('error', onError);
-        try {
-            worker.postMessage('uci');
-            worker.postMessage('setoption name UCI_LimitStrength value false');
-            worker.postMessage('ucinewgame');
-            worker.postMessage('isready');
-        } catch (e) { finish(false); }
-    });
-    return antidoteEngine;
+    // Escalfa el motor compartit (WASM carregat i UCI a punt) abans de la
+    // primera resposta del rival.
+    void ensureHieroStockfish();
+    return true;
 }
-
+// Atura la cerca Antídot en curs i descarta les que esperaven torn. El motor
+// compartit continua viu per a la resta de feines.
 function releaseAntidoteEngine() {
-    const worker = antidoteEngine;
-    antidoteEngine = null;
-    antidoteEngineReadyPromise = null;
-    if (!worker) return;
-    try { worker.postMessage('stop'); } catch (e) {}
-    try { worker.terminate(); } catch (e) {}
+    sf19Cancel('antidote');
 }
 
 // ── Preferències del comentari en viu (Configuració) ────────────────────────
@@ -32544,8 +33964,7 @@ function makeAntidoteEngineMove() {
     if (!isAntidoteMode()) return false;
     if (antidoteState.searching) return true;   // ja s'hi està
     const detectors = getAntidoteDetectors();
-    const engine = ensureAntidoteEngine();
-    if (!detectors || !engine) return false;
+    if (!detectors) return false;
 
     const fen = game.fen();
     const generation = gameGeneration;
@@ -32582,32 +34001,36 @@ function makeAntidoteEngineMove() {
 
     const run = async () => {
         try {
-            const ready = await (antidoteEngineReadyPromise || Promise.resolve(false));
-            if (generation !== gameGeneration || token !== antidoteSearchToken || !isAntidoteMode()) return;
-            if (!ready || engine !== antidoteEngine) { bail('uci-not-ready'); return; }
-            // El temps de cerca comença quan el WASM ja està carregat.
-            watchdog = setTimeout(() => {
-                if (settled) return;
-                settled = true;
-                bail('watchdog');
-            }, budget.moveTimeMs + 7000);
-            const analysis = await analyzePositionEnrichedTimed(
-                engine, fen, budget.depth, multiPv, budget.moveTimeMs, budget.moveTimeMs + 4000
-            );
-            if (settled) return;
-            // Una segona passada, molt limitada i només en ritmes prou lents,
-            // comprova si una captura o un escac temptadors serien una errada.
-            // Si falla o s'esgota el temps, manté la selecció original intacta.
-            if (!analysis.timedOut) {
-                try {
-                    await enrichAntidoteProbableReplies(engine, fen, analysis, deviceOpts,
-                        () => !settled && generation === gameGeneration && token === antidoteSearchToken
-                            && isAntidoteMode() && game && game.fen() === fen);
-                } catch (e) {
-                    if (DEBUG_ANTIDOTE) console.warn('[Antídot] sense segon anàlisi:', e);
+            const isCurrent = () => !settled && generation === gameGeneration && token === antidoteSearchToken
+                && isAntidoteMode() && game && game.fen() === fen;
+            // Una feina «play» del motor compartit: passa davant de tot i
+            // atura la generació de jeroglífics de fons.
+            const analysis = await sf19Submit('play', async engine => {
+                if (!isCurrent()) return null;
+                // El temps de cerca comença quan el motor és a punt.
+                watchdog = setTimeout(() => {
+                    if (settled) return;
+                    settled = true;
+                    bail('watchdog');
+                }, budget.moveTimeMs + 7000);
+                const result = await analyzePositionEnrichedTimed(
+                    engine, fen, budget.depth, multiPv, budget.moveTimeMs, budget.moveTimeMs + 4000
+                );
+                // Una segona passada, molt limitada i només en ritmes prou lents,
+                // comprova si una captura o un escac temptadors serien una errada.
+                // Si falla o s'esgota el temps, manté la selecció original intacta.
+                if (result && !result.timedOut && isCurrent()) {
+                    try {
+                        await enrichAntidoteProbableReplies(engine, fen, result, deviceOpts, isCurrent);
+                    } catch (e) {
+                        if (DEBUG_ANTIDOTE) console.warn('[Antídot] sense segon anàlisi:', e);
+                    }
                 }
-            }
+                return result;
+            }, { tag: 'antidote' });
             if (settled) return;
+            if (generation !== gameGeneration || token !== antidoteSearchToken || !isAntidoteMode()) return;
+            if (!analysis) { bail('uci-not-ready'); return; }
             clearTimeout(watchdog);
             if (generation !== gameGeneration || token !== antidoteSearchToken || !isAntidoteMode()) return;
             antidoteState.searching = false;
@@ -32640,7 +34063,7 @@ async function enrichAntidoteProbableReplies(engine, fen, analysis, deviceOpts, 
     const opts = cfg.probableReply;
     if (!analysis || !Array.isArray(analysis.alternatives)
         || analysis.alternatives.length < 1 || !opts || !isCurrent()
-        || !engine || engine !== antidoteEngine || analysis.timedOut) return;
+        || !engine || engine !== hieroStockfish || analysis.timedOut) return;
     // Sense rellotge: 2 comprovacions. Ràpides/clàssiques: només una.
     // Bullet i blitz no pateixen aquest cost addicional.
     const pace = deviceOpts && deviceOpts.timeControlKind;
@@ -32684,7 +34107,7 @@ async function enrichAntidoteProbableReplies(engine, fen, analysis, deviceOpts, 
     const verified = Object.create(null);
     let attempted = 0;
     for (const pick of possible.slice(0, Math.min(opts.maxMainCandidates, possible.length))) {
-        if (!isCurrent() || engine !== antidoteEngine || attempted >= maxProbes) break;
+        if (!isCurrent() || engine !== hieroStockfish || attempted >= maxProbes) break;
         let after;
         try {
             const chess = new Chess(fen);
@@ -32703,8 +34126,9 @@ async function enrichAntidoteProbableReplies(engine, fen, analysis, deviceOpts, 
         if (!isCurrent()) return;
         if (child.timedOut) {
             // El 'bestmove' antic podria arribar després del timeout i contaminar
-            // la següent cerca. No es torna a fer servir aquest worker.
-            releaseAntidoteEngine();
+            // la següent cerca: el worker compartit es descarta (la feina
+            // següent n'arrenca un de nou) i no es continua comprovant.
+            disposeHieroStockfish();
             break;
         }
         const risk = core.antidoteVerifyProbableReply(pick.reply, pick.alt, child);
@@ -32933,7 +34357,7 @@ function antidoteUndoMove() {
     clearEngineMoveTimers();
     isEngineThinking = false;
     engineReplyStartTs = null;
-    try { if (antidoteEngine) antidoteEngine.postMessage('stop'); } catch (e) {}
+    releaseAntidoteEngine();
     try { if (stockfish) stockfish.postMessage('stop'); } catch (e) {}
 
     // La prova que havia creat la jugada del rival que ara desfem no ha
@@ -40206,6 +41630,8 @@ $(document).ready(() => {
     updateDeviceType();
     perf();   // arrenca el planificador (mesura de velocitat, pressió, bateria)
     loadStorage();
+    // Base d'obertures i reserva de jeroglífics: quan el navegador quedi lliure.
+    scheduleDeferredData();
     if (!isCalibrationActive()) {
         syncEngineEloFromUser();
     }
