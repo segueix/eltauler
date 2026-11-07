@@ -255,8 +255,10 @@ Conduir amb Playwright + Chromium preinstal·lat
     l'overlay, posar `leagueInterlude = { remainingMs: 30000, lastTs: nowMs(),
     timer: null }` i cridar `startLeagueInterludeMusic()`; `leagueJinglePlayer
     .playing()` diu quina sona i `#li-music` ho mostra. Amb la música apagada
-    (`voiceMusicApi().setMode('voice')`) no sona. Per escoltar-les, generar
-    WAV amb `R.jingleSamples(id, 22050)` des de Node.
+    (`voiceMusicApi().setMode('voice')`) no sona. L'app les compon: `R.composeJingle(estil, llavor)`
+    dona la partitura (mateixa llavor = mateixa peça) i `jingleTitle` el nom
+    («… · la menor»). Per escoltar-les, generar WAV amb
+    `R.jingleSamples(R.composeJingle('rumba', 123), 22050)` des de Node.
 
 ## Fluxos útils
 

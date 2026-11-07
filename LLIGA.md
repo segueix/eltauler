@@ -273,17 +273,26 @@ El compte enrere només corre amb l'app a la vista (amb la pestanya amagada
 s'atura) i, si una altra pantalla tanca la finestra, s'atura sense començar
 cap partida d'amagat.
 
-**Tornades musicals.** Durant el compte enrere sona una tornada de 30 s
-(`radioambient.js`, `JINGLES`), generada al dispositiu com la resta de música
-de l'app: *Fanfàrria de jornada*, *Galop del rellotge*, *Rumba de la
-classificació*, *Funk de la jugada* i *Himne de la lliga*. Cada transició en
-tria una de diferent de l'anterior (`eltauler_league_jingle_last`). Comença
+**Tornades musicals.** Durant el compte enrere sona una tornada de 30 s que
+**l'app compon en aquell moment** (`radioambient.js`, `composeJingle`) i
+sintetitza al dispositiu com la resta de música. Hi ha cinc estils
+(arranjaments: instruments i ritme): *Fanfàrria de jornada*, *Galop del
+rellotge*, *Rumba de la classificació*, *Funk de la jugada* i *Himne de la
+lliga*; cada transició en tria un de diferent de l'anterior
+(`eltauler_league_jingle_last`). La música és nova cada vegada: tonalitat,
+tempo, progressió d'acords en frases A · A' · B amb cadència a la dominant, i
+una melodia amb notes de l'acord als temps forts, passos per l'escala entre
+mig, el motiu de la primera frase repetit a la segona i el final a la
+tònica. Tot surt d'una llavor (un enter); l'app recorda l'empremta de les
+200 darreres peces (`eltauler_league_jingle_seen`) i no en repeteix cap. La
+pantalla diu quina sona («Sona: Rumba de la classificació · la menor · núm.
+48213»). Comença
 pel punt on va el compte enrere (si generar-la triga una mica) perquè l'acord
 final, entre el segon 26 i el 27, coincideixi amb l'inici de la partida; es
 pausa amb l'app amagada i s'apaga suaument amb «Juga ara», «Inici» o en
 començar la jornada. Segueix la música de Configuració › Veus de lectura
-(només sona si la música hi és activada, amb el seu volum) i la pantalla
-indica quina sona («Sona: …»). Durant la partida amb rellotge no sona res.
+(només sona si la música hi és activada, amb el seu volum). Durant la
+partida amb rellotge no sona res.
 
 **Comprovat a l'app** (1+0, Chromium, Stockfish 19 real): el rival de la
 jornada 1, amb blanques i el Sistema Londres, obre 1.d4; en rendir-se apareix
