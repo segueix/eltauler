@@ -3104,6 +3104,8 @@ function highlightEngineMove(from, to) {
 
 // Reaplica la marca desada (després d'un board.resize(), que recrea les caselles).
 function reapplyEngineMoveHighlight() {
+    // Les caselles de la Norma (Joc vista) també sobreviuen al redibuix.
+    if (typeof paintNormaFocus === 'function' && normaShown) paintNormaFocus();
     const h = currentEngineMoveHighlight;
     if (!h) return;
     paintMoveMark(getMainBoardSquare, $('#myBoard .square-55d63'), h.from, h.to);
@@ -35199,6 +35201,8 @@ let positionalRetryTimeout = null;
 
 // Normes de la posició actual: { fen, list, idx } (es recalculen si canvia el FEN).
 let normaCache = null;
+let normaShown = null; // { fen, norma } de la darrera Norma ensenyada al Joc vista
+let positionalPendingNormaIntro = null; // 'auto': ensenya la Norma en desfer una jugada no verda
 
 function clearPositionalRetryTimer() {
     if (positionalRetryTimeout) { clearTimeout(positionalRetryTimeout); positionalRetryTimeout = null; }
@@ -35264,6 +35268,8 @@ function updatePositionalMovePanel() {
 // haver de tocar cada punt del flux del motor.
 function updatePositionalUI() {
     const positional = isPositionalMode();
+    // Les caselles de la Norma només valen per a la posició on s'ha consultat.
+    if (normaShown && game && normaShown.fen !== game.fen()) clearNormaFocus();
     $('#btn-norma').toggle(positional);
     $('#btn-undo-move').toggle(positional);
     $('#positional-vision-panel').toggle(positional);
@@ -35292,6 +35298,8 @@ function resetPositionalState() {
     positionalMoveHistory = [];
     positionalLastAttempt = null;
     normaCache = null;
+    normaShown = null;
+    clearNormaFocus();
     $('#norma-banner').hide();
     updatePositionalMovePanel();
     updatePositionalUI();
@@ -35319,6 +35327,16 @@ function positionalHandleMoveOutcome(swing, quality) {
         quality,
         green
     };
+    // La Norma ensenyada abans de la jugada: l'has seguida?
+    const normaVerdict = normaVerdictForLastMove(green);
+    clearNormaFocus();
+    if (normaVerdict) {
+        renderNorma(normaVerdict.norma, `Resultat de ${san || 'la jugada'}:`, normaVerdict.html);
+        positionalPendingNormaIntro = null;
+    } else if (!green) {
+        positionalPendingNormaIntro = 'auto';
+    }
+    if (green) normaShown = null;
     if (green) {
         positionalMoveHistory.push({ counted: true, precision: positionalLastAttempt.precision, quality });
     }
@@ -35382,6 +35400,15 @@ function positionalAutoRetryUndo() {
             ? `Jugada desfeta (índex ${pct}%): busca la verda (${POSITIONAL_GREEN_MIN}% o més) per avançar`
             : 'Jugada desfeta: busca la jugada verda per avançar')
         .css('color', 'var(--accent-cream)');
+    // Sense verd: la Norma surt sola per orientar el nou intent (el principi
+    // abans de la Pista). Si ja n'hi havia una, es tornen a marcar les caselles.
+    if (positionalPendingNormaIntro === 'auto') {
+        positionalPendingNormaIntro = null;
+        normaCache = null;
+        showNextNorma({ intro: 'La jugada no era verda: aquesta és la norma que mana aquí. Si encara no la veus, demana la Pista.' });
+    } else {
+        paintNormaFocus();
+    }
 }
 
 // Tirar enrere: desfà la rèplica de l'enginy (si ja l'ha feta) i la darrera
@@ -35423,6 +35450,8 @@ function positionalUndoMove(force = false) {
     pendingMoveEvaluation = false;
     lastHumanMoveUci = null;
     normaCache = null;
+    normaShown = null;
+    clearNormaFocus();
     // Es torna a una posició neta: l'indicador d'índex es buida fins al
     // següent intent.
     positionalLastAttempt = null;
@@ -35453,6 +35482,16 @@ const NORMA_SQUARES = (function () {
 })();
 
 function normaPieceName(type) { return NORMA_PIECE_NAMES[type] || 'la peça'; }
+
+// Cada norma pot dir QUINES caselles mira (es marquen al tauler) i si una
+// jugada concreta la segueix: obeys(mv) → true (la segueix), false (la
+// contradiu) o null (no es pot dir només amb la jugada).
+const NORMA_CENTER = ['d4', 'e4', 'd5', 'e5'];
+function normaIsCastle(mv) { return !!(mv && mv.flags && /[kq]/.test(mv.flags)); }
+function normaFileSquares(fileIdx) {
+    const f = String.fromCharCode(97 + fileIdx);
+    return [1, 2, 3, 4, 5, 6, 7, 8].map(r => f + r);
+}
 
 // Clon de la posició actual amb el torn forçat, per mirar el tauler amb els
 // ulls d'un bàndol concret sense tocar la partida real.
@@ -35684,7 +35723,7 @@ const NORMA_PRINCIPLES = [
         id: 'escac', score: 100,
         build(ctx) {
             if (!ctx.inCheck) return null;
-            return { title: 'Primer de tot, el rei', text: "Estàs en escac: no hi ha cap altra norma fins que el resolguis. Mira les tres sortides per ordre: menjar la peça que ataca, posar una peça entremig o moure el rei — i tria la que menys t'espatlli la posició." };
+            return { squares: ctx.myKingSq ? [ctx.myKingSq] : [], obeys: () => true, title: 'Primer de tot, el rei', text: "Estàs en escac: no hi ha cap altra norma fins que el resolguis. Mira les tres sortides per ordre: menjar la peça que ataca, posar una peça entremig o moure el rei — i tria la que menys t'espatlli la posició." };
         }
     },
     {
@@ -35692,7 +35731,14 @@ const NORMA_PRINCIPLES = [
         build(ctx) {
             if (!ctx.hangingMine.length) return null;
             const h = ctx.hangingMine[0];
-            return { title: 'Salva la peça amenaçada', text: `El rival pot menjar-se ${normaPieceName(h.type)} de ${h.sq} i sortir-ne guanyant. Abans de cap pla, protegeix-la, mou-la o respon amb una amenaça igual de grossa.` };
+            return { squares: [h.sq], obeys: (mv, after) => {
+                // Mirant la posició resultant: la peça (allà on sigui ara) encara penja?
+                if (mv.captured && (PIECE_VALUE[mv.captured] || 0) >= h.value) return true;
+                const where = mv.from === h.sq ? mv.to : h.sq;
+                const a = after();
+                if (!a) return mv.from === h.sq ? true : null;
+                return !a.hangingMine.some(x => x.sq === where);
+            }, title: 'Salva la peça amenaçada', text: `El rival pot menjar-se ${normaPieceName(h.type)} de ${h.sq} i sortir-ne guanyant. Abans de cap pla, protegeix-la, mou-la o respon amb una amenaça igual de grossa.` };
         }
     },
     {
@@ -35700,7 +35746,7 @@ const NORMA_PRINCIPLES = [
         build(ctx) {
             if (!ctx.winningCaptures.length) return null;
             const c = ctx.winningCaptures[0].move;
-            return { title: 'El material primer', text: `Hi ha material del rival a l'abast: mira la captura a ${c.to}. Abans de fer-la, comprova l'única cosa que cal al joc en present: què em pot prendre ell just després?` };
+            return { squares: [c.from, c.to], obeys: mv => !!(mv.captured && mv.to === c.to), title: 'El material primer', text: `Hi ha material del rival a l'abast: mira la captura a ${c.to}. Abans de fer-la, comprova l'única cosa que cal al joc en present: què em pot prendre ell just després?` };
         }
     },
     {
@@ -35709,8 +35755,8 @@ const NORMA_PRINCIPLES = [
             if (!ctx.endgame || !ctx.myKingSq) return null;
             const f = ctx.myKingSq.charCodeAt(0) - 97; const r = parseInt(ctx.myKingSq[1], 10) - 1;
             const distCenter = Math.max(Math.abs(3.5 - f), Math.abs(3.5 - r));
-            if (distCenter <= 1.5) return { title: 'El rei, al mig de la feina', text: 'Al final de partida el rei deixa de ser un tresor per protegir i es converteix en una peça d\'atac. El tens ben centrat: fes-lo treballar acompanyant els peons i tallant el pas al rei rival.' };
-            return { title: 'Desperta el rei', text: 'Som al final de partida: amb poques peces al tauler, el rei és una peça forta. Acosta\'l al centre o cap als peons; un rei actiu sol valer tant com una torre de diferència.' };
+            if (distCenter <= 1.5) return { squares: [ctx.myKingSq], obeys: mv => mv.piece === 'k' ? true : null, title: 'El rei, al mig de la feina', text: 'Al final de partida el rei deixa de ser un tresor per protegir i es converteix en una peça d\'atac. El tens ben centrat: fes-lo treballar acompanyant els peons i tallant el pas al rei rival.' };
+            return { squares: [ctx.myKingSq], obeys: mv => mv.piece === 'k' ? true : null, title: 'Desperta el rei', text: 'Som al final de partida: amb poques peces al tauler, el rei és una peça forta. Acosta\'l al centre o cap als peons; un rei actiu sol valer tant com una torre de diferència.' };
         }
     },
     {
@@ -35719,7 +35765,7 @@ const NORMA_PRINCIPLES = [
             if (!ctx.endgame) return null;
             if (ctx.passedPawns.length) {
                 const p = ctx.passedPawns[0];
-                return { title: 'Empeny el peó passat', text: `Tens un peó passat a ${p.sq} (cap peó rival el pot aturar pel camí). Als finals, els peons passats s'empenyen: cada pas endavant obliga el rival a vigilar-lo i t'acosta a la dama.` };
+                return { squares: ctx.passedPawns.map(x => x.sq), obeys: mv => (mv.piece === 'p' && ctx.passedPawns.some(x => x.sq === mv.from)) ? true : null, title: 'Empeny el peó passat', text: `Tens un peó passat a ${p.sq} (cap peó rival el pot aturar pel camí). Als finals, els peons passats s'empenyen: cada pas endavant obliga el rival a vigilar-lo i t'acosta a la dama.` };
             }
             return { title: 'Crea un peó passat', text: "Als finals es guanya coronant peons. Busca on tens majoria de peons (més peons teus que seus en una banda) i avança-la per crear un peó passat que ningú pugui aturar." };
         }
@@ -35729,7 +35775,7 @@ const NORMA_PRINCIPLES = [
         build(ctx) {
             if (ctx.castled || ctx.endgame) return null;
             if (ctx.canCastle && ctx.plies >= 6) {
-                return { title: 'Defensar el rei: enroca', text: "El teu rei encara és al centre, on s'obren les columnes i arriben els atacs. Enrocar aviat és la manera més barata de defensar-lo: el poses darrere un mur de peons i actives una torre de passada." };
+                return { squares: ctx.myKingSq ? [ctx.myKingSq] : [], obeys: mv => normaIsCastle(mv) ? true : (mv.piece === 'k' ? false : null), title: 'Defensar el rei: enroca', text: "El teu rei encara és al centre, on s'obren les columnes i arriben els atacs. Enrocar aviat és la manera més barata de defensar-lo: el poses darrere un mur de peons i actives una torre de passada." };
             }
             if (!ctx.canCastle) {
                 return { title: 'Defensar el rei, a mà', text: "Ja no pots enrocar, així que la seguretat del rei l'has de construir tu: porta'l a un racó tranquil pas a pas, tapa les columnes obertes del seu voltant i no hi deixis peces sense defensa a prop." };
@@ -35741,7 +35787,13 @@ const NORMA_PRINCIPLES = [
         id: 'desenvolupa', score: 68,
         build(ctx) {
             if (!ctx.opening || ctx.undevelopedMinors.length < 2) return null;
-            return { title: 'Desenvolupa les peces', text: `Encara tens ${ctx.undevelopedMinors.length} peces menors a casa. A l'obertura, cada jugada hauria de treure una peça nova cap al centre: cavalls i alfils primer, la dama més tard, i no moguis dues vegades la mateixa peça sense un bon motiu.` };
+            return { squares: ctx.undevelopedMinors.map(([sq]) => sq), obeys: mv => {
+                if (ctx.undevelopedMinors.some(([sq]) => sq === mv.from)) return true;
+                if (mv.captured || normaIsCastle(mv)) return null;
+                // Dama, una peça ja desenvolupada o un peó de banda: no desenvolupen res.
+                if (mv.piece === 'q' || mv.piece !== 'p' || /^[ah]/.test(mv.from)) return false;
+                return null;
+            }, title: 'Desenvolupa les peces', text: `Encara tens ${ctx.undevelopedMinors.length} peces menors a casa. A l'obertura, cada jugada hauria de treure una peça nova cap al centre: cavalls i alfils primer, la dama més tard, i no moguis dues vegades la mateixa peça sense un bon motiu.` };
         }
     },
     {
@@ -35749,14 +35801,14 @@ const NORMA_PRINCIPLES = [
         build(ctx) {
             if (ctx.endgame || ctx.centerPresence >= 2) return null;
             if (!ctx.opening && ctx.centerPresence >= 1) return null;
-            return { title: 'Controla el centre', text: "Qui mana al centre (les caselles d4, e4, d5 i e5) mana a la partida: des d'allà les peces arriben a tot arreu. Ocupa'l amb peons o apunta-hi peces abans de pensar en atacs per les bandes." };
+            return { squares: NORMA_CENTER.slice(), obeys: mv => (NORMA_CENTER.indexOf(mv.to) !== -1 || (mv.piece === 'p' && /^[cf][45]$/.test(mv.to))) ? true : null, title: 'Controla el centre', text: "Qui mana al centre (les caselles d4, e4, d5 i e5) mana a la partida: des d'allà les peces arriben a tot arreu. Ocupa'l amb peons o apunta-hi peces abans de pensar en atacs per les bandes." };
         }
     },
     {
         id: 'dama_a_casa', score: 60,
         build(ctx) {
             if (!ctx.myQueenOutEarly) return null;
-            return { title: 'La dama no surt la primera', text: "Has tret la dama abans d'hora: cada peça menor del rival la pot atacar guanyant temps, i tu perds jugades fugint. Torna-la a lloc segur i acaba primer el desenvolupament." };
+            return { squares: (ctx.mine.find(p => p.type === 'q') ? [ctx.mine.find(p => p.type === 'q').sq] : []).concat(ctx.undevelopedMinors.map(([sq]) => sq)), obeys: mv => ctx.undevelopedMinors.some(([sq]) => sq === mv.from) ? true : null, title: 'La dama no surt la primera', text: "Has tret la dama abans d'hora: cada peça menor del rival la pot atacar guanyant temps, i tu perds jugades fugint. Torna-la a lloc segur i acaba primer el desenvolupament." };
         }
     },
     {
@@ -35783,7 +35835,7 @@ const NORMA_PRINCIPLES = [
             if (!ctx.openFiles.length && !ctx.semiOpenFiles.length) return null;
             const f = (ctx.openFiles.length ? ctx.openFiles : ctx.semiOpenFiles)[0];
             const fileName = String.fromCharCode(97 + f);
-            return { title: 'Torres a columnes obertes', text: `Les torres només respiren per columnes sense peons: mira la columna «${fileName}». Una torre en columna oberta ataca fins al fons del tauler i sol ser la primera a entrar a la setena fila.` };
+            return { squares: normaFileSquares(f).concat(ctx.myRooks.map(r => r.sq)), obeys: mv => (mv.piece === 'r' && (ctx.openFiles.concat(ctx.semiOpenFiles)).indexOf(mv.to.charCodeAt(0) - 97) !== -1) ? true : null, title: 'Torres a columnes obertes', text: `Les torres només respiren per columnes sense peons: mira la columna «${fileName}». Una torre en columna oberta ataca fins al fons del tauler i sol ser la primera a entrar a la setena fila.` };
         }
     },
     {
@@ -35816,21 +35868,21 @@ const NORMA_PRINCIPLES = [
             const p = ctx.passedPawns[0];
             const rookOnFile = ctx.myRooks.some(r => r.sq[0] === p.sq[0]);
             if (rookOnFile) return null;
-            return { title: 'La torre, darrere el peó passat', text: `Norma clàssica de Tarrasch: la torre va DARRERE el peó passat (el teu de ${p.sq}) — l'empeny com el vent una vela i mai li fa nosa. Davant del peó, en canvi, la torre s'hi encalla.` };
+            return { squares: [p.sq].concat(ctx.myRooks.map(r => r.sq)), obeys: mv => (mv.piece === 'r' && mv.to[0] === p.sq[0]) ? true : null, title: 'La torre, darrere el peó passat', text: `Norma clàssica de Tarrasch: la torre va DARRERE el peó passat (el teu de ${p.sq}) — l'empeny com el vent una vela i mai li fa nosa. Davant del peó, en canvi, la torre s'hi encalla.` };
         }
     },
     {
         id: 'canvia_amb_avantatge', score: 46,
         build(ctx) {
             if (ctx.myMaterial - ctx.oppMaterial < 3) return null;
-            return { title: 'Amb avantatge, simplifica', text: "Tens més material que el rival. La manera més segura de guanyar és canviar PECES (no peons): amb cada canvi el teu avantatge pesa més i el seu contrajoc s'evapora. Evita les complicacions que no controles." };
+            return { obeys: mv => (mv.captured && mv.captured !== 'p') ? true : null, title: 'Amb avantatge, simplifica', text: "Tens més material que el rival. La manera més segura de guanyar és canviar PECES (no peons): amb cada canvi el teu avantatge pesa més i el seu contrajoc s'evapora. Evita les complicacions que no controles." };
         }
     },
     {
         id: 'evita_canvis', score: 46,
         build(ctx) {
             if (ctx.oppMaterial - ctx.myMaterial < 3) return null;
-            return { title: 'En desavantatge, complica', text: "Vas per sota de material: cada canvi de peces t'acosta a un final perdut. Evita els canvis, mantén peces al tauler i busca activitat i amenaces — el teu millor amic ara és el desordre." };
+            return { obeys: mv => (mv.captured && mv.captured !== 'p' && (PIECE_VALUE[mv.captured] || 0) <= (PIECE_VALUE[mv.piece] || 0)) ? false : null, title: 'En desavantatge, complica', text: "Vas per sota de material: cada canvi de peces t'acosta a un final perdut. Evita els canvis, mantén peces al tauler i busca activitat i amenaces — el teu millor amic ara és el desordre." };
         }
     },
     {
@@ -35838,14 +35890,14 @@ const NORMA_PRINCIPLES = [
         build(ctx) {
             if (!ctx.rimKnights.length) return null;
             const n = ctx.rimKnights[0];
-            return { title: 'Cavall a la vora, poca cosa bona', text: `El cavall de ${n.sq} toca la vora del tauler i controla la meitat de caselles que un de centrat. Busca-li una casella central i estable (protegida per un peó teu) i deixa'l viure-hi.` };
+            return { squares: [n.sq], obeys: mv => mv.from === n.sq ? true : null, title: 'Cavall a la vora, poca cosa bona', text: `El cavall de ${n.sq} toca la vora del tauler i controla la meitat de caselles que un de centrat. Busca-li una casella central i estable (protegida per un peó teu) i deixa'l viure-hi.` };
         }
     },
     {
         id: 'obre_alfils', score: 40,
         build(ctx) {
             if (!ctx.opening || !ctx.blockedBishops) return null;
-            return { title: 'Obre camí als alfils', text: "Els teus alfils encara miren una paret de peons. Un alfil només val el que val la seva diagonal: avança els peons centrals (o el peó del cavall, per posar l’alfil a la diagonal llarga) perquè vegin tauler abans que la partida es decideixi sense ells." };
+            return { squares: ctx.my === 'w' ? ['c1', 'f1', 'd2', 'e2'] : ['c8', 'f8', 'd7', 'e7'], obeys: mv => (mv.piece === 'p' && /^[bdeg][27]$/.test(mv.from)) ? true : null, title: 'Obre camí als alfils', text: "Els teus alfils encara miren una paret de peons. Un alfil només val el que val la seva diagonal: avança els peons centrals (o el peó del cavall, per posar l’alfil a la diagonal llarga) perquè vegin tauler abans que la partida es decideixi sense ells." };
         }
     },
     {
@@ -35853,14 +35905,23 @@ const NORMA_PRINCIPLES = [
         build(ctx) {
             if (!ctx.loosePieces.length) return null;
             const p = ctx.loosePieces[0];
-            return { title: 'Cap peça sense defensa', text: `${normaPieceName(p.type).charAt(0).toUpperCase() + normaPieceName(p.type).slice(1)} de ${p.sq} no té cap defensor. Les peces soltes són l'esquer de tots els dobles atacs: lliga-les entre elles i el rival tindrà molt poc a pescar.` };
+            return { squares: [p.sq], obeys: (mv, after) => {
+                const where = mv.from === p.sq ? mv.to : p.sq;
+                const a = after();
+                if (!a) return null;
+                return !a.loosePieces.some(x => x.sq === where) && !a.hangingMine.some(x => x.sq === where);
+            }, title: 'Cap peça sense defensa', text: `${normaPieceName(p.type).charAt(0).toUpperCase() + normaPieceName(p.type).slice(1)} de ${p.sq} no té cap defensor. Les peces soltes són l'esquer de tots els dobles atacs: lliga-les entre elles i el rival tindrà molt poc a pescar.` };
         }
     },
     {
         id: 'escut_del_rei', score: 36,
         build(ctx) {
             if (!ctx.castled || ctx.endgame || ctx.shieldIntact === null) return null;
-            if (ctx.shieldIntact) return { title: "No toquis l'escut del rei", text: "Els peons de davant del rei enrocat són el seu escut: cada pas que fan obre una escletxa que ja no es tanca mai. No els moguis sense una raó molt bona (i «atacar» rarament ho és, defensar sí)." };
+            if (ctx.shieldIntact) {
+                const kf = ctx.myKingSq.charCodeAt(0) - 97; const rank = ctx.my === 'w' ? '2' : '7';
+                const shield = [kf - 1, kf, kf + 1].filter(x => x >= 0 && x <= 7).map(x => String.fromCharCode(97 + x) + rank);
+                return { squares: shield, obeys: mv => (mv.piece === 'p' && shield.indexOf(mv.from) !== -1) ? false : null, title: "No toquis l'escut del rei", text: "Els peons de davant del rei enrocat són el seu escut: cada pas que fan obre una escletxa que ja no es tanca mai. No els moguis sense una raó molt bona (i «atacar» rarament ho és, defensar sí)." };
+            }
             return { title: 'Reforça el racó del rei', text: "L'escut de peons del teu rei ja té esquerdes. Vigila les caselles que han quedat febles al seu voltant: tapa-les amb peces, no obris més línies en aquell costat i pensa dues vegades abans de canviar els defensors." };
         }
     },
@@ -35876,7 +35937,7 @@ const NORMA_PRINCIPLES = [
         id: 'tensio_central', score: 32,
         build(ctx) {
             if (!ctx.pawnTension || ctx.endgame) return null;
-            return { title: 'No resolguis la tensió de seguida', text: "Els teus peons i els seus es toquen al centre. No cal menjar a la primera: qui manté la tensió obliga l'altre a vigilar dues opcions alhora. Canvia només quan el canvi et doni alguna cosa concreta (una columna, una casella, temps)." };
+            return { obeys: mv => (mv.piece === 'p' && mv.captured === 'p') ? false : null, title: 'No resolguis la tensió de seguida', text: "Els teus peons i els seus es toquen al centre. No cal menjar a la primera: qui manté la tensió obliga l'altre a vigilar dues opcions alhora. Canvia només quan el canvi et doni alguna cosa concreta (una columna, una casella, temps)." };
         }
     },
     {
@@ -35903,34 +35964,95 @@ function normaComputeApplicable() {
     NORMA_PRINCIPLES.forEach(rule => {
         try {
             const built = rule.build(ctx);
-            if (built) list.push({ score: rule.score, title: built.title, text: built.text });
+            if (built) list.push({ id: rule.id, score: rule.score, title: built.title, text: built.text, squares: built.squares || [], obeys: built.obeys || null });
         } catch (e) {}
     });
     list.sort((a, b) => b.score - a.score);
     return list.slice(0, 8);
 }
 
-// Botó «Norma»: mostra el principi més urgent de la posició; tocs successius
-// van passant la llista (mateixa posició = mateixa llista, en ordre).
-function showNextNorma() {
-    if (!isPositionalMode()) return;
-    if (!game || game.game_over() || isViewingGameHistory()) return;
-    if (game.turn() !== playerColor) { showToast('Espera el teu torn per consultar la Norma', 'warn'); return; }
-    const fen = game.fen();
+// La Norma: el principi que ha de guiar la jugada. No dona la jugada (això
+// és la Pista): marca al tauler les caselles on s'aplica i, quan jugues, diu
+// si l'has seguida, creuant-ho amb l'índex de Stockfish. Tocs successius
+// passen la llista de normes de la posició (mateixa posició = mateixa llista).
+const NORMA_ICON = '<svg class="norma-ic" aria-hidden="true"><use href="#ic-norma"/></svg>';
+
+function clearNormaFocus() {
+    $('#myBoard .square-55d63').removeClass('norma-focus');
+}
+function paintNormaFocus() {
+    clearNormaFocus();
+    if (!normaShown || !game || normaShown.fen !== game.fen()) return;
+    (normaShown.norma.squares || []).forEach(sq => { if (sq) $(`#myBoard .square-${sq}`).addClass('norma-focus'); });
+}
+
+function normaListFor(fen) {
     if (!normaCache || normaCache.fen !== fen) {
         let list = [];
         try { list = normaComputeApplicable(); } catch (e) { list = []; }
         if (!list.length) list = [NORMA_FALLBACK];
         normaCache = { fen, list, idx: -1 };
     }
-    normaCache.idx = (normaCache.idx + 1) % normaCache.list.length;
-    const norma = normaCache.list[normaCache.idx];
-    $('#norma-text').html(`<strong>📜 ${escapeHtml(norma.title)}.</strong> ${escapeHtml(norma.text)}`);
-    const n = normaCache.list.length;
-    $('#norma-cycle').text(n > 1
-        ? `Norma ${normaCache.idx + 1} de ${n} en aquesta posició · torna a tocar «Norma» per veure la següent`
-        : 'És la norma que mana en aquesta posició');
+    return normaCache;
+}
+
+function renderNorma(norma, cycleText, resultHtml) {
+    const sq = norma.squares && norma.squares.length;
+    $('#norma-text').html(`${NORMA_ICON}<strong>${escapeHtml(norma.title)}.</strong> ${escapeHtml(norma.text)}`);
+    $('#norma-cycle').text((sq ? 'Al tauler, en verd, les caselles on s’aplica. ' : '') + cycleText);
+    $('#norma-result').html(resultHtml || '').toggle(!!resultHtml);
     $('#norma-banner').show();
+}
+
+function showNextNorma(opts = {}) {
+    if (!isPositionalMode()) return;
+    if (!game || game.game_over() || isViewingGameHistory()) return;
+    if (game.turn() !== playerColor) { showToast('Espera el teu torn per consultar la Norma', 'warn'); return; }
+    const fen = game.fen();
+    const cache = normaListFor(fen);
+    cache.idx = (cache.idx + 1) % cache.list.length;
+    const norma = cache.list[cache.idx];
+    normaShown = { fen, norma };
+    const n = cache.list.length;
+    const cycle = n > 1
+        ? `Norma ${cache.idx + 1} de ${n} en aquesta posició · torna a tocar «Norma» per veure la següent.`
+        : 'És la norma que mana en aquesta posició.';
+    renderNorma(norma, cycle, opts.intro || '');
+    paintNormaFocus();
+}
+
+// Després d'una jugada al Joc vista: la jugada segueix la norma que s'havia
+// ensenyat? Es creua amb el veredicte de Stockfish (verda o no).
+function normaVerdictForLastMove(green) {
+    if (!normaShown || !game) return null;
+    const verbose = game.history({ verbose: true });
+    const last = verbose[verbose.length - 1];
+    if (!last || last.color !== playerColor) return null;
+    let fromShown = false;
+    try {
+        const probe = new Chess(normaShown.fen);
+        const mv = probe.move({ from: last.from, to: last.to, promotion: last.promotion || 'q' });
+        fromShown = !!mv && probe.fen().split(' ').slice(0, 4).join(' ') === game.fen().split(' ').slice(0, 4).join(' ');
+    } catch (e) { fromShown = false; }
+    if (!fromShown) return null;
+    const norma = normaShown.norma;
+    let followed = null;
+    // Radiografia de la posició DESPRÉS de la jugada (només si la norma la demana).
+    let afterCtx;
+    const after = () => {
+        if (afterCtx === undefined) { try { afterCtx = normaBuildContext(); } catch (e) { afterCtx = null; } }
+        return afterCtx;
+    };
+    try { followed = typeof norma.obeys === 'function' ? norma.obeys(last, after) : null; } catch (e) { followed = null; }
+    let html;
+    if (followed === true && green) html = '✓ Has seguit la norma i Stockfish la dona per bona: principi i càlcul van junts.';
+    else if (followed === true) html = 'Has seguit la norma, però aquesta manera d’aplicar-la no és la verda: busca una altra jugada que també la compleixi.';
+    else if (followed === false && green) html = 'Jugada verda sense seguir la norma: aquí hi havia un motiu concret més fort que el principi general.';
+    else if (followed === false) html = '✗ Aquesta jugada va contra la norma. Prova’n una que l’apliqui.';
+    else html = green
+        ? 'Jugada verda. Aquesta no aplicava directament la norma: tenla present a les properes jugades.'
+        : 'No és la verda. Torna a mirar la norma i les caselles marcades abans del nou intent.';
+    return { norma, followed, html };
 }
 
 function updatePrecisionDisplay() {

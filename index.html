@@ -845,6 +845,19 @@
         .norma-text { font-size: 0.86rem; line-height: 1.45; color: var(--text-primary); overflow-wrap: break-word; }
         .norma-text strong { color: #58b98a; }
         .norma-cycle { font-size: 0.72rem; color: var(--text-secondary); opacity: 0.85; margin-top: 4px; }
+        .norma-ic { width: 1.15em; height: 1.15em; vertical-align: -0.2em; margin-right: 6px; fill: none; stroke: #58b98a; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+        .norma-result { margin-top: 6px; padding: 6px 8px; border-radius: 8px; background: rgba(46, 125, 91, 0.16); font-size: 0.84rem; font-weight: 600; line-height: 1.4; }
+        /* Caselles on s'aplica la Norma: marc verd discontinu (no es confon amb la
+           marca de jugada ni amb els colors de correcció). */
+        #myBoard .square-55d63.norma-focus { position: relative; }
+        #myBoard .square-55d63.norma-focus::before {
+            content: ''; position: absolute; inset: 2px; pointer-events: none; z-index: 2;
+            border: 3px dashed #2e9e6b; border-radius: 6px; background: rgba(46, 158, 107, 0.16);
+        }
+        body.day-mode .norma-ic { stroke: #1f6b49; }
+        body.epaper-mode .norma-ic { stroke: #222; }
+        body.epaper-mode .norma-result { background: #fff; border: 1px solid #cfcfcf; }
+        body.epaper-mode #myBoard .square-55d63.norma-focus::before { border-color: #000; background: rgba(0, 0, 0, 0.08); }
         body.device-mobile #norma-banner { margin-left: 8px; margin-right: 8px; margin-bottom: 8px; }
         body.day-mode .norma-text strong { color: #1f6b49; }
         body.epaper-mode #norma-banner {
@@ -6664,7 +6677,7 @@
         body.epaper-mode #start-screen .engagement-banner .eng-cta { background: #222 !important; color: #fff !important; }
     </style>
     <link rel="stylesheet" href="bulletpractice.css?v=1.2.1">
-    <link rel="stylesheet" href="tallerobertures.css?v=1.2.0">
+    <link rel="stylesheet" href="tallerobertures.css?v=1.3.0">
     <link rel="stylesheet" href="canviapp.css?v=1.0.0">
 </head>
 <body>
@@ -6903,6 +6916,13 @@
             <polyline points="3 20 3 15 8 15"/>
             <path d="M19.4 9A7.5 7.5 0 0 0 6.3 6.3L3 9"/>
             <path d="M4.6 15A7.5 7.5 0 0 0 17.7 17.7L21 15"/>
+        </symbol>
+        <!-- Norma: l'escaire del fuster (en llatí «norma» és justament aquesta
+             eina, la que serveix per fer les coses rectes). -->
+        <symbol id="ic-norma" viewBox="0 0 24 24">
+            <path d="M4 3.5h4.5v12h12V20H4z"/>
+            <path d="M4 7.5h2.2M4 11.5h2.2"/>
+            <path d="M12.5 20v-2.2M16.5 20v-2.2"/>
         </symbol>
         <symbol id="ic-bulb" viewBox="0 0 24 24">
             <path d="M9.5 17h5"/>
@@ -9126,13 +9146,17 @@
                         <div class="olab-feedback" id="olab-feedback" aria-live="polite"></div>
                         <div class="olab-actions">
                             <button type="button" class="btn btn-secondary" id="olab-undo" title="Torna a la teva jugada anterior">↩ Enrere</button>
-                            <button type="button" class="btn btn-hint" id="olab-hint">💡 Pista</button>
+                            <button type="button" class="btn btn-hint" id="olab-hint"><svg class="btn-ic" aria-hidden="true"><use href="#ic-bulb"/></svg>Pista</button>
                             <button type="button" class="btn btn-primary" id="olab-new">Nova línia</button>
                         </div>
                         <div class="olab-stats" id="olab-stats"></div>
                         <div class="olab-plan" id="olab-plan"></div>
                         <div class="olab-issues" id="olab-issues" hidden></div>
                         <div class="olab-named" id="olab-named" hidden></div>
+                        <details class="olab-tree-wrap" id="olab-tree-wrap">
+                            <summary><svg class="olab-tree-ic" aria-hidden="true"><use href="#ic-opening"/></svg>L’arbre de la teva obertura <span class="olab-muted" id="olab-tree-count"></span></summary>
+                            <div class="olab-tree" id="olab-tree"></div>
+                        </details>
                     </div>
                 </div>
                 <details class="olab-more">
@@ -9142,6 +9166,7 @@
                         <li><strong>Una posició, una jugada:</strong> cada jugada acceptada queda al teu repertori, també si hi arribes per un altre ordre.</li>
                         <li><strong>El teu pla:</strong> on va cada peça la primera vegada que la mous. Si una jugada nova el contradiu sense un motiu que Stockfish 19 confirmi, tries: mantens el pla o el canvies. La coherència arriba al 100% quan totes les línies segueixen el mateix pla o en justifiquen l’excepció.</li>
                         <li><strong>Les teves obertures:</strong> quan acabes una línia on surts de la teoria amb una jugada teva i tot és coherent, et demanem un nom. Es guarda amb les altres, el tauler la reconeix quan hi tornes i la pots practicar: el rival en segueix la línia i tu recordes les teves jugades.</li>
+                        <li><strong>L’arbre de la teva obertura:</strong> totes les teves línies juntes, com un arbre genealògic: el tronc comú, les famílies (una per cada resposta del rival) i les seves variants, amb les teves obertures amb nom. Cada branca es pot jugar.</li>
                         <li><strong>Repàs:</strong> a les posicions que ja tens, has de recordar la teva jugada. El rival tria respostes de la teoria i et porta on et toca repassar o on encara no has decidit.</li>
                     </ol>
                     <div class="olab-opts">
@@ -9262,7 +9287,7 @@
                 </div>
                 <div class="opening-stats-note" id="opening-practice-note">—</div>
                 <div class="game-buttons opening-practice-actions">
-                    <button class="btn btn-hint" id="btn-opening-bundle-hint">💡 Pista</button>
+                    <button class="btn btn-hint" id="btn-opening-bundle-hint"><svg class="btn-ic" aria-hidden="true"><use href="#ic-bulb"/></svg>Pista</button>
                     <button class="btn btn-brain-hint" id="btn-opening-bundle-maxim">
                         <img src="brain.svg" alt="Cervell">
                         <span>Màxima</span>
@@ -9965,6 +9990,7 @@
             <!-- Joc posicional: la Norma (principi que ha de regir el moviment) -->
             <div id="norma-banner" style="display:none;">
                 <div class="norma-text" id="norma-text"></div>
+                <div class="norma-result" id="norma-result" style="display:none;"></div>
                 <div class="norma-cycle" id="norma-cycle"></div>
             </div>
 
@@ -10072,8 +10098,8 @@
                     </div>
                 </div>
                 <div class="game-buttons">
-                    <button class="btn btn-hint" id="btn-hint" title="Demanar pista">💡 Pista</button>
-                    <button class="btn btn-norma" id="btn-norma" title="Quin principi ha de regir aquest moviment" style="display:none;">📜 Norma</button>
+                    <button class="btn btn-hint" id="btn-hint" title="Pista: et marca on va la millor jugada (Stockfish)"><svg class="btn-ic" aria-hidden="true"><use href="#ic-bulb"/></svg>Pista</button>
+                    <button class="btn btn-norma" id="btn-norma" title="Norma: el principi que ha de guiar la jugada, sense donar-te-la" style="display:none;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-norma"/></svg>Norma</button>
                     <button class="btn btn-undo" id="btn-undo-move" title="Tira enrere la darrera jugada i prova'n una altra" style="display:none;">⟲ Enrere</button>
                     <button class="btn btn-brain-hint" id="btn-brain-hint" title="Màxima amb OpenAI" style="display:none;">
                         <img src="brain.svg" alt="Cervell">
@@ -10127,7 +10153,10 @@
                 <strong>jugades vista</strong> perquè l'enginy calculi només aquest horitzó; quan
                 seleccionis un nivell, veuràs l'ELO/ROC equivalent del rival. Cada jugada rep un
                 <strong>índex Stockfish</strong>: les verdes avancen, i les altres es desfan perquè en
-                puguis provar una de millor. La <strong>Norma</strong> resumeix el principi que cal aplicar.
+                puguis provar una de millor. Quan dubtis, primer la <strong>Norma</strong>: et diu
+                <em>què</em> has de buscar (el principi), et marca en verd on s'aplica i, quan jugues,
+                et diu si l'has seguida; surt sola si la jugada no és verda. La <strong>Pista</strong>
+                ja et dona la jugada de Stockfish: és el darrer recurs.
             </div>
 
             <!-- Punt de retorn de Veu i ràdio a mòbil. A ordinador el mateix
@@ -10290,7 +10319,7 @@
     <script src="jeropedagogia.js?v=1.2.1"></script>
     <script src="sons.js?v=1.0.0"></script>
     <script src="tutorial.js?v=1.0.5"></script>
-    <script src="tallerobertures.js?v=1.2.0"></script>
+    <script src="tallerobertures.js?v=1.3.0"></script>
     <script src="veuneural.js?v=1.2.2"></script>
     <script src="radioambient.js?v=2.1.0"></script>
     <script src="musicafons.js?v=1.2.0"></script>
@@ -10320,7 +10349,7 @@
     <script src="boardexperience.js?v=1.0.7"></script>
     <script src="bulletbank.js?v=1.0.0"></script>
     <script src="bulletpractice.js?v=1.2.6"></script>
-    <script src="app.js?v=1.0.149"></script>
+    <script src="app.js?v=1.0.150"></script>
     <!-- Pas a Remigi lliscant el dit pel mig de la portada (mòbil) -->
     <script src="canviapp.js?v=1.0.0"></script>
 
