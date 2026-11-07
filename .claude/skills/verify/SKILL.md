@@ -287,6 +287,15 @@ Conduir amb Playwright + Chromium preinstal·lat
     jeroglífic amb aquell final (`hgPlayNext({ pref })`); amb `done.hiero`,
     tàctiques del tema (`tacticsThemeFocus`, que «Una altra tàctica» manté i
     `#btn-tactics` esborra). `analyzeWeaknesses` es desa a `entrenaWeakCache`.
+    **Banc per temes**: al final de `TACTICS_BANK` hi ha grups (Forquilles,
+    Clavades, Raigs X, Finals) de problemes de Lichess. Per afegir-ne:
+    candidats de `lichess_db_puzzle.csv` amb 4 jugades a `Moves` (FEN després
+    de la primera), comprovar al navegador que `classifyPositionTheme(fen,
+    primera jugada)` dona el tema, afegir-los i córrer
+    `node scripts/gen-tactics-solutions.js --only "fen1|fen2"` (~45 s per
+    posició; reescriu app.js en acabar, no l'editeu mentrestant). Treure del
+    banc les que llisti com a «SENSE resultat palpable» i les que tinguin un
+    moviment de rei tranquil com a segona jugada (tactics.test.js).
 
 ## Fluxos útils
 

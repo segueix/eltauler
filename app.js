@@ -28516,7 +28516,74 @@ const TACTICS_BANK = [
     // attraction (Lichess 0VHFU): Qxf1+ Kxf1 Bxg2+
     '8/5k2/4r3/1pB2qp1/3Pb2p/4Q2P/6P1/5RK1 b - - 1 35',
     // doubleCheck (Lichess 1XL2s): Nf3+ Kh1 Nxh4
-    '2r1k2r/1p3ppp/p3p3/2qpP3/3n1PPQ/N2B3P/PPP5/R4RK1 b k - 0 17'
+    '2r1k2r/1p3ppp/p3p3/2qpP3/3n1PPQ/N2B3P/PPP5/R4RK1 b k - 0 17',
+    // ── Temes concrets per a «Què toca avui?» (tema feble): problemes de la
+    // base oberta de Lichess (https://database.lichess.org/#puzzles, domini
+    // públic CC0), presos just després de la jugada del rival. Només hi ha els
+    // que el classificador de l'app (classifyPositionTheme) posa al mateix tema
+    // i que Stockfish 19 confirma amb resultat palpable (scripts/gen-tactics-solutions.js).
+    // Forquilles
+    '2rr2k1/p6p/1p4p1/5p2/4pP2/PN2N1P1/1P5P/1K5R b - - 1 25', // Lichess 03E3Y · 1192
+    '4r1k1/6p1/2pqpnQp/p2n4/1p1P2P1/8/PP2RB1P/4R1K1 b - - 0 33', // Lichess 02n1N · 1266
+    'r1bqk2r/p4ppp/1p1bpn2/3pn3/3P4/2P3B1/PP1N1PPP/R2QKB1R w KQkq - 0 10', // Lichess 03ffj · 1325
+    '3r1rk1/pbp2pqp/2p3p1/4R1Q1/3P4/P1PB3P/5PP1/4R1K1 b - - 4 22', // Lichess 03mo2 · 1359
+    'r2q1Bk1/pppb1pp1/2n4p/3nP3/8/2P2N2/P3QPPP/R2R2K1 b - - 0 14', // Lichess 01X4v · 1400
+    'r2q1rk1/pp3ppp/2p1b3/2R5/2P5/3P1Q1P/P1P2PP1/R1B3K1 b - - 2 15', // Lichess 03BHm · 1546
+    'rnbq1rk1/p3b1pp/4pP2/1Pp3B1/8/5N2/Pp3PPP/R2QKB1R w KQ - 0 12', // Lichess 02Dnf · 1592
+    '6r1/1p1k3p/8/1p4p1/3b4/1P2N1B1/2P3PP/1b2R1K1 w - - 6 23', // Lichess 02fsg · 1606
+    '3r1rk1/p1p2pbp/1p4p1/7n/4P2q/1P2BP2/P1B3QP/3R1R1K w - - 7 24', // Lichess 00Uwn · 1631
+    '3rr1k1/4qppp/p4n2/8/1N6/1P1R1QP1/Pb3P1P/3R2K1 w - - 1 26', // Lichess 03FGq · 1642
+    'r3k2r/1p3ppp/p7/3npbB1/1n6/2N5/PP2PPPP/R2K1B1R w kq - 0 13', // Lichess 017Bw · 1774
+    '1rb2rk1/p1q2pnp/2pR1Q2/1p4P1/4P3/1P3NNP/P7/1K5R b - - 0 27', // Lichess 03zfX · 1906
+    '4r1k1/pp3ppb/1qpb4/3pnPP1/3N4/2N1B2Q/PPP3B1/R5K1 b - - 5 23', // Lichess 01yU9 · 1950
+    // Clavades
+    '5kr1/p6p/4r3/2qp1p2/8/2P1R1P1/P4K1P/RNB5 w - - 0 30', // Lichess 08PBw · 932
+    '2b2rk1/p3p1Bp/2pp2p1/1q6/4Q3/1P6/PP3PPP/1K1R3R b - - 0 20', // Lichess 06APo · 1103
+    '1k4r1/7p/1p4r1/pPp1qp2/P1Pp1R2/3Q1RNP/2P4K/8 b - - 5 32', // Lichess 00n3G · 1163
+    'r4rk1/pp1n1ppp/2pbpn2/q2p1b2/2PP4/1P2PN2/PB1QBPPP/R3KN1R b KQ - 4 10', // Lichess 07LV1 · 1181
+    '6k1/5p2/8/1B4q1/P7/8/5R2/5K2 w - - 0 42', // Lichess 07lZC · 1220
+    '2kr1b1r/1p3p2/pq1p1p2/3Bp2p/4P3/1P3P2/1PPQ2PP/2KR2R1 b - - 0 16', // Lichess 06v4c · 1258
+    '2kr1b1r/1p6/2p1qN2/3pP3/2nP3n/1Q5p/7K/2RB1R2 w - - 2 36', // Lichess 04btL · 1277
+    '3q2k1/R3r1pp/2p1p3/1pPp4/1P1Pb1p1/Q3P1BP/5P2/6K1 w - - 0 27', // Lichess 047bE · 1467
+    'r1bq1rk1/pp1n1pbp/4p1p1/4Pn2/8/2N2N2/PPPQBBPP/2KR3R b - - 4 14', // Lichess 05r44 · 1525
+    'r1b1rnk1/pp4pp/2pbqp2/4p3/4Q2N/2PB2B1/P1P2PPP/R3R1K1 w - - 4 17', // Lichess 07Khq · 1602
+    'r7/6k1/p1b1pp2/1p4qr/3Q3N/5P1R/P4KP1/3R4 w - - 7 33', // Lichess 064iW · 1639
+    'r2qkb1r/pppb1ppp/2n2n2/1B1pP1B1/8/2Q2N2/PPP2PPP/RN2K2R b KQkq - 0 8', // Lichess 07eDk · 1654
+    'r4rk1/1p3pq1/p1np3p/4p3/2B5/P3BP1P/1PPQK3/R7 w - - 0 24', // Lichess 074Aw · 1736
+    'r1b1k2r/4qpbp/p1n1pnp1/1p6/Q7/2N2N2/PP1B1PPP/2KR1B1R w kq b6 0 15', // Lichess 01xUb · 1946
+    // Raigs X (enfilades)
+    '3r2k1/5p1p/p2qb1p1/1p6/3P4/1P1R4/P2Q1PPP/1B4K1 b - - 2 29', // Lichess 0EjG0 · 1324
+    'r1b2rk1/1pq3b1/p4pp1/4p2p/4N3/2P1BQ2/PP3PPP/R2R2K1 b - - 1 17', // Lichess 0Enjj · 1327
+    '1r4k1/2qb1ppp/n3p3/3pP3/8/2PQBN2/1P3PPP/5RK1 b - - 2 18', // Lichess 0M0ka · 1328
+    'r4rk1/pp1bbppp/4p3/3pn3/1P1q4/P5P1/3N1PBP/1RBQ1RK1 w - - 1 15', // Lichess 0LyCR · 1357
+    '3r2k1/ppq2pp1/2pb2p1/3p4/3P2N1/2P1Q2P/PP3PP1/2R3K1 b - - 0 21', // Lichess 0Nciy · 1434
+    'r2r2k1/1b1p1pp1/2p1p2p/p1P5/5P2/P2Q1R2/1q2B1PP/5R1K w - - 2 21', // Lichess 0PLx1 · 1440
+    'r1b2rk1/7p/1qn1pbp1/p2p4/Pp1P4/1P1QPN2/2B2NPP/2R2RK1 b - - 1 25', // Lichess 0PJMt · 1450
+    'r2q1k1r/p3bp2/6pp/1p1pQ2n/8/5N2/PPP2PPP/RN2R1K1 b - - 1 17', // Lichess 0UhFt · 1460
+    '2k1r2r/ppq2p2/2pb4/2p2P1p/4P2P/1PQ2RP1/P1P2P2/R1B3K1 b - - 0 23', // Lichess 02dUE · 1524
+    '2b1k2r/1p1p1ppp/r3pn2/p1q1B3/8/R3P3/2PP1PPP/3QK1NR w Kk - 1 15', // Lichess 0DhFF · 1567
+    'r4rk1/p2b1pp1/3bp2p/3pq3/2pN4/P1P1B1P1/1P1Q1P1P/R4RK1 w - - 0 21', // Lichess 03COV · 1598
+    '2kr3r/ppq3p1/2pbp3/5b1p/7P/2P1BQ2/PP3PP1/3RRNK1 b - - 0 22', // Lichess 0Ed5w · 1633
+    '8/6pk/1pqr2bp/8/2P2Q2/7P/3R2PK/5R2 b - - 1 40', // Lichess 05eZx · 1665
+    '2r3k1/5p1p/1qP1p1p1/2QpP3/Pr3P2/R6P/6P1/2R3K1 b - - 4 27', // Lichess 04Kar · 1855
+    '5rk1/p1p3p1/1p5p/2q2n2/6Q1/3P4/PP1B2PP/R6K w - - 0 23', // Lichess 0DcV3 · 1932
+    'rn1q1rk1/p4ppp/1p3n2/2bPQ3/2P2B2/5N2/PP2B1PP/1R3R1K b - - 0 13', // Lichess 0DCLc · 1952
+    // Finals
+    '1k6/8/8/6p1/1pp4P/p4PP1/N1P5/7K b - h3 0 38', // Lichess 00FON · 934
+    '8/7k/R6p/3p4/5r2/2P1p2P/P5P1/6K1 b - - 0 40', // Lichess 008tL · 1105
+    '8/1k6/1P1Kp1p1/3pP3/7P/8/8/8 b - - 2 48', // Lichess 01nyk · 1140
+    '8/7p/6p1/2Q5/8/2pK1PP1/1r5P/1k6 b - - 11 58', // Lichess 01jE5 · 1364
+    '7r/4kpRp/2p2p1P/p1P1n3/Pp6/1B6/5PP1/6K1 w - - 3 36', // Lichess 00KSB · 1464
+    '8/5pk1/P4b2/6p1/6Pp/3R3K/R1P1r2P/8 b - - 0 45', // Lichess 01T20 · 1641
+    '8/4n3/Qp2k3/8/P2qp3/5pP1/1r1p1P1P/3R1RK1 b - - 3 45', // Lichess 021wj · 1710
+    '8/p2k4/1p4R1/2p2Pp1/2P3P1/3p1P2/PP4K1/7r b - - 1 38', // Lichess 04EiV · 907
+    '8/7k/1p4p1/p1p2p1p/P7/1Pr2P1P/4K1P1/1R6 w - - 2 43', // Lichess 0A4iH · 1229
+    '6k1/6p1/4Pq1p/2p2P2/2PpQ1P1/1P6/r1B4P/7K w - - 0 44', // Lichess 04gj5 · 1353
+    '8/8/6pR/2k2p2/2B1p2P/1P2P1P1/1q3PK1/8 b - - 2 36', // Lichess 07eU3 · 1423
+    '8/4pk1p/4n1p1/Nr4P1/R4P2/P3K3/8/8 b - - 0 56', // Lichess 08AbD · 1498
+    '8/5pk1/pQp1n3/P3p1p1/2P1P2p/1P2qP1P/4N1P1/4K3 b - - 2 35', // Lichess 090LN · 1658
+    '8/4ppk1/3p2p1/3Pb3/5q2/5P1p/6PP/5RQK b - - 1 40', // Lichess 07YZu · 1729
+    '8/8/5Qp1/6Pp/4p2P/p4k2/5p2/1K6 b - - 3 51', // Lichess 06Qu1 · 1748
 ];
 
 // Rebost estàtic del banc: la línia de cada posició ja ve resolta amb el MATEIX
@@ -29090,6 +29157,992 @@ const TACTICS_BANK_SOLUTIONS = {
             }
         ],
         replies: [{ move: 'g1h1', eval: -699, evalType: 'cp' }]
+    },
+    '2rr2k1/p6p/1p4p1/5p2/4pP2/PN2N1P1/1P5P/1K5R b - - 1 25': {
+        totalSteps: 2,
+        sanLine: ['Rd3', 'Re1', 'Rxb3'],
+        steps: [
+            {
+                move: 'd8d3', eval: 531, evalType: 'cp',
+                pv: ['d8d3', 'h1e1', 'd3b3', 'g3g4', 'b3e3', 'e1e3', 'f5g4', 'e3e4'],
+                alternatives: [{ move: 'd8d3', eval: 531, evalType: 'cp' }, { move: 'h7h5', eval: 52, evalType: 'cp' }]
+            },
+            {
+                move: 'd3b3', eval: 559, evalType: 'cp',
+                pv: ['d3b3', 'b1a2', 'b3d3', 'g3g4', 'c8c5', 'g4f5', 'g6f5', 'a2b1'],
+                alternatives: [{ move: 'd3b3', eval: 559, evalType: 'cp' }, { move: 'b6b5', eval: 36, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'h1e1', eval: -566, evalType: 'cp' }]
+    },
+    '4r1k1/6p1/2pqpnQp/p2n4/1p1P2P1/8/PP2RB1P/4R1K1 b - - 0 33': {
+        totalSteps: 2,
+        sanLine: ['Nf4', 'Rxe6', 'Rxe6'],
+        steps: [
+            {
+                move: 'd5f4', eval: 663, evalType: 'cp',
+                pv: ['d5f4', 'e2e6', 'e8e6', 'e1e6', 'd6e6', 'g6f5', 'e6f5', 'g4f5'],
+                alternatives: [{ move: 'd5f4', eval: 663, evalType: 'cp' }, { move: 'b4b3', eval: -13, evalType: 'cp' }]
+            },
+            {
+                move: 'e8e6', eval: 672, evalType: 'cp',
+                pv: ['e8e6', 'e1e6', 'd6e6', 'g6f5', 'e6f5', 'g4f5', 'f4d3', 'g1f1'],
+                alternatives: [{ move: 'e8e6', eval: 672, evalType: 'cp' }, { move: 'f4h3', eval: 619, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e2e6', eval: -663, evalType: 'cp' }]
+    },
+    'r1bqk2r/p4ppp/1p1bpn2/3pn3/3P4/2P3B1/PP1N1PPP/R2QKB1R w KQkq - 0 10': {
+        totalSteps: 2,
+        sanLine: ['dxe5', 'Be7', 'exf6'],
+        steps: [
+            {
+                move: 'd4e5', eval: 552, evalType: 'cp',
+                pv: ['d4e5', 'd6e7', 'e5f6', 'e7f6', 'f1b5', 'c8d7', 'b5d7', 'd8d7'],
+                alternatives: [{ move: 'd4e5', eval: 552, evalType: 'cp' }, { move: 'g3e5', eval: 25, evalType: 'cp' }]
+            },
+            {
+                move: 'e5f6', eval: 539, evalType: 'cp',
+                pv: ['e5f6', 'e7f6', 'f1b5', 'c8d7', 'b5d7', 'd8d7', 'e1g1', 'e8g8'],
+                alternatives: [{ move: 'e5f6', eval: 539, evalType: 'cp' }, { move: 'f1d3', eval: 38, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'd6e7', eval: -548, evalType: 'cp' }]
+    },
+    '3r1rk1/pbp2pqp/2p3p1/4R1Q1/3P4/P1PB3P/5PP1/4R1K1 b - - 4 22': {
+        totalSteps: 2,
+        sanLine: ['f6', 'Qe3', 'fxe5'],
+        steps: [
+            {
+                move: 'f7f6', eval: 489, evalType: 'cp',
+                pv: ['f7f6', 'd3c4', 'g8h8', 'g5e3', 'f6e5', 'd4e5', 'b7c8', 'e5e6'],
+                alternatives: [{ move: 'f7f6', eval: 489, evalType: 'cp' }, { move: 'd8d5', eval: -296, evalType: 'cp' }]
+            },
+            {
+                move: 'f6e5', eval: 512, evalType: 'cp',
+                pv: ['f6e5', 'd4e5', 'b7c8', 'd3c4', 'g8h8', 'e5e6', 'f8e8', 'e3f3'],
+                alternatives: [{ move: 'f6e5', eval: 512, evalType: 'cp' }, { move: 'd8d7', eval: -466, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'g5e3', eval: -495, evalType: 'cp' }]
+    },
+    'r2q1Bk1/pppb1pp1/2n4p/3nP3/8/2P2N2/P3QPPP/R2R2K1 b - - 0 14': {
+        totalSteps: 2,
+        sanLine: ['Nxc3', 'Qc2', 'Nxd1'],
+        steps: [
+            {
+                move: 'd5c3', eval: 356, evalType: 'cp',
+                pv: ['d5c3', 'e2c2', 'c3d1', 'a1d1', 'd8e8', 'f8a3', 'd7g4', 'a3b2'],
+                alternatives: [{ move: 'd5c3', eval: 356, evalType: 'cp' }, { move: 'd7e6', eval: -184, evalType: 'cp' }]
+            },
+            {
+                move: 'c3d1', eval: 379, evalType: 'cp',
+                pv: ['c3d1', 'a1d1', 'd8e8', 'f8a3', 'd7g4', 'a3b2', 'e8e6', 'a2a4'],
+                alternatives: [{ move: 'c3d1', eval: 379, evalType: 'cp' }, { move: 'd8e8', eval: -235, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e2c2', eval: -365, evalType: 'cp' }]
+    },
+    'r2q1rk1/pp3ppp/2p1b3/2R5/2P5/3P1Q1P/P1P2PP1/R1B3K1 b - - 2 15': {
+        totalSteps: 2,
+        sanLine: ['Qd4', 'Rb1', 'Qxc5'],
+        steps: [
+            {
+                move: 'd8d4', eval: 524, evalType: 'cp',
+                pv: ['d8d4', 'a1b1', 'd4c5', 'b1b7', 'f7f6', 'c1e3', 'c5d6', 'e3f4'],
+                alternatives: [{ move: 'd8d4', eval: 524, evalType: 'cp' }, { move: 'e6h3', eval: -30, evalType: 'cp' }]
+            },
+            {
+                move: 'd4c5', eval: 527, evalType: 'cp',
+                pv: ['d4c5', 'b1b7', 'c5f5', 'f3g3', 'f8e8', 'c1b2', 'f5g6', 'g3g6'],
+                alternatives: [{ move: 'd4c5', eval: 527, evalType: 'cp' }, { move: 'f7f6', eval: -121, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'a1b1', eval: -522, evalType: 'cp' }]
+    },
+    'rnbq1rk1/p3b1pp/4pP2/1Pp3B1/8/5N2/Pp3PPP/R2QKB1R w KQ - 0 12': {
+        totalSteps: 2,
+        sanLine: ['fxe7', 'Qxd1+', 'Rxd1'],
+        steps: [
+            {
+                move: 'f6e7', eval: 591, evalType: 'cp',
+                pv: ['f6e7', 'd8d1', 'a1d1', 'f8e8', 'f1c4', 'h7h6', 'g5e3', 'b8d7'],
+                alternatives: [{ move: 'f6e7', eval: 591, evalType: 'cp' }, { move: 'a1b1', eval: -69, evalType: 'cp' }]
+            },
+            {
+                move: 'a1d1', eval: 598, evalType: 'cp',
+                pv: ['a1d1', 'f8e8', 'f1c4', 'h7h6', 'g5h4', 'g7g5', 'h4g3', 'e8e7'],
+                alternatives: [{ move: 'a1d1', eval: 598, evalType: 'cp' }, { move: 'e1d1', eval: -805, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'd8d1', eval: -627, evalType: 'cp' }]
+    },
+    '6r1/1p1k3p/8/1p4p1/3b4/1P2N1B1/2P3PP/1b2R1K1 w - - 6 23': {
+        totalSteps: 2,
+        sanLine: ['Rd1', 'Rc8', 'Rxd4+'],
+        steps: [
+            {
+                move: 'e1d1', eval: 631, evalType: 'cp',
+                pv: ['e1d1', 'g8c8', 'd1d4', 'd7e8', 'd4d2', 'c8c3', 'g3f2', 'g5g4'],
+                alternatives: [{ move: 'e1d1', eval: 631, evalType: 'cp' }, { move: 'e1b1', eval: 0, evalType: 'cp' }]
+            },
+            {
+                move: 'd1d4', eval: 665, evalType: 'cp',
+                pv: ['d1d4', 'd7e8', 'd4d2', 'c8c3', 'g1f2', 'e8f7', 'f2e2', 'h7h5'],
+                alternatives: [{ move: 'd1d4', eval: 665, evalType: 'cp' }, { move: 'c2c4', eval: 557, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'g8c8', eval: -645, evalType: 'cp' }]
+    },
+    '3r1rk1/p1p2pbp/1p4p1/7n/4P2q/1P2BP2/P1B3QP/3R1R1K w - - 7 24': {
+        totalSteps: 2,
+        sanLine: ['Bg5', 'Ng3+', 'Qxg3'],
+        steps: [
+            {
+                move: 'e3g5', eval: 525, evalType: 'cp',
+                pv: ['e3g5', 'h5g3', 'g2g3', 'h4g3', 'h2g3', 'd8d1', 'f1d1', 'f8e8'],
+                alternatives: [{ move: 'e3g5', eval: 525, evalType: 'cp' }, { move: 'g2g5', eval: -48, evalType: 'cp' }]
+            },
+            {
+                move: 'g2g3', eval: 536, evalType: 'cp',
+                pv: ['g2g3', 'd8d1', 'f1d1', 'h4g3', 'h2g3', 'a7a5', 'g5f4', 'b6b5'],
+                alternatives: [{ move: 'g2g3', eval: 536, evalType: 'cp' }, { move: 'h1g1', eval: -285, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'h5g3', eval: -530, evalType: 'cp' }]
+    },
+    '3rr1k1/4qppp/p4n2/8/1N6/1P1R1QP1/Pb3P1P/3R2K1 w - - 1 26': {
+        totalSteps: 2,
+        sanLine: ['Nc6', 'Qe1+', 'Rxe1'],
+        steps: [
+            {
+                move: 'b4c6', eval: 509, evalType: 'cp',
+                pv: ['b4c6', 'e7e1', 'd1e1', 'e8e1', 'g1g2', 'd8e8', 'd3d2', 'b2a1'],
+                alternatives: [{ move: 'b4c6', eval: 509, evalType: 'cp' }, { move: 'd3d8', eval: -370, evalType: 'cp' }]
+            },
+            {
+                move: 'd1e1', eval: 550, evalType: 'cp',
+                pv: ['d1e1', 'e8e1', 'g1g2', 'd8e8', 'd3d8', 'e8d8', 'c6d8', 'e1e8'],
+                alternatives: [{ move: 'd1e1', eval: 550, evalType: 'cp' }, { move: 'g1g2', eval: -403, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e7e1', eval: -539, evalType: 'cp' }]
+    },
+    'r3k2r/1p3ppp/p7/3npbB1/1n6/2N5/PP2PPPP/R2K1B1R w kq - 0 13': {
+        totalSteps: 2,
+        sanLine: ['e4', 'h6', 'Bd2'],
+        steps: [
+            {
+                move: 'e2e4', eval: 432, evalType: 'cp',
+                pv: ['e2e4', 'd5e7', 'e4f5', 'e8c8', 'd1c1', 'f7f6', 'a2a3', 'b4c6'],
+                alternatives: [{ move: 'e2e4', eval: 432, evalType: 'cp' }, { move: 'f2f3', eval: -21, evalType: 'cp' }]
+            },
+            {
+                move: 'g5d2', eval: 439, evalType: 'cp',
+                pv: ['g5d2', 'd5c3', 'b2c3', 'f5e4', 'c3b4', 'e8g8', 'h2h4', 'f8d8'],
+                alternatives: [{ move: 'g5d2', eval: 439, evalType: 'cp' }, { move: 'g5c1', eval: 241, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'h7h6', eval: -440, evalType: 'cp' }]
+    },
+    '1rb2rk1/p1q2pnp/2pR1Q2/1p4P1/4P3/1P3NNP/P7/1K5R b - - 0 27': {
+        totalSteps: 2,
+        sanLine: ['Ne8', 'Rhd1', 'Nxf6'],
+        steps: [
+            {
+                move: 'g7e8', eval: 467, evalType: 'cp',
+                pv: ['g7e8', 'h1d1', 'e8f6', 'g5f6', 'g8h8', 'f3e5', 'c6c5', 'g3h5'],
+                alternatives: [{ move: 'g7e8', eval: 467, evalType: 'cp' }, { move: 'c6c5', eval: -20, evalType: 'cp' }]
+            },
+            {
+                move: 'e8f6', eval: 553, evalType: 'cp',
+                pv: ['e8f6', 'g5f6', 'c6c5', 'd6d5', 'c7g3', 'd5g5', 'g3g5', 'f3g5'],
+                alternatives: [{ move: 'e8f6', eval: 553, evalType: 'cp' }, { move: 'c7d6', eval: 277, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'h1d1', eval: -526, evalType: 'cp' }]
+    },
+    '4r1k1/pp3ppb/1qpb4/3pnPP1/3N4/2N1B2Q/PPP3B1/R5K1 b - - 5 23': {
+        totalSteps: 2,
+        sanLine: ['Qxb2', 'Rb1', 'Qxc3'],
+        steps: [
+            {
+                move: 'b6b2', eval: 330, evalType: 'cp',
+                pv: ['b6b2', 'a1b1', 'b2c3', 'e3f2', 'c3h3', 'g2h3', 'c6c5', 'g5g6'],
+                alternatives: [{ move: 'b6b2', eval: 330, evalType: 'cp' }, { move: 'e5g4', eval: -198, evalType: 'cp' }]
+            },
+            {
+                move: 'b2c3', eval: 400, evalType: 'cp',
+                pv: ['b2c3', 'g2f1', 'b7b6', 'e3f2', 'c3h3', 'f1h3', 'c6c5', 'd4b5'],
+                alternatives: [{ move: 'b2c3', eval: 400, evalType: 'cp' }, { move: 'b2a3', eval: -304, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'a1b1', eval: -366, evalType: 'cp' }]
+    },
+    '5kr1/p6p/4r3/2qp1p2/8/2P1R1P1/P4K1P/RNB5 w - - 0 30': {
+        totalSteps: 2,
+        sanLine: ['Ba3', 'Qxa3', 'Nxa3'],
+        steps: [
+            {
+                move: 'c1a3', eval: 527, evalType: 'cp',
+                pv: ['c1a3', 'c5a3', 'b1a3', 'e6b6', 'a3c2', 'f5f4', 'g3f4', 'g8g4'],
+                alternatives: [{ move: 'c1a3', eval: 527, evalType: 'cp' }, { move: 'f2f1', eval: -583, evalType: 'cp' }]
+            },
+            {
+                move: 'b1a3', eval: 568, evalType: 'cp',
+                pv: ['b1a3', 'e6b6', 'a3c2', 'f5f4', 'g3f4', 'b6h6', 'a1h1', 'g8g4'],
+                alternatives: [{ move: 'b1a3', eval: 568, evalType: 'cp' }, { move: 'e3e6', eval: -642, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'c5a3', eval: -561, evalType: 'cp' }]
+    },
+    '2b2rk1/p3p1Bp/2pp2p1/1q6/4Q3/1P6/PP3PPP/1K1R3R b - - 0 20': {
+        totalSteps: 2,
+        sanLine: ['Bf5', 'Bxf8', 'Bxe4+'],
+        steps: [
+            {
+                move: 'c8f5', eval: 650, evalType: 'cp',
+                pv: ['c8f5', 'h1e1', 'g8g7', 'f2f3', 'f5e4', 'e1e4', 'f8f7', 'h2h4'],
+                alternatives: [{ move: 'c8f5', eval: 650, evalType: 'cp' }, { move: 'b5f5', eval: -381, evalType: 'cp' }]
+            },
+            {
+                move: 'f5e4', eval: 664, evalType: 'cp',
+                pv: ['f5e4', 'b1a1', 'g8f8', 'f2f3', 'e4d5', 'h1e1', 'd5f7', 'd1c1'],
+                alternatives: [{ move: 'f5e4', eval: 664, evalType: 'cp' }, { move: 'g8f8', eval: 8, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'g7f8', eval: -658, evalType: 'cp' }]
+    },
+    '1k4r1/7p/1p4r1/pPp1qp2/P1Pp1R2/3Q1RNP/2P4K/8 b - - 5 32': {
+        totalSteps: 2,
+        sanLine: ['Rxg3', 'Rxg3', 'Qxf4'],
+        steps: [
+            {
+                move: 'g6g3', eval: 191, evalType: 'cp',
+                pv: ['g6g3', 'f3g3', 'e5f4', 'd3f3', 'f4f3', 'g3f3', 'g8e8', 'f3f5'],
+                alternatives: [{ move: 'g6g3', eval: 191, evalType: 'cp' }, { move: 'h7h5', eval: -526, evalType: 'cp' }]
+            },
+            {
+                move: 'e5f4', eval: 197, evalType: 'cp',
+                pv: ['e5f4', 'd3f3', 'f4f3', 'g3f3', 'g8e8', 'h2g3', 'e8e2', 'f3f5'],
+                alternatives: [{ move: 'e5f4', eval: 197, evalType: 'cp' }, { move: 'g8f8', eval: -554, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'f3g3', eval: -190, evalType: 'cp' }]
+    },
+    'r4rk1/pp1n1ppp/2pbpn2/q2p1b2/2PP4/1P2PN2/PB1QBPPP/R3KN1R b KQ - 4 10': {
+        totalSteps: 2,
+        sanLine: ['Bb4', 'Qxb4', 'Qxb4+'],
+        steps: [
+            {
+                move: 'd6b4', eval: 713, evalType: 'cp',
+                pv: ['d6b4', 'd2b4', 'a5b4', 'f1d2', 'b4a5', 'g2g4', 'f5g4', 'e1c1'],
+                alternatives: [{ move: 'd6b4', eval: 713, evalType: 'cp' }, { move: 'a5d8', eval: 30, evalType: 'cp' }]
+            },
+            {
+                move: 'a5b4', eval: 699, evalType: 'cp',
+                pv: ['a5b4', 'f1d2', 'd5c4', 'g2g4', 'c4c3', 'g4f5', 'c3b2', 'a1b1'],
+                alternatives: [{ move: 'a5b4', eval: 699, evalType: 'cp' }, { move: 'a5d8', eval: -589, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'd2b4', eval: -701, evalType: 'cp' }]
+    },
+    '6k1/5p2/8/1B4q1/P7/8/5R2/5K2 w - - 0 42': {
+        totalSteps: 2,
+        sanLine: ['Rg2', 'Qxg2+', 'Kxg2'],
+        steps: [
+            {
+                move: 'f2g2', eval: 738, evalType: 'cp',
+                pv: ['f2g2', 'g5g2', 'f1g2', 'g8f8', 'a4a5', 'f8e7', 'a5a6', 'e7d6'],
+                alternatives: [{ move: 'f2g2', eval: 738, evalType: 'cp' }, { move: 'b5e8', eval: -24, evalType: 'cp' }]
+            },
+            {
+                move: 'f1g2', eval: 1000, evalType: 'cp',
+                pv: ['f1g2', 'f7f5', 'a4a5', 'g8f8', 'a5a6', 'f8e7', 'a6a7', 'e7d6'],
+                alternatives: [{ move: 'f1g2', eval: 1000, evalType: 'cp' }, { move: 'f1e1', eval: -725, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'g5g2', eval: -974, evalType: 'cp' }]
+    },
+    '2kr1b1r/1p3p2/pq1p1p2/3Bp2p/4P3/1P3P2/1PPQ2PP/2KR2R1 b - - 0 16': {
+        totalSteps: 2,
+        sanLine: ['Bh6', 'f4', 'Bxf4'],
+        steps: [
+            {
+                move: 'f8h6', eval: 580, evalType: 'cp',
+                pv: ['f8h6', 'f3f4', 'h6f4', 'g1f1', 'f4d2', 'd1d2', 'd8d7', 'd2f2'],
+                alternatives: [{ move: 'f8h6', eval: 580, evalType: 'cp' }, { move: 'b6g1', eval: -12, evalType: 'cp' }]
+            },
+            {
+                move: 'h6f4', eval: 608, evalType: 'cp',
+                pv: ['h6f4', 'g1f1', 'f4d2', 'd1d2', 'd8d7', 'c2c3', 'h8h6', 'c1c2'],
+                alternatives: [{ move: 'h6f4', eval: 608, evalType: 'cp' }, { move: 'b6g1', eval: 176, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'f3f4', eval: -603, evalType: 'cp' }]
+    },
+    '2kr1b1r/1p6/2p1qN2/3pP3/2nP3n/1Q5p/7K/2RB1R2 w - - 2 36': {
+        totalSteps: 2,
+        sanLine: ['Bg4', 'Qxg4', 'Nxg4'],
+        steps: [
+            {
+                move: 'd1g4', eval: 503, evalType: 'cp',
+                pv: ['d1g4', 'e6g4', 'f6g4', 'c4d2', 'b3b6', 'd2f1', 'c1f1', 'f8e7'],
+                alternatives: [{ move: 'd1g4', eval: 503, evalType: 'cp' }, { move: 'c1a1', eval: -162, evalType: 'cp' }]
+            },
+            {
+                move: 'f6g4', eval: 563, evalType: 'cp',
+                pv: ['f6g4', 'f8d6', 'f1f7', 'd6c7', 'c1a1', 'c8b8', 'h2h1', 'h8g8'],
+                alternatives: [{ move: 'f6g4', eval: 563, evalType: 'cp' }, { move: 'b3b7', eval: -544, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e6g4', eval: -564, evalType: 'cp' }]
+    },
+    '3q2k1/R3r1pp/2p1p3/1pPp4/1P1Pb1p1/Q3P1BP/5P2/6K1 w - - 0 27': {
+        totalSteps: 2,
+        sanLine: ['Ra8', 'Qe8', 'Rxe8+'],
+        steps: [
+            {
+                move: 'a7a8', eval: 707, evalType: 'cp',
+                pv: ['a7a8', 'd8e8', 'a8e8', 'e7e8', 'a3a7', 'e8f8', 'g3e5', 'f8f6'],
+                alternatives: [{ move: 'a7a8', eval: 707, evalType: 'cp' }, { move: 'g3e5', eval: 23, evalType: 'cp' }]
+            },
+            {
+                move: 'a8e8', eval: 763, evalType: 'cp',
+                pv: ['a8e8', 'e7e8', 'a3a7', 'e8f8', 'g3e5', 'f8f6', 'h3g4', 'e4f3'],
+                alternatives: [{ move: 'a8e8', eval: 763, evalType: 'cp' }, { move: 'g3d6', eval: 733, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'd8e8', eval: -727, evalType: 'cp' }]
+    },
+    'r1bq1rk1/pp1n1pbp/4p1p1/4Pn2/8/2N2N2/PPPQBBPP/2KR3R b - - 4 14': {
+        totalSteps: 2,
+        sanLine: ['Bh6', 'g4', 'Bxd2+'],
+        steps: [
+            {
+                move: 'g7h6', eval: 357, evalType: 'cp',
+                pv: ['g7h6', 'g2g4', 'h6d2', 'f3d2', 'f5g7', 'd2e4', 'd8c7', 'h2h4'],
+                alternatives: [{ move: 'g7h6', eval: 357, evalType: 'cp' }, { move: 'd8a5', eval: -20, evalType: 'cp' }]
+            },
+            {
+                move: 'h6d2', eval: 368, evalType: 'cp',
+                pv: ['h6d2', 'f3d2', 'f5g7', 'h2h4', 'd8c7', 'd2e4', 'g7e8', 'h4h5'],
+                alternatives: [{ move: 'h6d2', eval: 368, evalType: 'cp' }, { move: 'f7f6', eval: -6, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'g2g4', eval: -376, evalType: 'cp' }]
+    },
+    'r1b1rnk1/pp4pp/2pbqp2/4p3/4Q2N/2PB2B1/P1P2PPP/R3R1K1 w - - 4 17': {
+        totalSteps: 2,
+        sanLine: ['Bc4', 'Qxc4', 'Qxc4+'],
+        steps: [
+            {
+                move: 'd3c4', eval: 551, evalType: 'cp',
+                pv: ['d3c4', 'd6c5', 'c4e6', 'c8e6', 'a1d1', 'a8d8', 'h4f5', 'h7h5'],
+                alternatives: [{ move: 'd3c4', eval: 551, evalType: 'cp' }, { move: 'g3e5', eval: -9, evalType: 'cp' }]
+            },
+            {
+                move: 'e4c4', eval: 540, evalType: 'cp',
+                pv: ['e4c4', 'c8e6', 'c4f1', 'd6c5', 'g1h1', 'a8d8', 'f2f4', 'e5f4'],
+                alternatives: [{ move: 'e4c4', eval: 540, evalType: 'cp' }, { move: 'f2f4', eval: -757, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e6c4', eval: -565, evalType: 'cp' }]
+    },
+    'r7/6k1/p1b1pp2/1p4qr/3Q3N/5P1R/P4KP1/3R4 w - - 7 33': {
+        totalSteps: 2,
+        sanLine: ['Rg3', 'Qxg3+', 'Kxg3'],
+        steps: [
+            {
+                move: 'h3g3', eval: 674, evalType: 'cp',
+                pv: ['h3g3', 'g5g3', 'f2g3', 'c6d5', 'd1c1', 'a8f8', 'c1c7', 'g7g8'],
+                alternatives: [{ move: 'h3g3', eval: 674, evalType: 'cp' }, { move: 'f3f4', eval: -82, evalType: 'cp' }]
+            },
+            {
+                move: 'f2g3', eval: 705, evalType: 'cp',
+                pv: ['f2g3', 'g7f7', 'd4b6', 'a8g8', 'g3f2', 'c6d5', 'b6c7', 'f7e8'],
+                alternatives: [{ move: 'f2g3', eval: 705, evalType: 'cp' }, { move: 'f2g1', eval: -901, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'g5g3', eval: -687, evalType: 'cp' }]
+    },
+    'r2qkb1r/pppb1ppp/2n2n2/1B1pP1B1/8/2Q2N2/PPP2PPP/RN2K2R b KQkq - 0 8': {
+        totalSteps: 2,
+        sanLine: ['Bb4', 'exf6', 'gxf6'],
+        steps: [
+            {
+                move: 'f8b4', eval: 359, evalType: 'cp',
+                pv: ['f8b4', 'b5c6', 'b4c3', 'b1c3', 'b7c6', 'e5f6', 'g7f6', 'g5f4'],
+                alternatives: [{ move: 'f8b4', eval: 359, evalType: 'cp' }, { move: 'd5d4', eval: -107, evalType: 'cp' }]
+            },
+            {
+                move: 'g7f6', eval: 403, evalType: 'cp',
+                pv: ['g7f6', 'g5e3', 'b4c3', 'b1c3', 'c6e5', 'e1c1', 'c7c6', 'b5e2'],
+                alternatives: [{ move: 'g7f6', eval: 403, evalType: 'cp' }, { move: 'b4c3', eval: 403, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e5f6', eval: -413, evalType: 'cp' }]
+    },
+    'r4rk1/1p3pq1/p1np3p/4p3/2B5/P3BP1P/1PPQK3/R7 w - - 0 24': {
+        totalSteps: 2,
+        sanLine: ['Rg1', 'Qxg1', 'Bxg1'],
+        steps: [
+            {
+                move: 'a1g1', eval: 617, evalType: 'cp',
+                pv: ['a1g1', 'g7g1', 'e3g1', 'd6d5', 'd2d5', 'a8d8', 'd5e4', 'g8h8'],
+                alternatives: [{ move: 'a1g1', eval: 617, evalType: 'cp' }, { move: 'c2c3', eval: 0, evalType: 'cp' }]
+            },
+            {
+                move: 'e3g1', eval: 650, evalType: 'cp',
+                pv: ['e3g1', 'a8c8', 'd2d6', 'c6e7', 'c4d3', 'e5e4', 'd3e4', 'f8e8'],
+                alternatives: [{ move: 'e3g1', eval: 650, evalType: 'cp' }, { move: 'c4f7', eval: 40, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'g7g1', eval: -658, evalType: 'cp' }]
+    },
+    'r1b1k2r/4qpbp/p1n1pnp1/1p6/Q7/2N2N2/PP1B1PPP/2KR1B1R w kq b6 0 15': {
+        totalSteps: 2,
+        sanLine: ['Bxb5', 'O-O', 'Bxc6'],
+        steps: [
+            {
+                move: 'f1b5', eval: 345, evalType: 'cp',
+                pv: ['f1b5', 'e8g8', 'b5c6', 'c8b7', 'c1b1', 'b7c6', 'a4c6', 'f8c8'],
+                alternatives: [{ move: 'f1b5', eval: 345, evalType: 'cp' }, { move: 'a4h4', eval: -311, evalType: 'cp' }]
+            },
+            {
+                move: 'b5c6', eval: 366, evalType: 'cp',
+                pv: ['b5c6', 'c8b7', 'c1b1', 'b7c6', 'a4c6', 'f6g4', 'h1f1', 'f8c8'],
+                alternatives: [{ move: 'b5c6', eval: 366, evalType: 'cp' }, { move: 'b5e2', eval: -277, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e8g8', eval: -337, evalType: 'cp' }]
+    },
+    '3r2k1/5p1p/p2qb1p1/1p6/3P4/1P1R4/P2Q1PPP/1B4K1 b - - 2 29': {
+        totalSteps: 2,
+        sanLine: ['Bf5', 'Re3', 'Bxb1'],
+        steps: [
+            {
+                move: 'e6f5', eval: 485, evalType: 'cp',
+                pv: ['e6f5', 'd3e3', 'f5b1', 'd2e1', 'b1f5', 'e3e8', 'd8e8', 'e1e8'],
+                alternatives: [{ move: 'e6f5', eval: 485, evalType: 'cp' }, { move: 'd6b6', eval: 0, evalType: 'cp' }]
+            },
+            {
+                move: 'f5b1', eval: 516, evalType: 'cp',
+                pv: ['f5b1', 'g2g4', 'g6g5', 'h2h3', 'd6d5', 'd2c1', 'b1g6', 'e3e5'],
+                alternatives: [{ move: 'f5b1', eval: 516, evalType: 'cp' }, { move: 'd6d4', eval: 18, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'd3e3', eval: -508, evalType: 'cp' }]
+    },
+    'r1b2rk1/1pq3b1/p4pp1/4p2p/4N3/2P1BQ2/PP3PPP/R2R2K1 b - - 1 17': {
+        totalSteps: 2,
+        sanLine: ['Bg4', 'Qg3', 'Bxd1'],
+        steps: [
+            {
+                move: 'c8g4', eval: 458, evalType: 'cp',
+                pv: ['c8g4', 'f3g3', 'g4d1', 'a1d1', 'f6f5', 'e4c5', 'f8d8', 'g3f3'],
+                alternatives: [{ move: 'c8g4', eval: 458, evalType: 'cp' }, { move: 'c7c6', eval: 20, evalType: 'cp' }]
+            },
+            {
+                move: 'g4d1', eval: 503, evalType: 'cp',
+                pv: ['g4d1', 'a1d1', 'f6f5', 'e4c5', 'a8d8', 'g3f3', 'd8d1', 'f3d1'],
+                alternatives: [{ move: 'g4d1', eval: 503, evalType: 'cp' }, { move: 'f6f5', eval: 100, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'f3g3', eval: -474, evalType: 'cp' }]
+    },
+    '1r4k1/2qb1ppp/n3p3/3pP3/8/2PQBN2/1P3PPP/5RK1 b - - 2 18': {
+        totalSteps: 2,
+        sanLine: ['Bb5', 'Qb1', 'Bxf1'],
+        steps: [
+            {
+                move: 'd7b5', eval: 319, evalType: 'cp',
+                pv: ['d7b5', 'd3c2', 'b5f1', 'f3g5', 'g7g6', 'g1f1', 'c7e5', 'c2a4'],
+                alternatives: [{ move: 'd7b5', eval: 319, evalType: 'cp' }, { move: 'c7c4', eval: -172, evalType: 'cp' }]
+            },
+            {
+                move: 'b5f1', eval: 357, evalType: 'cp',
+                pv: ['b5f1', 'f3g5', 'g7g6', 'b1f1', 'b8b2', 'g2g3', 'c7c4', 'f1c4'],
+                alternatives: [{ move: 'b5f1', eval: 357, evalType: 'cp' }, { move: 'd5d4', eval: 3, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'd3b1', eval: -343, evalType: 'cp' }]
+    },
+    'r4rk1/pp1bbppp/4p3/3pn3/1P1q4/P5P1/3N1PBP/1RBQ1RK1 w - - 1 15': {
+        totalSteps: 2,
+        sanLine: ['Bb2', 'Qd3', 'Bxe5'],
+        steps: [
+            {
+                move: 'c1b2', eval: 206, evalType: 'cp',
+                pv: ['c1b2', 'd4d3', 'b2e5', 'd3a3', 'd2e4', 'f7f6', 'e5b2', 'a3a4'],
+                alternatives: [{ move: 'c1b2', eval: 206, evalType: 'cp' }, { move: 'h2h3', eval: -365, evalType: 'cp' }]
+            },
+            {
+                move: 'b2e5', eval: 208, evalType: 'cp',
+                pv: ['b2e5', 'd3a3', 'd2f3', 'a8c8', 'b1a1', 'a3b4', 'a1b1', 'd7a4'],
+                alternatives: [{ move: 'b2e5', eval: 208, evalType: 'cp' }, { move: 'f1e1', eval: -236, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'd4d3', eval: -191, evalType: 'cp' }]
+    },
+    '3r2k1/ppq2pp1/2pb2p1/3p4/3P2N1/2P1Q2P/PP3PP1/2R3K1 b - - 0 21': {
+        totalSteps: 2,
+        sanLine: ['Bf4', 'Qe1', 'Bxc1'],
+        steps: [
+            {
+                move: 'd6f4', eval: 439, evalType: 'cp',
+                pv: ['d6f4', 'e3e1', 'f4c1', 'e1c1', 'c6c5', 'c1e3', 'c5d4', 'e3d4'],
+                alternatives: [{ move: 'd6f4', eval: 439, evalType: 'cp' }, { move: 'c7c8', eval: -13, evalType: 'cp' }]
+            },
+            {
+                move: 'f4c1', eval: 438, evalType: 'cp',
+                pv: ['f4c1', 'e1c1', 'c6c5', 'c1e3', 'c5d4', 'e3d4', 'c7e7', 'd4a7'],
+                alternatives: [{ move: 'f4c1', eval: 438, evalType: 'cp' }, { move: 'f7f5', eval: 63, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e3e1', eval: -445, evalType: 'cp' }]
+    },
+    'r2r2k1/1b1p1pp1/2p1p2p/p1P5/5P2/P2Q1R2/1q2B1PP/5R1K w - - 2 21': {
+        totalSteps: 2,
+        sanLine: ['Rb1', 'Qa2', 'Rxb7'],
+        steps: [
+            {
+                move: 'f1b1', eval: 307, evalType: 'cp',
+                pv: ['f1b1', 'b2a2', 'b1b7', 'a8b8', 'b7b6', 'b8b6', 'c5b6', 'a2b2'],
+                alternatives: [{ move: 'f1b1', eval: 307, evalType: 'cp' }, { move: 'd3d1', eval: -213, evalType: 'cp' }]
+            },
+            {
+                move: 'b1b7', eval: 328, evalType: 'cp',
+                pv: ['b1b7', 'a8b8', 'b7b6', 'b8b6', 'c5b6', 'd8b8', 'e2f1', 'd7d5'],
+                alternatives: [{ move: 'b1b7', eval: 328, evalType: 'cp' }, { move: 'b1b6', eval: -71, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'b2a2', eval: -349, evalType: 'cp' }]
+    },
+    'r1b2rk1/7p/1qn1pbp1/p2p4/Pp1P4/1P1QPN2/2B2NPP/2R2RK1 b - - 1 25': {
+        totalSteps: 2,
+        sanLine: ['Ba6', 'Qd2', 'Bxf1'],
+        steps: [
+            {
+                move: 'c8a6', eval: 344, evalType: 'cp',
+                pv: ['c8a6', 'd3d2', 'a6f1', 'c1f1', 'a8c8', 'h2h4', 'c6e7', 'h4h5'],
+                alternatives: [{ move: 'c8a6', eval: 344, evalType: 'cp' }, { move: 'c8d7', eval: -26, evalType: 'cp' }]
+            },
+            {
+                move: 'a6f1', eval: 345, evalType: 'cp',
+                pv: ['a6f1', 'c1f1', 'a8c8', 'f2g4', 'f6g7', 'd2e2', 'c6d8', 'g2g3'],
+                alternatives: [{ move: 'a6f1', eval: 345, evalType: 'cp' }, { move: 'c6e7', eval: -56, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'd3d2', eval: -348, evalType: 'cp' }]
+    },
+    'r2q1k1r/p3bp2/6pp/1p1pQ2n/8/5N2/PPP2PPP/RN2R1K1 b - - 1 17': {
+        totalSteps: 2,
+        sanLine: ['Bf6', 'Qe3', 'Bxb2'],
+        steps: [
+            {
+                move: 'e7f6', eval: 464, evalType: 'cp',
+                pv: ['e7f6', 'e5e3', 'f6b2', 'b1c3', 'b2a1', 'e1a1', 'f8g7', 'c3b5'],
+                alternatives: [{ move: 'e7f6', eval: 464, evalType: 'cp' }, { move: 'h8g8', eval: -105, evalType: 'cp' }]
+            },
+            {
+                move: 'f6b2', eval: 439, evalType: 'cp',
+                pv: ['f6b2', 'b1c3', 'b5b4', 'c3b5', 'b2a1', 'e1a1', 'f8g7', 'a2a3'],
+                alternatives: [{ move: 'f6b2', eval: 439, evalType: 'cp' }, { move: 'f8g7', eval: 45, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e5e3', eval: -447, evalType: 'cp' }]
+    },
+    '2k1r2r/ppq2p2/2pb4/2p2P1p/4P2P/1PQ2RP1/P1P2P2/R1B3K1 b - - 0 23': {
+        totalSteps: 2,
+        sanLine: ['Be5', 'Qe1', 'Bxa1'],
+        steps: [
+            {
+                move: 'd6e5', eval: 286, evalType: 'cp',
+                pv: ['d6e5', 'c3e1', 'e5a1', 'c2c3', 'c7a5', 'g1g2', 'a5a2', 'c1f4'],
+                alternatives: [{ move: 'd6e5', eval: 286, evalType: 'cp' }, { move: 'h8g8', eval: -277, evalType: 'cp' }]
+            },
+            {
+                move: 'e5a1', eval: 301, evalType: 'cp',
+                pv: ['e5a1', 'c2c3', 'c7a5', 'c1g5', 'a5a2', 'g1g2', 'a1b2', 'e1d1'],
+                alternatives: [{ move: 'e5a1', eval: 301, evalType: 'cp' }, { move: 'h8g8', eval: -268, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'c3e1', eval: -292, evalType: 'cp' }]
+    },
+    '2b1k2r/1p1p1ppp/r3pn2/p1q1B3/8/R3P3/2PP1PPP/3QK1NR w Kk - 1 15': {
+        totalSteps: 2,
+        sanLine: ['Rc3', 'Qxe5', 'Rxc8+'],
+        steps: [
+            {
+                move: 'a3c3', eval: 430, evalType: 'cp',
+                pv: ['a3c3', 'c5e5', 'c3c8', 'e8e7', 'g1f3', 'e5b2', 'c8h8', 'a5a4'],
+                alternatives: [{ move: 'a3c3', eval: 430, evalType: 'cp' }, { move: 'd1a1', eval: -64, evalType: 'cp' }]
+            },
+            {
+                move: 'c3c8', eval: 487, evalType: 'cp',
+                pv: ['c3c8', 'e8e7', 'g1f3', 'e5d6', 'c8h8', 'a5a4', 'e1g1', 'a4a3'],
+                alternatives: [{ move: 'c3c8', eval: 487, evalType: 'cp' }, { move: 'h2h4', eval: -599, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'c5e5', eval: -443, evalType: 'cp' }]
+    },
+    'r4rk1/p2b1pp1/3bp2p/3pq3/2pN4/P1P1B1P1/1P1Q1P1P/R4RK1 w - - 0 21': {
+        totalSteps: 2,
+        sanLine: ['Bf4', 'Qf6', 'Bxd6'],
+        steps: [
+            {
+                move: 'e3f4', eval: 446, evalType: 'cp',
+                pv: ['e3f4', 'e5f6', 'f4d6', 'e6e5', 'd6f8', 'e5d4', 'f8c5', 'f6f3'],
+                alternatives: [{ move: 'e3f4', eval: 446, evalType: 'cp' }, { move: 'b2b4', eval: -217, evalType: 'cp' }]
+            },
+            {
+                move: 'f4d6', eval: 478, evalType: 'cp',
+                pv: ['f4d6', 'e6e5', 'd6f8', 'e5d4', 'f8c5', 'd4d3', 'f2f3', 'd7h3'],
+                alternatives: [{ move: 'f4d6', eval: 478, evalType: 'cp' }, { move: 'f4e3', eval: -375, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e5f6', eval: -456, evalType: 'cp' }]
+    },
+    '2kr3r/ppq3p1/2pbp3/5b1p/7P/2P1BQ2/PP3PP1/3RRNK1 b - - 0 22': {
+        totalSteps: 2,
+        sanLine: ['Bg4', 'Qe4', 'Bxd1'],
+        steps: [
+            {
+                move: 'f5g4', eval: 462, evalType: 'cp',
+                pv: ['f5g4', 'f3e4', 'g4d1', 'f2f3', 'd1f3', 'g2f3', 'h8f8', 'g1g2'],
+                alternatives: [{ move: 'f5g4', eval: 462, evalType: 'cp' }, { move: 'c7a5', eval: -60, evalType: 'cp' }]
+            },
+            {
+                move: 'g4d1', eval: 478, evalType: 'cp',
+                pv: ['g4d1', 'f2f3', 'd1f3', 'g2f3', 'h8f8', 'g1g2', 'd6f4', 'e4e6'],
+                alternatives: [{ move: 'g4d1', eval: 478, evalType: 'cp' }, { move: 'd6h2', eval: -19, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'f3e4', eval: -479, evalType: 'cp' }]
+    },
+    '8/6pk/1pqr2bp/8/2P2Q2/7P/3R2PK/5R2 b - - 1 40': {
+        totalSteps: 2,
+        sanLine: ['Rf6', 'Qb8', 'Rxf1'],
+        steps: [
+            {
+                move: 'd6f6', eval: 491, evalType: 'cp',
+                pv: ['d6f6', 'f4f6', 'g7f6', 'f1f3', 'g6f7', 'd2f2', 'c6d6', 'h2h1'],
+                alternatives: [{ move: 'd6f6', eval: 491, evalType: 'cp' }, { move: 'd6d2', eval: -128, evalType: 'cp' }]
+            },
+            {
+                move: 'f6f1', eval: 545, evalType: 'cp',
+                pv: ['f6f1', 'd2d8', 'g6f7', 'd8h8', 'h7g6', 'b8g3', 'g6f6', 'g3h4'],
+                alternatives: [{ move: 'f6f1', eval: 545, evalType: 'cp' }, { move: 'g6f7', eval: -268, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'f4b8', eval: -529, evalType: 'cp' }]
+    },
+    '2r3k1/5p1p/1qP1p1p1/2QpP3/Pr3P2/R6P/6P1/2R3K1 b - - 4 27': {
+        totalSteps: 2,
+        sanLine: ['Rxc6', 'Qxb6', 'Rxc1+'],
+        steps: [
+            {
+                move: 'c8c6', eval: 720, evalType: 'cp',
+                pv: ['c8c6', 'a4a5', 'b6c5', 'c1c5', 'c6c5', 'a3a1', 'c5c8', 'g2g4'],
+                alternatives: [{ move: 'c8c6', eval: 720, evalType: 'cp' }, { move: 'b6c5', eval: -104, evalType: 'cp' }]
+            },
+            {
+                move: 'c6c1', eval: 712, evalType: 'cp',
+                pv: ['c6c1', 'g1h2', 'b4b6', 'a4a5', 'b6a6', 'h2g3', 'c1c8', 'a3a1'],
+                alternatives: [{ move: 'c6c1', eval: 712, evalType: 'cp' }, { move: 'c6b6', eval: 47, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'c5b6', eval: -724, evalType: 'cp' }]
+    },
+    '5rk1/p1p3p1/1p5p/2q2n2/6Q1/3P4/PP1B2PP/R6K w - - 0 23': {
+        totalSteps: 2,
+        sanLine: ['Bb4', 'Qf2', 'Bxf8'],
+        steps: [
+            {
+                move: 'd2b4', eval: 463, evalType: 'cp',
+                pv: ['d2b4', 'c5f2', 'b4f8', 'g8f8', 'b2b4', 'c7c6', 'g4e4', 'f5d4'],
+                alternatives: [{ move: 'd2b4', eval: 463, evalType: 'cp' }, { move: 'd2c3', eval: -35, evalType: 'cp' }]
+            },
+            {
+                move: 'b4f8', eval: 498, evalType: 'cp',
+                pv: ['b4f8', 'g8f8', 'b2b4', 'c7c6', 'g4e4', 'f5d4', 'a1e1', 'f8g8'],
+                alternatives: [{ move: 'b4f8', eval: 498, evalType: 'cp' }, { move: 'b4c3', eval: -49, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'c5f2', eval: -480, evalType: 'cp' }]
+    },
+    'rn1q1rk1/p4ppp/1p3n2/2bPQ3/2P2B2/5N2/PP2B1PP/1R3R1K b - - 0 13': {
+        totalSteps: 2,
+        sanLine: ['Re8', 'Qc3', 'Rxe2'],
+        steps: [
+            {
+                move: 'f8e8', eval: 334, evalType: 'cp',
+                pv: ['f8e8', 'e5g5', 'e8e2', 'b2b4', 'c5f8', 'f3d4', 'e2e4', 'd4f5'],
+                alternatives: [{ move: 'f8e8', eval: 334, evalType: 'cp' }, { move: 'b8d7', eval: -189, evalType: 'cp' }]
+            },
+            {
+                move: 'e8e2', eval: 370, evalType: 'cp',
+                pv: ['e8e2', 'b2b4', 'c5f8', 'd5d6', 'a7a5', 'a2a3', 'a5b4', 'a3b4'],
+                alternatives: [{ move: 'e8e2', eval: 370, evalType: 'cp' }, { move: 'b8d7', eval: -188, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e5c3', eval: -364, evalType: 'cp' }]
+    },
+    '1k6/8/8/6p1/1pp4P/p4PP1/N1P5/7K b - h3 0 38': {
+        totalSteps: 2,
+        sanLine: ['b3', 'cxb3', 'cxb3'],
+        steps: [
+            {
+                move: 'b4b3', eval: 688, evalType: 'cp',
+                pv: ['b4b3', 'c2b3', 'c4b3', 'a2c3', 'g5h4', 'g3h4', 'a3a2', 'c3a2'],
+                alternatives: [{ move: 'b4b3', eval: 688, evalType: 'cp' }, { move: 'g5h4', eval: -608, evalType: 'cp' }]
+            },
+            {
+                move: 'c4b3', eval: 717, evalType: 'cp',
+                pv: ['c4b3', 'a2c3', 'a3a2', 'c3a2', 'b3a2', 'h1g2', 'b8c7', 'h4g5'],
+                alternatives: [{ move: 'c4b3', eval: 717, evalType: 'cp' }, { move: 'g5h4', eval: -660, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'c2b3', eval: -720, evalType: 'cp' }]
+    },
+    '8/7k/R6p/3p4/5r2/2P1p2P/P5P1/6K1 b - - 0 40': {
+        totalSteps: 2,
+        sanLine: ['e2', 'Re6', 'Rf1+'],
+        steps: [
+            {
+                move: 'e3e2', eval: 675, evalType: 'cp',
+                pv: ['e3e2', 'a6e6', 'f4f1', 'g1h2', 'e2e1q', 'e6e1', 'f1e1', 'h2g3'],
+                alternatives: [{ move: 'e3e2', eval: 675, evalType: 'cp' }, { move: 'f4c4', eval: 10, evalType: 'cp' }]
+            },
+            {
+                move: 'f4f1', eval: 671, evalType: 'cp',
+                pv: ['f4f1', 'g1h2', 'e2e1q', 'e6e1', 'f1e1', 'h2g3', 'e1c1', 'g3f4'],
+                alternatives: [{ move: 'f4f1', eval: 671, evalType: 'cp' }, { move: 'f4c4', eval: 0, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'a6e6', eval: -679, evalType: 'cp' }]
+    },
+    '8/1k6/1P1Kp1p1/3pP3/7P/8/8/8 b - - 2 48': {
+        totalSteps: 2,
+        sanLine: ['d4', 'Kxe6', 'd3'],
+        steps: [
+            {
+                move: 'd5d4', eval: 662, evalType: 'cp',
+                pv: ['d5d4', 'd6e6', 'd4d3', 'e6f6', 'd3d2', 'e5e6', 'd2d1q', 'f6g6'],
+                alternatives: [{ move: 'd5d4', eval: 662, evalType: 'cp' }, { move: 'b7b6', eval: -5, evalType: 'cp' }]
+            },
+            {
+                move: 'd4d3', eval: 659, evalType: 'cp',
+                pv: ['d4d3', 'e6f6', 'd3d2', 'f6g6', 'd2d1q', 'h4h5', 'd1g4', 'g6h6'],
+                alternatives: [{ move: 'd4d3', eval: 659, evalType: 'cp' }, { move: 'b7b6', eval: 0, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'd6e6', eval: -662, evalType: 'cp' }]
+    },
+    '8/7p/6p1/2Q5/8/2pK1PP1/1r5P/1k6 b - - 11 58': {
+        totalSteps: 2,
+        sanLine: ['c2', 'Qxc2+', 'Rxc2'],
+        steps: [
+            {
+                move: 'c3c2', eval: 606, evalType: 'cp',
+                pv: ['c3c2', 'c5c2', 'b2c2', 'h2h4', 'b1c1', 'g3g4', 'c2h2', 'h4h5'],
+                alternatives: [{ move: 'c3c2', eval: 606, evalType: 'cp' }, { move: 'b2d2', eval: -728, evalType: 'cp' }]
+            },
+            {
+                move: 'b2c2', eval: 636, evalType: 'cp',
+                pv: ['b2c2', 'h2h4', 'b1c1', 'd3e3', 'c2c3', 'e3e2', 'c3b3', 'g3g4'],
+                alternatives: [{ move: 'b2c2', eval: 636, evalType: 'cp' }, { move: 'b1a1', eval: -737, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'c5c2', eval: -615, evalType: 'cp' }]
+    },
+    '7r/4kpRp/2p2p1P/p1P1n3/Pp6/1B6/5PP1/6K1 w - - 3 36': {
+        totalSteps: 2,
+        sanLine: ['f4', 'Ng6', 'Rxf7+'],
+        steps: [
+            {
+                move: 'f2f4', eval: 342, evalType: 'cp',
+                pv: ['f2f4', 'e5d7', 'g7f7', 'e7e8', 'f7g7', 'd7c5', 'b3c2', 'c5e6'],
+                alternatives: [{ move: 'f2f4', eval: 342, evalType: 'cp' }, { move: 'g1f1', eval: -34, evalType: 'cp' }]
+            },
+            {
+                move: 'g7f7', eval: 483, evalType: 'cp',
+                pv: ['g7f7', 'e7d8', 'f7a7', 'f6f5', 'a7a5', 'd8c8', 'a5a7', 'c8b8'],
+                alternatives: [{ move: 'g7f7', eval: 483, evalType: 'cp' }, { move: 'b3f7', eval: 327, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e5g6', eval: -412, evalType: 'cp' }]
+    },
+    '8/5pk1/P4b2/6p1/6Pp/3R3K/R1P1r2P/8 b - - 0 45': {
+        totalSteps: 2,
+        sanLine: ['Be5', 'Rg3', 'hxg3'],
+        steps: [
+            {
+                move: 'f6e5', eval: 182, evalType: 'cp',
+                pv: ['f6e5', 'd3g3', 'h4g3', 'h2g3', 'e2e3', 'h3g2', 'e3g3', 'g2f2'],
+                alternatives: [{ move: 'f6e5', eval: 182, evalType: 'cp' }, { move: 'g7g6', eval: -601, evalType: 'cp' }]
+            },
+            {
+                move: 'h4g3', eval: 236, evalType: 'cp',
+                pv: ['h4g3', 'h2g3', 'e2e3', 'h3g2', 'e3g3', 'g2f2', 'g3g4', 'a6a7'],
+                alternatives: [{ move: 'h4g3', eval: 236, evalType: 'cp' }, { move: 'e5b8', eval: -187, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'd3g3', eval: -230, evalType: 'cp' }]
+    },
+    '8/4n3/Qp2k3/8/P2qp3/5pP1/1r1p1P1P/3R1RK1 b - - 3 45': {
+        totalSteps: 2,
+        sanLine: ['e3', 'Qa8', 'e2'],
+        steps: [
+            {
+                move: 'e4e3', eval: 510, evalType: 'cp',
+                pv: ['e4e3', 'f2e3', 'd4e3', 'f1f2', 'b2c2', 'g1f1', 'e7d5', 'a6a8'],
+                alternatives: [{ move: 'e4e3', eval: 510, evalType: 'cp' }, { move: 'e7d5', eval: 136, evalType: 'cp' }]
+            },
+            {
+                move: 'e3e2', eval: 616, evalType: 'cp',
+                pv: ['e3e2', 'a8f3', 'e2d1q', 'f1d1', 'e7d5', 'g1f1', 'e6d7', 'f3f5'],
+                alternatives: [{ move: 'e3e2', eval: 616, evalType: 'cp' }, { move: 'e7d5', eval: 63, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'a6a8', eval: -576, evalType: 'cp' }]
+    },
+    '8/p2k4/1p4R1/2p2Pp1/2P3P1/3p1P2/PP4K1/7r b - - 1 38': {
+        totalSteps: 2,
+        sanLine: ['d2', 'Kxh1', 'd1=Q+'],
+        steps: [
+            {
+                move: 'd3d2', eval: 496, evalType: 'cp',
+                pv: ['d3d2', 'g2h1', 'd2d1q', 'h1g2', 'd1d2', 'g2h3', 'd2f4', 'h3g2'],
+                alternatives: [{ move: 'd3d2', eval: 496, evalType: 'cp' }, { move: 'h1b1', eval: 11, evalType: 'cp' }]
+            },
+            {
+                move: 'd2d1q', eval: 531, evalType: 'cp',
+                pv: ['d2d1q', 'h1g2', 'd1e2', 'g2g3', 'e2e5', 'g3h3', 'e5f4', 'h3g2'],
+                alternatives: [{ move: 'd2d1q', eval: 531, evalType: 'cp' }, { move: 'd7e7', eval: 0, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'g2h1', eval: -524, evalType: 'cp' }]
+    },
+    '8/7k/1p4p1/p1p2p1p/P7/1Pr2P1P/4K1P1/1R6 w - - 2 43': {
+        totalSteps: 2,
+        sanLine: ['Kd2', 'Rxf3', 'gxf3'],
+        steps: [
+            {
+                move: 'e2d2', eval: 636, evalType: 'cp',
+                pv: ['e2d2', 'c3f3', 'g2f3', 'h7g7', 'd2d3', 'g7f6', 'd3c4', 'f6e5'],
+                alternatives: [{ move: 'e2d2', eval: 636, evalType: 'cp' }, { move: 'h3h4', eval: -220, evalType: 'cp' }]
+            },
+            {
+                move: 'g2f3', eval: 633, evalType: 'cp',
+                pv: ['g2f3', 'h5h4', 'd2d3', 'h7h6', 'd3c4', 'h6g5', 'c4b5', 'g5f4'],
+                alternatives: [{ move: 'g2f3', eval: 633, evalType: 'cp' }, { move: 'b3b4', eval: -476, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'c3f3', eval: -637, evalType: 'cp' }]
+    },
+    '6k1/6p1/4Pq1p/2p2P2/2PpQ1P1/1P6/r1B4P/7K w - - 0 44': {
+        totalSteps: 2,
+        sanLine: ['e7', 'Qxe7', 'Qxe7'],
+        steps: [
+            {
+                move: 'e6e7', eval: 851, evalType: 'cp',
+                pv: ['e6e7', 'f6e7', 'e4e7', 'a2c2', 'e7e8', 'g8h7', 'e8g6', 'h7h8'],
+                alternatives: [{ move: 'e6e7', eval: 851, evalType: 'cp' }, { move: 'c2b1', eval: 24, evalType: 'cp' }]
+            },
+            {
+                move: 'e4e7', eval: 888, evalType: 'cp',
+                pv: ['e4e7', 'a2c2', 'e7e8', 'g8h7', 'e8g6', 'h7h8', 'f5f6', 'c2c1'],
+                alternatives: [{ move: 'e4e7', eval: 888, evalType: 'cp' }, { move: 'h1g1', eval: -630, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'f6e7', eval: -948, evalType: 'cp' }]
+    },
+    '8/8/6pR/2k2p2/2B1p2P/1P2P1P1/1q3PK1/8 b - - 2 36': {
+        totalSteps: 2,
+        sanLine: ['Qg7', 'Rxg6', 'Qxg6'],
+        steps: [
+            {
+                move: 'b2g7', eval: 367, evalType: 'cp',
+                pv: ['b2g7', 'h6g6', 'g7g6', 'g2h2', 'g6g4', 'h2h1', 'c5d6', 'c4f7'],
+                alternatives: [{ move: 'b2g7', eval: 367, evalType: 'cp' }, { move: 'f5f4', eval: 70, evalType: 'cp' }]
+            },
+            {
+                move: 'g7g6', eval: 413, evalType: 'cp',
+                pv: ['g7g6', 'g2f1', 'g6g7', 'c4e6', 'g7g4', 'e6c4', 'g4d1', 'f1g2'],
+                alternatives: [{ move: 'g7g6', eval: 413, evalType: 'cp' }, { move: 'g7h8', eval: -344, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'h6g6', eval: -385, evalType: 'cp' }]
+    },
+    '8/4pk1p/4n1p1/Nr4P1/R4P2/P3K3/8/8 b - - 0 56': {
+        totalSteps: 2,
+        sanLine: ['Nc5', 'Rc4', 'Rxa5'],
+        steps: [
+            {
+                move: 'e6c5', eval: 620, evalType: 'cp',
+                pv: ['e6c5', 'a4c4', 'b5a5', 'e3e2', 'c5e6', 'a3a4', 'e6c5', 'c4c3'],
+                alternatives: [{ move: 'e6c5', eval: 620, evalType: 'cp' }, { move: 'h7h6', eval: 24, evalType: 'cp' }]
+            },
+            {
+                move: 'b5a5', eval: 618, evalType: 'cp',
+                pv: ['b5a5', 'c4c3', 'c5e6', 'e3e4', 'a5a4', 'e4d5', 'a4f4', 'c3g3'],
+                alternatives: [{ move: 'b5a5', eval: 618, evalType: 'cp' }, { move: 'f7e6', eval: 17, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'a4c4', eval: -613, evalType: 'cp' }]
+    },
+    '8/5pk1/pQp1n3/P3p1p1/2P1P2p/1P2qP1P/4N1P1/4K3 b - - 2 35': {
+        totalSteps: 2,
+        sanLine: ['Nd4', 'Kf1', 'Qxe2+'],
+        steps: [
+            {
+                move: 'e6d4', eval: 718, evalType: 'cp',
+                pv: ['e6d4', 'e1f1', 'e3e2', 'f1g1', 'e2e1', 'g1h2', 'd4f3', 'g2f3'],
+                alternatives: [{ move: 'e6d4', eval: 718, evalType: 'cp' }, { move: 'c6c5', eval: 142, evalType: 'cp' }]
+            },
+            {
+                move: 'e3e2', eval: 764, evalType: 'cp',
+                pv: ['e3e2', 'f1g1', 'e2e1', 'g1h2', 'd4f3', 'g2f3', 'e1g3', 'h2h1'],
+                alternatives: [{ move: 'e3e2', eval: 764, evalType: 'cp' }, { move: 'e3d3', eval: 646, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e1f1', eval: -785, evalType: 'cp' }]
+    },
+    '8/4ppk1/3p2p1/3Pb3/5q2/5P1p/6PP/5RQK b - - 1 40': {
+        totalSteps: 2,
+        sanLine: ['Bd4', 'Rf2', 'Bxf2'],
+        steps: [
+            {
+                move: 'e5d4', eval: 588, evalType: 'cp',
+                pv: ['e5d4', 'g2g3', 'f4f6', 'f1f2', 'f6e5', 'g1f1', 'd4f2', 'f1f2'],
+                alternatives: [{ move: 'e5d4', eval: 588, evalType: 'cp' }, { move: 'f4c4', eval: 13, evalType: 'cp' }]
+            },
+            {
+                move: 'd4f2', eval: 675, evalType: 'cp',
+                pv: ['d4f2', 'g1f2', 'f4c1', 'f2g1', 'h3g2', 'h1g2', 'c1g5', 'g2f1'],
+                alternatives: [{ move: 'd4f2', eval: 675, evalType: 'cp' }, { move: 'f4e3', eval: 667, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'f1f2', eval: -645, evalType: 'cp' }]
+    },
+    '8/8/5Qp1/6Pp/4p2P/p4k2/5p2/1K6 b - - 3 51': {
+        totalSteps: 2,
+        sanLine: ['Kg2', 'Ka2', 'f1=Q'],
+        steps: [
+            {
+                move: 'f3g2', eval: 619, evalType: 'cp',
+                pv: ['f3g2', 'b1a2', 'f2f1q', 'f6g6', 'f1c4', 'a2a3', 'e4e3', 'g6h5'],
+                alternatives: [{ move: 'f3g2', eval: 619, evalType: 'cp' }, { move: 'f3e2', eval: -33, evalType: 'cp' }]
+            },
+            {
+                move: 'f2f1q', eval: 650, evalType: 'cp',
+                pv: ['f2f1q', 'f6g6', 'f1c4', 'a2a3', 'e4e3', 'g6h5', 'e3e2', 'h5e2'],
+                alternatives: [{ move: 'f2f1q', eval: 650, evalType: 'cp' }, { move: 'e4e3', eval: 245, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'b1a2', eval: -593, evalType: 'cp' }]
     },
     'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 4 4': {
         totalSteps: 1,

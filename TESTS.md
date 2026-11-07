@@ -719,6 +719,12 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   hi encadena amb un fos, baixa el volum quan parla la veu, i es comporta bé
   sense Web Audio, amb errors i amb un context que es reprèn tard. Els sons
   antics (`studio`, `tuning`, `theme`) es llegeixen com a música.
+- **`tactics-themes.test.js`** — el **banc de tàctiques per temes** que fa
+  servir el tema feble de «Què toca avui?»: quatre grups (forquilles,
+  clavades, raigs X i finals) amb prou posicions cadascun, totes de la base
+  oberta de problemes de Lichess (CC0) amb la referència i la dificultat al
+  costat, sense repeticions, dins de 900–2000 i amb la línia de dues jugades
+  verificada per Stockfish 19 al rebost.
 - **`entrena-today.test.js`** — la secció **Entrena** de l'inici: una sola
   proposta «Què toca avui?» (`entrenaPickToday`) amb les prioritats
   repassos pendents (errors nous destacats, màxim dues sessions al dia) →
