@@ -972,6 +972,8 @@ function navGoBack() {
         $('#start-screen').show();
     }
     navStack.pop();
+    // De tornada a l'inici, la proposta d'Entrena té en compte el que acabes de fer.
+    if (typeof scheduleEntrenaToday === 'function') scheduleEntrenaToday();
 }
 window.addEventListener('popstate', function(e) {
     const cid = customGameIdFromUrl();
@@ -9949,6 +9951,7 @@ function updateDisplay() {
     // cada dia; aquí només el pinta amb el text vigent).
     renderCoachDiagnosis();
     try { refreshTriaBanner(); } catch (e) {}
+    try { scheduleEntrenaToday(); } catch (e) {}
     if (typeof updateCloudRecoverButton === 'function') updateCloudRecoverButton();
     try { renderLiveGameBanner(); } catch (e) {}
     try { renderUntimedGamesPanel(); } catch (e) {}
@@ -23712,6 +23715,7 @@ function renderHieroglyphicBanner() {
         genBtn.classList.remove('is-generating');
         genBtn.textContent = '⚡ Generar ara';
     }
+    try { scheduleEntrenaToday(); } catch (e) {}
 }
 
 // ── Generació manual "sota demanda" amb barra de progrés ────────────────────
@@ -26323,6 +26327,7 @@ function setupEvents() {
     });
 
     $('#btn-srs-review').click(() => startSrsReview());
+    initEntrenaToday();
     $('#btn-tactics').click(() => {
         // Reset de ratxa quan s'inicia des del menú (no des de "Una altra")
         tacticsStats.streak = 0;
@@ -27634,6 +27639,7 @@ function refreshTriaBanner() {
     const min = ElTaulerCore.TRIA_CONFIG.minTestSize;
     const size = ElTaulerCore.TRIA_CONFIG.testSize;
     const history = loadTriaHistory();
+    entrenaTriaCache = { questions: questions, min: min };
     if (questions < min) {
         banner.addClass('is-locked');
         meta.text(counts.mastered > 0
@@ -27650,6 +27656,135 @@ function refreshTriaBanner() {
     bits.push(`${available} jugades al fons`);
     if (last) bits.push(`últim test: ${last.accuracy}%`);
     meta.text(bits.join(' · '));
+}
+
+/* ---- Entrena: «Què toca avui?» ---- */
+// Una sola proposta a dalt de la secció (la tria ElTaulerCore.entrenaPickToday
+// segons el progrés) i la resta d'entrenaments a un toc, dins «Més
+// entrenaments». El registre del dia (què has obert avui) viatja al núvol
+// perquè la proposta no es repeteixi en un altre aparell; l'estat obert o
+// tancat de la llista és només d'aquest aparell.
+const ENTRENA_DAY_KEY = 'eltauler_entrena_day';
+const ENTRENA_MORE_OPEN_KEY = 'tauler_ui_entrenaMoreOpen';
+let entrenaTriaCache = null;   // { questions, min } que deixa refreshTriaBanner
+let entrenaRenderTimer = null;
+
+function entrenaLocalDay(ts) {
+    const d = ts ? new Date(ts) : new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function entrenaLoadDay() {
+    let raw = null;
+    try { raw = JSON.parse(localStorage.getItem(ENTRENA_DAY_KEY) || 'null'); } catch (e) { raw = null; }
+    return ElTaulerCore.entrenaDayLog(raw, entrenaLocalDay());
+}
+function entrenaMarkDone(kind) {
+    if (!ElTaulerCore.ENTRENA_KINDS[kind]) return;
+    let raw = null;
+    try { raw = JSON.parse(localStorage.getItem(ENTRENA_DAY_KEY) || 'null'); } catch (e) { raw = null; }
+    const log = ElTaulerCore.entrenaMarkDone(raw, entrenaLocalDay(), kind);
+    try { localStorage.setItem(ENTRENA_DAY_KEY, JSON.stringify(log)); } catch (e) {}
+}
+// Posicions del repertori propi (Obertures) que ja toca repassar, del costat
+// que en té més, amb el nom que li hagis posat.
+function entrenaOpeningDue() {
+    const L = window.ElTaulerOpeningLab;
+    if (!L || typeof L.normalizeStore !== 'function' || typeof L.repertoireReport !== 'function') return { due: 0, name: '' };
+    let raw = null;
+    try { raw = JSON.parse(localStorage.getItem(L.STORE_KEY) || 'null'); } catch (e) { raw = null; }
+    if (!raw) return { due: 0, name: '' };
+    const store = L.normalizeStore(raw);
+    let best = { due: 0, name: '' };
+    ['w', 'b'].forEach(c => {
+        const side = store.sides && store.sides[c];
+        if (!side || !side.nodes || !Object.keys(side.nodes).length) return;
+        try {
+            const r = L.repertoireReport(side);
+            if (r.due > best.due) best = { due: r.due, name: side.name || '' };
+        } catch (e) {}
+    });
+    return best;
+}
+function entrenaBulletState() {
+    const B = window.ElTaulerBulletPractice;
+    if (!B || typeof B.planToday !== 'function' || typeof B.normalizeProgress !== 'function') return { complete: false, started: false };
+    let raw = null;
+    try { raw = JSON.parse(localStorage.getItem(B.KEY) || 'null'); } catch (e) { raw = null; }
+    try {
+        const plan = B.planToday(B.normalizeProgress(raw));
+        return { complete: !!plan.complete, started: plan.steps.some(s => s.done > 0) };
+    } catch (e) { return { complete: false, started: false }; }
+}
+function entrenaTodayContext() {
+    const due = getDueErrors();
+    let hgNew = 0;
+    try { hgNew = hgNewCount(); } catch (e) {}
+    const opening = entrenaOpeningDue();
+    const bullet = entrenaBulletState();
+    return {
+        srsDue: due.length,
+        srsNew: due.filter(e => !(Number(e.srsReps) > 0)).length,
+        hgNew,
+        openingDue: opening.due,
+        openingName: opening.name,
+        triaQuestions: entrenaTriaCache ? entrenaTriaCache.questions : 0,
+        triaMin: entrenaTriaCache ? entrenaTriaCache.min : 1,
+        bulletComplete: bullet.complete,
+        bulletStarted: bullet.started,
+        done: entrenaLoadDay().done
+    };
+}
+function renderEntrenaToday() {
+    const card = document.getElementById('btn-entrena-today');
+    if (!card) return;
+    let pick;
+    try { pick = ElTaulerCore.entrenaPickToday(entrenaTodayContext()); } catch (e) { console.warn('[Entrena]', e); return; }
+    if (!pick) return;
+    card.dataset.target = pick.target;
+    card.dataset.kind = pick.kind;
+    card.className = card.className.replace(/\bhb--[a-z]+\b/g, '').replace(/\s+/g, ' ').trim() + ' hb--lg hb--' + pick.tone;
+    const icon = document.getElementById('entrena-today-icon');
+    if (icon && icon.getAttribute('href') !== '#' + pick.icon) icon.setAttribute('href', '#' + pick.icon);
+    $('#entrena-today-title').text(pick.title);
+    $('#entrena-today-reason').text(pick.reason);
+    $('#entrena-today-cta').text(pick.cta + ' ›');
+    card.setAttribute('aria-label', 'Què toca avui? ' + pick.title + '. ' + pick.reason);
+}
+// Coalesceix les crides (el bàner de jeroglífics es repinta sovint mentre en genera).
+function scheduleEntrenaToday() {
+    if (entrenaRenderTimer) return;
+    entrenaRenderTimer = setTimeout(() => {
+        entrenaRenderTimer = null;
+        const home = document.getElementById('start-screen');
+        if (home && home.style.display === 'none') return;
+        renderEntrenaToday();
+    }, 120);
+}
+function initEntrenaToday() {
+    const section = document.querySelector('#start-screen .home-sec--entrena');
+    if (!section || section.dataset.entrenaReady) return;
+    section.dataset.entrenaReady = '1';
+    // Qualsevol entrenament obert des de la secció (proposta o llista) compta
+    // com a fet avui. La proposta clica el botó de la llista, de manera que
+    // només es registra una vegada.
+    section.addEventListener('click', e => {
+        const btn = e.target && e.target.closest ? e.target.closest('button[id]') : null;
+        const kind = btn ? ElTaulerCore.entrenaKindForTarget(btn.id) : null;
+        if (kind) entrenaMarkDone(kind);
+    }, true);
+    $('#btn-entrena-today').off('click').on('click', function () {
+        const target = document.getElementById(this.dataset.target || '');
+        if (target) target.click();
+    });
+    const more = document.getElementById('entrena-more');
+    if (more) {
+        try { if (localStorage.getItem(ENTRENA_MORE_OPEN_KEY) === '1') more.open = true; } catch (e) {}
+        more.addEventListener('toggle', () => {
+            try { localStorage.setItem(ENTRENA_MORE_OPEN_KEY, more.open ? '1' : '0'); } catch (e) {}
+        });
+    }
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) scheduleEntrenaToday(); });
+    renderEntrenaToday();
 }
 
 /* ---- Sessió ---- */

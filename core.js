@@ -10116,6 +10116,95 @@
         return { title, body };
     }
 
+    // ------------------------------------------------------------------
+    // «Què toca avui?» (secció Entrena de l'inici). Tria UN exercici segons
+    // el progrés: primer el que caduca (repassos pendents, sobretot errors
+    // nous de les teves partides), després el que és nou (jeroglífics, la
+    // teva obertura per repassar), després el que dona varietat (Tres camins,
+    // pla bullet) i, com a recurs, tàctiques. Cada entrenament que ja has
+    // obert avui baixa de prioritat perquè la proposta no es repeteixi.
+    // ------------------------------------------------------------------
+    const ENTRENA_KINDS = {
+        srs: { target: 'btn-srs-review', title: 'Repàs intel·ligent', icon: 'ic-repeat', tone: 'rosewood' },
+        hiero: { target: 'btn-hieroglyphic-banner', title: 'Jeroglífics', icon: 'ic-puzzle-piece', tone: 'violet' },
+        opening: { target: 'btn-opening', title: 'La teva obertura', icon: 'ic-opening', tone: 'indigo' },
+        tria: { target: 'btn-tria-banner', title: 'Tres camins', icon: 'ic-shuffle', tone: 'teal' },
+        bullet: { target: 'btn-bullet-practice', title: 'Reflexos bullet', icon: 'ic-zap', tone: 'ocean' },
+        tactics: { target: 'btn-tactics', title: 'Tàctiques', icon: 'ic-target', tone: 'plum' },
+        bundle: { target: 'btn-bundle-menu', title: 'Revisa errors', icon: 'ic-search', tone: 'ochre' },
+        explorer: { target: 'btn-explorer', title: 'Tauler d\'anàlisi', icon: 'ic-analysis', tone: 'azure' }
+    };
+    const ENTRENA_TARGETS = Object.keys(ENTRENA_KINDS).reduce((acc, k) => { acc[ENTRENA_KINDS[k].target] = k; return acc; }, {});
+
+    function entrenaKindForTarget(id) {
+        return Object.prototype.hasOwnProperty.call(ENTRENA_TARGETS, id) ? ENTRENA_TARGETS[id] : null;
+    }
+
+    // Registre del dia: { day: 'AAAA-MM-DD', done: { tipus: vegades } }. Un
+    // registre d'un altre dia (o malmès) torna buit.
+    function entrenaDayLog(raw, today) {
+        const ok = raw && typeof raw === 'object' && raw.day === today && raw.done && typeof raw.done === 'object';
+        const done = {};
+        if (ok) Object.keys(raw.done).forEach(k => {
+            const n = Number(raw.done[k]);
+            if (ENTRENA_KINDS[k] && n > 0) done[k] = Math.floor(n);
+        });
+        return { day: today, done };
+    }
+    function entrenaMarkDone(raw, today, kind) {
+        const log = entrenaDayLog(raw, today);
+        if (ENTRENA_KINDS[kind]) log.done[kind] = (log.done[kind] || 0) + 1;
+        return log;
+    }
+
+    const entrenaPlural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+
+    // ctx: { srsDue, srsNew, hgNew, openingDue, openingName, triaQuestions,
+    //        triaMin, bulletComplete, bulletStarted, done: { tipus: n } }
+    function entrenaPickToday(ctx) {
+        const c = ctx || {};
+        const done = (c.done && typeof c.done === 'object') ? c.done : {};
+        const n = v => Math.max(0, Math.floor(Number(v) || 0));
+        const times = k => n(done[k]);
+        const srsDue = n(c.srsDue), srsNew = Math.min(n(c.srsNew), srsDue);
+        const hgNew = n(c.hgNew), openingDue = n(c.openingDue);
+        const triaQ = n(c.triaQuestions), triaMin = Math.max(1, n(c.triaMin) || 1);
+        const out = (kind, reason, cta) => Object.assign({ kind, reason, cta: cta || 'Comença' }, ENTRENA_KINDS[kind]);
+
+        // 1. El que caduca: errors de les teves partides per repassar. Dues
+        //    sessions al dia com a màxim; després, varietat.
+        if (srsDue > 0 && times('srs') < 2) {
+            const reason = srsNew > 0
+                ? (srsNew === srsDue
+                    ? entrenaPlural(srsNew, 'error nou', 'errors nous') + ' de les teves partides: corregeix-' + (srsNew === 1 ? 'lo' : 'los') + ' ara que és recent.'
+                    : entrenaPlural(srsNew, 'error nou', 'errors nous') + ' i ' + entrenaPlural(srsDue - srsNew, 'repàs pendent', 'repassos pendents') + ': consolida el que vas fallar.')
+                : entrenaPlural(srsDue, 'repàs pendent', 'repassos pendents') + ' avui: si no els fas, la repetició espaiada perd el ritme.';
+            return out('srs', reason, 'Repassa');
+        }
+        // 2. El que és nou.
+        if (hgNew > 0 && !times('hiero')) {
+            return out('hiero', (hgNew === 1 ? 'Hi ha un jeroglífic nou a punt' : 'Tens jeroglífics nous a punt') + ': troba els tres millors moviments.', 'Resol');
+        }
+        if (openingDue > 0 && !times('opening')) {
+            const name = typeof c.openingName === 'string' && c.openingName.trim() ? c.openingName.trim() : '';
+            return out('opening', entrenaPlural(openingDue, 'posició', 'posicions') + (name ? ' de «' + name + '»' : ' del teu repertori') + ' per repassar: fixa-les abans que s\'oblidin.', 'Practica');
+        }
+        // 3. Varietat.
+        if (triaQ >= triaMin && !times('tria')) {
+            return out('tria', 'Test amb ' + entrenaPlural(triaQ, 'decisió', 'decisions') + ' de les teves partides: tria el millor dels tres camins.', 'Fes el test');
+        }
+        if (!c.bulletComplete && !times('bullet')) {
+            return out('bullet', c.bulletStarted
+                ? 'Acaba el pla de 5 minuts d\'avui: lectura, rellotge i velocitat.'
+                : 'Pla de 5 minuts: llegeix el tauler i mira el rellotge sense perdre temps.', 'Comença');
+        }
+        // 4. Recurs: tàctiques (sempre n'hi ha).
+        const allDone = srsDue === 0 && (hgNew === 0 || times('hiero')) && (openingDue === 0 || times('opening'));
+        return out('tactics', allDone && Object.keys(done).length
+            ? 'Ja has fet la feina important d\'avui. Unes tàctiques de propina?'
+            : 'Combinacions noves per afinar la vista tàctica.', 'Resol');
+    }
+
     return {
         splitPgnGames,
         parsePgnHeaders,
@@ -10483,6 +10572,11 @@
         dailyPickVersion,
         dailyMergeGames,
         mergeSyncSnapshots,
-        syncMergeHieroglyphicHistory
+        syncMergeHieroglyphicHistory,
+        ENTRENA_KINDS,
+        entrenaKindForTarget,
+        entrenaDayLog,
+        entrenaMarkDone,
+        entrenaPickToday
     };
 });

@@ -28,9 +28,9 @@ function enclosingMedia(src, needle) {
 }
 
 describe('disposicions d’escriptori, només amb la finestra ampla', () => {
-    test('inici: dues columnes i rajoles a quatre columnes a partir de 1000 px', () => {
+    test('inici: dues columnes (i la llista d’Entrena a dues) a partir de 1000 px', () => {
         expect(enclosingMedia(html, 'body.device-desktop #start-screen .home-sections {')).toMatch(/min-width: 1000px/);
-        expect(enclosingMedia(html, 'body.device-desktop #start-screen .home-sec--entrena > .home-tiles { grid-template-columns: repeat(4')).toMatch(/min-width: 1000px/);
+        expect(enclosingMedia(html, 'body.device-desktop #start-screen .entrena-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap')).toMatch(/min-width: 1000px/);
         expect(enclosingMedia(html, 'body.device-desktop #start-screen .hb-hero .play-clock-chips')).toMatch(/min-width: 720px/);
     });
     test('TV i taller d’obertures: dues columnes a partir de 760 px', () => {

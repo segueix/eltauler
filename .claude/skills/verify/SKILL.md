@@ -265,6 +265,20 @@ Conduir amb Playwright + Chromium preinstal·lat
     («… · la menor»). Per escoltar-les, generar WAV amb
     `R.jingleSamples(R.composeJingle('rumba', 123), 22050)` des de Node.
 
+20. **Entrena · «Què toca avui?»** (`#btn-entrena-today`): la proposta la
+    tria `ElTaulerCore.entrenaPickToday(entrenaTodayContext())` i el botó
+    clica el de la llista (`data-target`). La resta d'entrenaments són dins
+    `<details id="entrena-more">`: tancat, els botons no es veuen però
+    `element.click()` i jQuery `.click()` hi funcionen (el tutorial ho fa
+    servir); per fer captures o `page.click` reals, obrir-lo abans
+    (`#entrena-more > summary`). Per forçar propostes: posar un error a
+    `savedErrors` amb `srsDue` passat (→ repàs), sembrar
+    `eltauler_entrena_day` = `{ day: entrenaLocalDay(), done: { hiero: 1 } }`
+    (→ salta jeroglífics) i, per a l'obertura, `chess_openingWorkshop_v1` amb
+    nodes vàlids (cal `san` i `origin`, si no `normalizeStore` els descarta)
+    i `due` passat; després `updateDisplay()` i esperar ~150 ms (el repintat
+    va amb `scheduleEntrenaToday`, que no fa res si l'inici és amagat).
+
 ## Fluxos útils
 
 - **Final de partida real per la UI**: `#btn-new-game` → `#btn-resign` →

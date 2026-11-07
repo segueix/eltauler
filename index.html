@@ -6599,7 +6599,34 @@
             background: rgba(0,0,0,0.25); color: #fff;
         }
         #start-screen .coach-refresh-btn { flex: 0 0 auto; width: 36px; height: 36px; border-radius: 10px; }
-        body.device-tablet #start-screen .home-sec--entrena > .home-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        /* Entrena: «Què toca avui?» i, a un toc, la llista ordenada de la resta */
+        #start-screen .entrena-today-kicker {
+            font-size: 0.68rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--hd-on-2);
+        }
+        #start-screen .entrena-more { margin: 0; }
+        #start-screen .entrena-more-sum {
+            display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 10px 14px; cursor: pointer;
+            list-style: none; border-radius: 14px; background: var(--hd-card); border: 1px solid var(--hd-line);
+            color: var(--hd-text); font-family: var(--hd-font); font-weight: 800; font-size: 0.95rem;
+        }
+        #start-screen .entrena-more-sum::-webkit-details-marker { display: none; }
+        #start-screen .entrena-more-sum::marker { content: ''; }
+        #start-screen .entrena-more-sum:hover { border-color: var(--sec); }
+        #start-screen .entrena-more-sum:focus-visible { outline: 3px solid var(--sec); outline-offset: 2px; }
+        #start-screen .entrena-more-label { flex: 1 1 auto; }
+        #start-screen .entrena-more-hint { font-size: 0.76rem; font-weight: 700; color: var(--hd-text-2); }
+        #start-screen .entrena-more-chev {
+            width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
+            transform: rotate(90deg); transition: transform .15s ease;
+        }
+        #start-screen .entrena-more[open] .entrena-more-chev { transform: rotate(-90deg); }
+        #start-screen .entrena-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-top: 8px; }
+        #start-screen .entrena-list > .hb { min-height: 64px; padding: 10px 14px; }
+        #start-screen .entrena-list > .hb .hb-ic { width: 38px; height: 38px; border-radius: 11px; }
+        #start-screen .entrena-list > .hb .hb-ic svg { width: 20px; height: 20px; }
+        #start-screen .entrena-list .hg-banner-main.hb--lg { min-height: 72px; padding: 12px 14px; }
+        body.device-tablet #start-screen .entrena-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        body.device-tablet #start-screen .entrena-list > .hieroglyphic-banner { grid-row: span 2; }
 
         /* Juga: partides en curs, lliga i avís de partida a mig fer */
         #start-screen .live-game-banner {
@@ -6632,11 +6659,9 @@
             /* Aprèn a l'esquerra: la TV i el tutorial un al costat de l'altre. */
             body.device-desktop #start-screen .home-sec--apren { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
             body.device-desktop #start-screen .home-sec--apren > .home-sec-head { grid-column: 1 / -1; }
-            body.device-desktop #start-screen .home-sec--entrena { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-            body.device-desktop #start-screen .home-sec--entrena > .home-sec-head,
-            body.device-desktop #start-screen .home-sec--entrena > .home-tiles { grid-column: 1 / -1; }
-            body.device-desktop #start-screen .home-sec--entrena > .hb-card { grid-row: span 2; }
-            body.device-desktop #start-screen .home-sec--entrena > .home-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+            /* Entrena: la proposta a tota l'amplada i la llista en dues columnes. */
+            body.device-desktop #start-screen .entrena-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
+            body.device-desktop #start-screen .entrena-list > .hieroglyphic-banner { grid-row: span 2; }
             body.device-desktop #start-screen .home-sec--comunitat { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
             body.device-desktop #start-screen .home-sec--comunitat > .home-sec-head,
             body.device-desktop #start-screen .home-sec--comunitat > #btn-catalans,
@@ -6648,7 +6673,8 @@
         }
         /* Finestra d'ordinador mitjana: una sola columna, rajoles com a la tauleta. */
         @media (min-width: 720px) and (max-width: 999px) {
-            body.device-desktop #start-screen .home-sec--entrena > .home-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+            body.device-desktop #start-screen .entrena-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            body.device-desktop #start-screen .entrena-list > .hieroglyphic-banner { grid-row: span 2; }
             body.device-desktop #start-screen .hb-tile { min-height: 100px; }
         }
 
@@ -6689,7 +6715,7 @@
             box-shadow: none !important; animation: none !important; transition: none;
         }
         body.epaper-mode #start-screen .hb--bare { border: 0 !important; background: transparent !important; }
-        body.epaper-mode #start-screen .hb-sub, body.epaper-mode #start-screen .hb-meta,
+        body.epaper-mode #start-screen .hb-sub, body.epaper-mode #start-screen .hb-meta, body.epaper-mode #start-screen .entrena-today-kicker,
         body.epaper-mode #start-screen .hb-hero .hb-sub, body.epaper-mode #start-screen .hb-hero .play-clock-current,
         body.epaper-mode #start-screen .hg-banner-title, body.epaper-mode #start-screen .hg-banner-sub,
         body.epaper-mode #start-screen .hg-banner-count, body.epaper-mode #start-screen .coach-banner-sub,
@@ -7179,91 +7205,105 @@
                      i les eines d'entrenament en rajoles -->
                 <section class="home-sec home-sec--entrena" aria-labelledby="home-sec-entrena">
                     <div class="home-sec-head"><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-entrena">Entrena</h2></div>
-                    <div class="hieroglyphic-banner hb-card hb--violet" id="hieroglyphic-banner">
-                        <button class="hg-banner-main hb hb--lg hb--bare" id="btn-hieroglyphic-banner" type="button">
-                            <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-puzzle-piece"/></svg></span>
-                            <span class="hb-text">
-                                <span class="hb-title hg-banner-title">Jeroglífics</span>
-                                <span class="hb-sub hg-banner-sub">Troba els 3 millors moviments</span>
-                                <span class="hg-banner-meta">
-                                    <span class="hg-banner-status" id="hg-banner-status">Preparats</span>
+                    <!-- «Què toca avui?»: UNA proposta segons el progrés (repassos
+                         pendents, errors nous, jeroglífics, la teva obertura…). La
+                         tria és d'ElTaulerCore.entrenaPickToday i el botó reutilitza
+                         el de la llista (data-target). La resta, a un toc. -->
+                    <button class="hb hb--lg hb--violet entrena-today" id="btn-entrena-today" type="button" data-target="btn-hieroglyphic-banner" data-kind="hiero">
+                        <span class="hb-ic" aria-hidden="true"><svg><use id="entrena-today-icon" href="#ic-puzzle-piece"/></svg></span>
+                        <span class="hb-text">
+                            <span class="entrena-today-kicker">Què toca avui?</span>
+                            <span class="hb-title" id="entrena-today-title">Jeroglífics</span>
+                            <span class="hb-sub" id="entrena-today-reason">Mirant el teu progrés…</span>
+                        </span>
+                        <span class="hb-cta" id="entrena-today-cta">Comença ›</span>
+                    </button>
+                    <details class="entrena-more" id="entrena-more">
+                        <summary class="entrena-more-sum">
+                            <span class="entrena-more-label">Més entrenaments</span>
+                            <span class="entrena-more-hint">8 opcions</span>
+                            <svg class="entrena-more-chev" aria-hidden="true"><use href="#ic-chevron"/></svg>
+                        </summary>
+                        <div class="entrena-list">
+                        <div class="hieroglyphic-banner hb-card hb--violet" id="hieroglyphic-banner">
+                            <button class="hg-banner-main hb hb--lg hb--bare" id="btn-hieroglyphic-banner" type="button">
+                                <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-puzzle-piece"/></svg></span>
+                                <span class="hb-text">
+                                    <span class="hb-title hg-banner-title">Jeroglífics</span>
+                                    <span class="hb-sub hg-banner-sub">Troba els 3 millors moviments</span>
+                                    <span class="hg-banner-meta">
+                                        <span class="hg-banner-status" id="hg-banner-status">Preparats</span>
+                                    </span>
                                 </span>
-                            </span>
-                            <span class="hb-cta hg-banner-cta">Resol ›</span>
-                        </button>
-                        <div class="hg-banner-tools">
-                            <button type="button" class="hg-banner-gen-btn" id="btn-hieroglyphic-generate">⚡ Generar ara</button>
-                            <button type="button" class="hg-banner-history-btn" id="btn-hieroglyphic-history"><svg class="hg-ic" aria-hidden="true"><use href="#ic-history"/></svg> Historial</button>
-                            <div class="hg-banner-progress" id="hg-banner-progress" aria-hidden="true">
-                                <div class="hg-banner-progress-track">
-                                    <div class="hg-banner-progress-bar" id="hg-banner-progress-bar"></div>
+                                <span class="hb-cta hg-banner-cta">Resol ›</span>
+                            </button>
+                            <div class="hg-banner-tools">
+                                <button type="button" class="hg-banner-gen-btn" id="btn-hieroglyphic-generate">⚡ Generar ara</button>
+                                <button type="button" class="hg-banner-history-btn" id="btn-hieroglyphic-history"><svg class="hg-ic" aria-hidden="true"><use href="#ic-history"/></svg> Historial</button>
+                                <div class="hg-banner-progress" id="hg-banner-progress" aria-hidden="true">
+                                    <div class="hg-banner-progress-track">
+                                        <div class="hg-banner-progress-bar" id="hg-banner-progress-bar"></div>
+                                    </div>
+                                    <span class="hg-banner-progress-text" id="hg-banner-progress-text">0%</span>
                                 </div>
-                                <span class="hg-banner-progress-text" id="hg-banner-progress-text">0%</span>
+                                <details class="hg-banner-advanced">
+                                    <summary>Opcions</summary>
+                                    <div class="hg-banner-advanced-row">
+                                        <label for="hg-final-select">Final del jeroglífic</label>
+                                        <select id="hg-final-select">
+                                            <option value="any">Qualsevol</option>
+                                            <option value="mate">Escac i mat</option>
+                                            <option value="check">Escac</option>
+                                            <option value="fork">Forquilla</option>
+                                            <option value="pin">Clavada</option>
+                                            <option value="skewer">Enfilada</option>
+                                            <option value="discovery">Descoberta</option>
+                                            <option value="promotion">Promoció</option>
+                                            <option value="major_win">Guany de dama o torre</option>
+                                        </select>
+                                    </div>
+                                </details>
                             </div>
-                            <details class="hg-banner-advanced">
-                                <summary>Opcions</summary>
-                                <div class="hg-banner-advanced-row">
-                                    <label for="hg-final-select">Final del jeroglífic</label>
-                                    <select id="hg-final-select">
-                                        <option value="any">Qualsevol</option>
-                                        <option value="mate">Escac i mat</option>
-                                        <option value="check">Escac</option>
-                                        <option value="fork">Forquilla</option>
-                                        <option value="pin">Clavada</option>
-                                        <option value="skewer">Enfilada</option>
-                                        <option value="discovery">Descoberta</option>
-                                        <option value="promotion">Promoció</option>
-                                        <option value="major_win">Guany de dama o torre</option>
-                                    </select>
-                                </div>
-                            </details>
                         </div>
-                    </div>
-                    <!-- Tres camins: test d'opció múltiple amb jugades TEVES. Sense prou
-                         partides revisades, la línia explica què hi falta. -->
-                    <button class="hb hb--teal tria-banner" id="btn-tria-banner" aria-label="Tres camins" title="Test de 20: les tres millors jugades de les teves posicions. Tria la bona.">
-                        <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-shuffle"/></svg></span>
-                        <span class="hb-text">
-                            <span class="hb-title">Tres camins</span>
-                            <span class="hb-sub tria-banner-meta" id="tria-banner-meta">Preparant el fons…</span>
-                        </span>
-                        <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
-                    </button>
-                    <button class="hb hb--ocean" id="btn-bullet-practice" type="button">
-                        <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-zap"/></svg></span>
-                        <span class="hb-text"><span class="hb-title">Reflexos bullet</span><span class="hb-sub">Pla de 5 minuts · tauler, rellotge i contrarellotge</span></span>
-                        <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
-                    </button>
-                    <button class="hb hb--rosewood" id="btn-srs-review">
-                        <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-repeat"/></svg></span>
-                        <span class="hb-text">
-                            <span class="hb-title">Repàs intel·ligent</span>
-                            <span class="hb-sub" id="srs-info">Cua SRS</span>
-                        </span>
-                        <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
-                    </button>
-                    <div class="home-tiles">
-                        <button class="hb-tile hb-tile--rose" id="btn-tactics">
-                            <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-zap"/></svg>
-                            <span class="hb-tile-title">Tàctiques</span>
-                            <span class="hb-tile-sub" id="tactics-info">Combinacions noves</span>
+                        <button class="hb hb--rosewood" id="btn-srs-review" type="button">
+                            <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-repeat"/></svg></span>
+                            <span class="hb-text"><span class="hb-title">Repàs intel·ligent</span><span class="hb-sub" id="srs-info">Cua SRS</span></span>
+                            <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
                         </button>
-                        <button class="hb-tile hb-tile--amber" id="btn-bundle-menu">
-                            <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-search"/></svg>
-                            <span class="hb-tile-title">Revisa errors</span>
-                            <span class="hb-tile-sub" id="bundle-info">Biblioteca manual</span>
+                        <!-- Tres camins: test d'opció múltiple amb jugades TEVES. Sense prou
+                             partides revisades, la línia explica què hi falta. -->
+                        <button class="hb hb--teal tria-banner" id="btn-tria-banner" type="button" aria-label="Tres camins" title="Test de 20: les tres millors jugades de les teves posicions. Tria la bona.">
+                            <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-shuffle"/></svg></span>
+                            <span class="hb-text"><span class="hb-title">Tres camins</span><span class="hb-sub tria-banner-meta" id="tria-banner-meta">Preparant el fons…</span></span>
+                            <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
                         </button>
-                        <button class="hb-tile hb-tile--lilac" id="btn-opening">
-                            <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-opening"/></svg>
-                            <span class="hb-tile-title">Obertures</span>
-                            <span class="hb-tile-sub">Construeix la teva</span>
+                        <button class="hb hb--plum" id="btn-tactics" type="button">
+                            <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-target"/></svg></span>
+                            <span class="hb-text"><span class="hb-title">Tàctiques</span><span class="hb-sub" id="tactics-info">Combinacions noves</span></span>
+                            <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
                         </button>
-                        <button class="hb-tile hb-tile--sky" id="btn-explorer">
-                            <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-analysis"/></svg>
-                            <span class="hb-tile-title">Tauler d'anàlisi</span>
-                            <span class="hb-tile-sub">Qualsevol posició, amb motor</span>
+                        <button class="hb hb--ochre" id="btn-bundle-menu" type="button">
+                            <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-search"/></svg></span>
+                            <span class="hb-text"><span class="hb-title">Revisa errors</span><span class="hb-sub" id="bundle-info">Biblioteca manual</span></span>
+                            <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
                         </button>
-                    </div>
+                        <button class="hb hb--ocean" id="btn-bullet-practice" type="button">
+                            <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-zap"/></svg></span>
+                            <span class="hb-text"><span class="hb-title">Reflexos bullet</span><span class="hb-sub">Pla de 5 minuts · tauler, rellotge i contrarellotge</span></span>
+                            <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
+                        </button>
+                        <button class="hb hb--indigo" id="btn-opening" type="button">
+                            <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-opening"/></svg></span>
+                            <span class="hb-text"><span class="hb-title">Obertures</span><span class="hb-sub">Construeix la teva i practica-la</span></span>
+                            <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
+                        </button>
+                        <button class="hb hb--azure" id="btn-explorer" type="button">
+                            <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-analysis"/></svg></span>
+                            <span class="hb-text"><span class="hb-title">Tauler d'anàlisi</span><span class="hb-sub">Qualsevol posició, amb motor</span></span>
+                            <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
+                        </button>
+                        </div>
+                    </details>
                 </section>
 
                 <!-- COMUNITAT: partides col·lectives i rànquing -->
@@ -10370,14 +10410,14 @@
     <!-- App Logic -->
     <!-- obertures.js i jeroglifics-reserva.js es carreguen quan el navegador
          queda lliure (app.js: loadDeferredData), no amb la pàgina. -->
-    <script src="core.js?v=1.0.45"></script>
+    <script src="core.js?v=1.0.46"></script>
     <script src="antidoteprogress.js?v=1.0.0"></script>
     <script src="hieroclosure.js?v=1.2.0"></script>
     <script src="reviewsacrifices.js?v=1.0.0"></script>
     <script src="patrons.js?v=1.1.1"></script>
     <script src="jeropedagogia.js?v=1.2.1"></script>
     <script src="sons.js?v=1.0.0"></script>
-    <script src="tutorial.js?v=1.0.5"></script>
+    <script src="tutorial.js?v=1.0.6"></script>
     <script src="tallerobertures.js?v=1.3.1"></script>
     <script src="veuneural.js?v=1.2.2"></script>
     <script src="radioambient.js?v=2.4.2"></script>
@@ -10408,7 +10448,7 @@
     <script src="boardexperience.js?v=1.0.7"></script>
     <script src="bulletbank.js?v=1.0.0"></script>
     <script src="bulletpractice.js?v=1.2.6"></script>
-    <script src="app.js?v=1.0.156"></script>
+    <script src="app.js?v=1.0.157"></script>
     <!-- Pas a Remigi lliscant el dit pel mig de la portada (mòbil) -->
     <script src="canviapp.js?v=1.0.0"></script>
 
