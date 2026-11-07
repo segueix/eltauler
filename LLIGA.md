@@ -275,18 +275,28 @@ cap partida d'amagat.
 
 **Tornades musicals.** Durant el compte enrere sona una tornada de 30 s que
 **l'app compon en aquell moment** (`radioambient.js`, `composeJingle`) i
-sintetitza al dispositiu com la resta de música. Hi ha cinc estils
-(arranjaments: instruments i ritme): *Fanfàrria de jornada*, *Galop del
-rellotge*, *Rumba de la classificació*, *Funk de la jugada* i *Himne de la
-lliga*; cada transició en tria un de diferent de l'anterior
-(`eltauler_league_jingle_last`). La música és nova cada vegada: tonalitat,
-tempo, progressió d'acords en frases A · A' · B amb cadència a la dominant, i
-una melodia amb notes de l'acord als temps forts, passos per l'escala entre
-mig, el motiu de la primera frase repetit a la segona i el final a la
-tònica. Tot surt d'una llavor (un enter); l'app recorda l'empremta de les
-200 darreres peces (`eltauler_league_jingle_seen`) i no en repeteix cap. La
-pantalla diu quina sona («Sona: Rumba de la classificació · la menor · núm.
-48213»). Comença
+sintetitza al dispositiu com la resta de música. És música **tranquil·la**,
+per acompanyar entre partida i partida: tempos de 77 a 104 ppm, percussió
+suau, salts de melodia curts, notes llargues i un final amable. Hi ha cinc
+estils d'acompanyament: *Passeig de jornada*, *Tic-tac del rellotge*, *Rumba
+de la classificació*, *Groove de la jugada* i *Himne de la lliga*; cada
+transició en tria un de diferent de l'anterior
+(`eltauler_league_jingle_last`). Cada peça tria també el **solista** (flauta,
+vibràfon, piano elèctric, clarinet, trompa, cordes, arpa, guitarra, marimba,
+celesta o acordió, segons l'estil) i una de dues **variants
+d'acompanyament** (ritme de guitarra, línia de baix, arpegis, tic-tac sí o
+no). La música és nova cada vegada: tonalitat, tempo, progressió d'acords en
+frases A · A' · B amb cadència a la dominant, i una melodia amb notes de
+l'acord als temps forts, passos per l'escala entre mig, el motiu de la
+primera frase repetit a la segona i el final a la tònica. Tot surt d'una
+llavor (un enter); l'app recorda l'empremta de les 200 darreres peces
+(`eltauler_league_jingle_seen`) i no en repeteix cap. La pantalla diu quina
+sona («Sona: Rumba de la classificació · la menor · flauta · núm. 48213»). La
+mateixa música composta sona també de fons a la TV Stockfish vs Lozza (un
+bucle de 32 s nou per a cada partida, `composeMelodyId`). Totes les peces
+queden al **registre** de Configuració › Veus de lectura › «Música composta
+per l'app» (`eltauler_composed_music`, només estil i llavor): les 60 darreres
+i les preferides, per tornar-les a escoltar. Comença
 pel punt on va el compte enrere (si generar-la triga una mica) perquè l'acord
 final, entre el segon 26 i el 27, coincideixi amb l'inici de la partida; es
 pausa amb l'app amagada i s'apaga suaument amb «Juga ara», «Inici» o en

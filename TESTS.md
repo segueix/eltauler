@@ -639,7 +639,7 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   reprendre, si Matxa continua caiguda, s'atura al comentari següent). La
   **interfície de veu** només ofereix el perfil Ràdio, té l'equalitzador de
   cinc bandes a la TV i a la Configuració, la música de fons és «sense música» o
-  «una melodia a l'atzar a cada partida» i hi ha l'avís d'espera.
+  «música composta per l'app, nova a cada partida» i hi ha l'avís d'espera.
   **Stockfish 19 (prova pilot)**: amb les opcions que declara Stockfish
   oficial (`UCI_Elo` 1320–3190 i `UCI_LimitStrength`) la TV passa sola al mode
   Elo, amb vint esglaons (els extrems i els centenars rodons: 1320, 1400 …
@@ -719,6 +719,16 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   hi encadena amb un fos, baixa el volum quan parla la veu, i es comporta bé
   sense Web Audio, amb errors i amb un context que es reprèn tard. Els sons
   antics (`studio`, `tuning`, `theme`) es llegeixen com a música.
+- **`leaguejingles.test.js`** — la **música que compon l'app**
+  (`radioambient.js`, `composeJingle`): tornades de 30 s entre partides de la
+  lliga i bucles de 32 s per a la TV Stockfish vs Lozza. Cinc estils
+  tranquils (77-104 ppm) amb solista i variant d'acompanyament; la mateixa
+  llavor dona la mateixa peça i llavors diferents, peces diferents; regles
+  musicals (notes de l'escala, notes de l'acord als temps forts, cadència a
+  la dominant, final a la tònica), cop final de les tornades entre el segon
+  24,5 i el 26,5 i bucles de 32 s exactes sense esvaïment; reproductor d'una
+  sola vegada (volum, punt d'inici, pausa, aturada abans d'hora); registre de
+  peces compostes (60 darreres i totes les preferides, sense duplicats).
 - **`estratagemes.test.js`** — **Les 36 estratagemes** (`estratagemes.js`):
   28 estratagemes amb el número tradicional i de 4 a 8 frases originals
   cadascun (160), totes breus, acabades en punt, sense «victòries segures» ni
