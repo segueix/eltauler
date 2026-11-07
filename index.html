@@ -6642,6 +6642,7 @@
         body.epaper-mode #start-screen .engagement-banner .eng-cta { background: #222 !important; color: #fff !important; }
     </style>
     <link rel="stylesheet" href="bulletpractice.css?v=1.2.1">
+    <link rel="stylesheet" href="tallerobertures.css?v=1.1.0">
     <link rel="stylesheet" href="canviapp.css?v=1.0.0">
 </head>
 <body>
@@ -6663,6 +6664,16 @@
             <path d="M17.5 5h2a2 2 0 0 1 0 4h-2"/>
             <path d="M12 12.5v3.5"/>
             <path d="M9 16h6l1.4 4h-8.8z"/>
+        </symbol>
+        <!-- Obertures: l'arbre de la teva obertura (una arrel, tres línies) -->
+        <symbol id="ic-opening" viewBox="0 0 24 24">
+            <circle cx="12" cy="19.4" r="1.9"/>
+            <circle cx="5.6" cy="5.4" r="1.9"/>
+            <circle cx="12" cy="4.4" r="1.9"/>
+            <circle cx="18.4" cy="5.4" r="1.9"/>
+            <path d="M12 17.5V6.3"/>
+            <path d="M12 12.6c0-2.6-2.4-3.6-5-5.6"/>
+            <path d="M12 12.6c0-2.6 2.4-3.6 5-5.6"/>
         </symbol>
         <symbol id="ic-book" viewBox="0 0 24 24">
             <path d="M12 6.5C10.6 5.6 8.9 5 7 5H3v12h4c1.9 0 3.6.6 5 1.5"/>
@@ -7157,9 +7168,9 @@
                             <span class="hb-tile-sub" id="bundle-info">Biblioteca manual</span>
                         </button>
                         <button class="hb-tile hb-tile--lilac" id="btn-opening">
-                            <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-book"/></svg>
+                            <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-opening"/></svg>
                             <span class="hb-tile-title">Obertures</span>
-                            <span class="hb-tile-sub">Repertori i lliçons</span>
+                            <span class="hb-tile-sub">Construeix la teva</span>
                         </button>
                         <button class="hb-tile hb-tile--sky" id="btn-explorer">
                             <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-analysis"/></svg>
@@ -9067,9 +9078,72 @@
 
         <div id="opening-screen" class="screen-anim" style="display:none;">
             <div class="stats-header">
-                <div class="app-logo">📖</div>
+                <div class="app-logo"><svg class="opening-logo-ic" aria-hidden="true"><use href="#ic-opening"/></svg></div>
                 <h1>Obertures</h1>
             </div>
+            <!-- La secció cap en un sol tauler: el taller de la TEVA obertura
+                 (tallerobertures.js). Els blocs antics de sota només surten quan
+                 s'hi entra des d'una altra part de l'app (jeroglífic d'obertura,
+                 errors d'obertura, pràctica des de l'historial). -->
+            <section class="olab" id="opening-lab" aria-label="La teva obertura">
+                <div class="olab-seg" role="group" aria-label="Color">
+                    <button type="button" class="olab-seg-btn is-on" data-olab-color="w" aria-pressed="true">Amb blanques</button>
+                    <button type="button" class="olab-seg-btn" data-olab-color="b" aria-pressed="false">Amb negres</button>
+                </div>
+                <div class="olab-title" id="olab-title">La teva obertura amb blanques</div>
+                <div class="olab-main">
+                    <div class="olab-board-col">
+                        <div class="olab-name" id="olab-name" aria-live="polite"><span class="olab-name-text">Posició inicial</span></div>
+                        <div class="olab-board-wrap board-container" id="olab-board-wrap"><div id="olab-board"></div></div>
+                        <div class="olab-progress" aria-hidden="true"><div class="olab-progress-bar" id="olab-progress-bar"></div></div>
+                        <div class="olab-progress-text" id="olab-progress-text">0/8 jugades teves</div>
+                    </div>
+                    <div class="olab-side">
+                        <div class="olab-moves" id="olab-moves"></div>
+                        <div class="olab-guide" id="olab-guide" aria-live="polite"></div>
+                        <div class="olab-feedback" id="olab-feedback" aria-live="polite"></div>
+                        <div class="olab-actions">
+                            <button type="button" class="btn btn-secondary" id="olab-undo" title="Torna a la teva jugada anterior">↩ Enrere</button>
+                            <button type="button" class="btn btn-hint" id="olab-hint">💡 Pista</button>
+                            <button type="button" class="btn btn-primary" id="olab-new">Nova línia</button>
+                        </div>
+                        <div class="olab-stats" id="olab-stats"></div>
+                        <div class="olab-plan" id="olab-plan"></div>
+                        <div class="olab-issues" id="olab-issues" hidden></div>
+                        <div class="olab-named" id="olab-named" hidden></div>
+                    </div>
+                </div>
+                <details class="olab-more">
+                    <summary>Com funciona i opcions</summary>
+                    <ol class="olab-howto">
+                        <li><strong>Posició nova:</strong> tria la teva jugada. Stockfish 19 la valida; si és dubtosa, et diu per què i la tornes a provar.</li>
+                        <li><strong>Una posició, una jugada:</strong> cada jugada acceptada queda al teu repertori, també si hi arribes per un altre ordre.</li>
+                        <li><strong>El teu pla:</strong> on va cada peça la primera vegada que la mous. Si una jugada nova el contradiu sense un motiu que Stockfish 19 confirmi, tries: mantens el pla o el canvies. La coherència arriba al 100% quan totes les línies segueixen el mateix pla o en justifiquen l’excepció.</li>
+                        <li><strong>Les teves obertures:</strong> quan acabes una línia on surts de la teoria amb una jugada teva i tot és coherent, et demanem un nom. Es guarda amb les altres, el tauler la reconeix quan hi tornes i la pots practicar: el rival en segueix la línia i tu recordes les teves jugades.</li>
+                        <li><strong>Repàs:</strong> a les posicions que ja tens, has de recordar la teva jugada. El rival tria respostes de la teoria i et porta on et toca repassar o on encara no has decidit.</li>
+                    </ol>
+                    <div class="olab-opts">
+                        <label for="olab-depth">Llargada de la línia</label>
+                        <select id="olab-depth" class="select-control">
+                            <option value="6">6 jugades teves</option>
+                            <option value="8" selected>8 jugades teves</option>
+                            <option value="10">10 jugades teves</option>
+                            <option value="12">12 jugades teves</option>
+                        </select>
+                    </div>
+                    <div class="olab-opts">
+                        <label for="olab-rep-name">Nom de la teva obertura</label>
+                        <input type="text" id="olab-rep-name" class="olab-input" maxlength="60" placeholder="Posa-li nom">
+                    </div>
+                    <div class="olab-opts olab-opts--btns">
+                        <button type="button" class="btn btn-secondary olab-btn-sm" id="olab-forget" hidden>Oblida la jugada d’aquesta posició</button>
+                        <button type="button" class="btn btn-secondary olab-btn-sm" id="olab-reset">Esborra el repertori d’aquest color</button>
+                    </div>
+                </details>
+                <div class="olab-extra">
+                    <button type="button" class="btn btn-secondary" id="olab-hiero"><svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> Jeroglífic d’obertura</button>
+                </div>
+            </section>
             <div class="opening-banner" id="personal-opening-banner">
                 <button type="button" class="opening-banner-head" id="btn-personal-opening-toggle" aria-expanded="false" aria-controls="personal-opening-panel">
                     <svg class="opening-banner-ic" aria-hidden="true"><use href="#ic-compass"/></svg>
@@ -9175,7 +9249,7 @@
                     <!-- Al jeroglífic d'obertura, aquest botó substitueix el de casa
                          petit: allà baix ja hi ha el botó-casa de la secció. -->
                     <button class="btn btn-hieroglyphic" id="btn-opening-hiero-next" style="display:none;" title="Fes un altre jeroglífic d'obertura"><svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> Un altre jeroglífic</button>
-                    <button class="btn btn-nav-section" id="btn-opening-hiero-back" style="display:none;" title="Deixa l'exercici i torna a la secció d'Obertures">📖 Tornar a Obertures</button>
+                    <button class="btn btn-nav-section" id="btn-opening-hiero-back" style="display:none;" title="Deixa l'exercici i torna a la secció d'Obertures"><svg class="btn-ic" aria-hidden="true"><use href="#ic-opening"/></svg>Tornar a Obertures</button>
                     <button class="btn btn-nav-home" id="btn-opening-bundle-menu" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
                 </div>
             </div>
@@ -9228,7 +9302,7 @@
                     <div class="nav-trio">
                         <button class="btn btn-nav-home" id="btn-opening-error-menu" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
                         <button class="btn btn-nav-board" id="btn-opening-error-board" title="Tanca la finestra i mira la posició final"><svg class="btn-ic" aria-hidden="true"><use href="#ic-board"/></svg>Veure tauler</button>
-                        <button class="btn btn-nav-section" id="btn-opening-error-home">📖 Obertures</button>
+                        <button class="btn btn-nav-section" id="btn-opening-error-home"><svg class="btn-ic" aria-hidden="true"><use href="#ic-opening"/></svg>Obertures</button>
                     </div>
                 </div>
             </div>
@@ -10194,6 +10268,7 @@
     <script src="jeropedagogia.js?v=1.2.1"></script>
     <script src="sons.js?v=1.0.0"></script>
     <script src="tutorial.js?v=1.0.5"></script>
+    <script src="tallerobertures.js?v=1.1.0"></script>
     <script src="veuneural.js?v=1.2.2"></script>
     <script src="radioambient.js?v=2.1.0"></script>
     <script src="musicafons.js?v=1.2.0"></script>
@@ -10223,7 +10298,7 @@
     <script src="boardexperience.js?v=1.0.6"></script>
     <script src="bulletbank.js?v=1.0.0"></script>
     <script src="bulletpractice.js?v=1.2.6"></script>
-    <script src="app.js?v=1.0.146"></script>
+    <script src="app.js?v=1.0.148"></script>
     <!-- Pas a Remigi lliscant el dit pel mig de la portada (mòbil) -->
     <script src="canviapp.js?v=1.0.0"></script>
 

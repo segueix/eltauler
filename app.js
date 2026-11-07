@@ -92,6 +92,8 @@ let savedErrors = [];
 let puzzles = []; // jeroglífics (puzzles tàctics de 3 jugades) generats de partides pròpies
 // Icona de peça de puzle dels jeroglífics (substitueix l'antic emoji 🔮).
 const HG_ICON_SVG = '<svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg>';
+// Icona de la secció d'Obertures (la mateixa que el mosaic de l'inici).
+const OPENING_ICON_SVG = '<svg class="opening-logo-ic" aria-hidden="true"><use href="#ic-opening"/></svg>';
 let currentReview = [];
 let reviewHistory = [];
 let reviewChart = null;
@@ -18376,7 +18378,7 @@ function setOpeningScreenMode(mode = 'overview') {
     const header = document.querySelector('#opening-screen .stats-header h1');
     const logo = document.querySelector('#opening-screen .stats-header .app-logo');
     if (header) header.textContent = isOpeningHiero ? 'Jeroglífic d’obertura' : (isHieroglyphicMode ? 'Jeroglífics' : 'Obertures');
-    if (logo) logo.innerHTML = isHieroglyphicMode ? HG_ICON_SVG : '📖';
+    if (logo) logo.innerHTML = isHieroglyphicMode ? HG_ICON_SVG : OPENING_ICON_SVG;
     // El nom del bloc viu en un span propi: el mode jeroglífic el reescriu sense
     // endur-se la icona ni el xip del número, que s'amaga perquè aquí no hi som
     // per fer el Bloc 2.
@@ -18397,7 +18399,7 @@ function setOpeningScreenMode(mode = 'overview') {
     $('#btn-opening-bundle-menu').toggle(!isOpeningHiero);
     // …i, per deixar l'exercici sense marxar de la pantalla, la sortida cap a la
     // secció d'Obertures.
-    $('#btn-opening-hiero-back').toggle(isOpeningHiero);
+    $('#btn-opening-hiero-back').toggle(isOpeningHiero || mode === 'lesson' || mode === 'practice');
     // La pista només desapareix amb l'exercici resolt; qualsevol canvi de mode
     // la torna a deixar disponible.
     $('#btn-opening-bundle-hint').show();
@@ -18416,7 +18418,17 @@ function setOpeningScreenMode(mode = 'overview') {
         hieroglyphic: $('#opening-hieroglyphic-section')
     };
     Object.values(sections).forEach($el => { if ($el && $el.length) $el.show(); });
-    if (mode === 'lesson' || mode === 'practice') {
+    // La portada de la secció és el taller d'un sol tauler («La teva obertura»,
+    // tallerobertures.js). Els blocs antics només surten quan s'hi entra des
+    // d'una altra part de l'app (jeroglífic, errors, pràctica des de l'historial).
+    const labOn = mode === 'overview';
+    document.body.classList.toggle('opening-lab-on', labOn);
+    $('#opening-lab').toggle(labOn);
+    if (labOn) {
+        Object.values(sections).forEach($el => { if ($el && $el.length) $el.hide(); });
+        if (window.ElTaulerOpeningLab && typeof window.ElTaulerOpeningLab.refresh === 'function') window.ElTaulerOpeningLab.refresh();
+    } else if (mode === 'lesson' || mode === 'practice') {
+        Object.values(sections).forEach($el => { if ($el && $el.length) $el.hide(); });
         sections.practice.show();
     } else if (mode === 'error-practice') {
         sections.personal.hide();
@@ -19502,7 +19514,7 @@ function showOpeningErrorSuccessOverlay(noMore) {
             exitOpeningErrorPractice();
             goToHomeScreen();
         },
-        sectionLabel: '<svg class="btn-ic" aria-hidden="true"><use href="#ic-book"/></svg>Obertures',
+        sectionLabel: '<svg class="btn-ic" aria-hidden="true"><use href="#ic-opening"/></svg>Obertures',
         onSection: () => exitOpeningErrorPractice()
     });
 
@@ -24399,6 +24411,8 @@ function startOpeningTheoryHieroglyphic() {
 // el tauler recupera la pràctica de línia i tornen a sortir tots els blocs.
 function exitOpeningHieroglyphicToOpenings() {
     hieroglyphicExerciseActive = false;
+    // També serveix per deixar una lliçó oberta des de l'historial.
+    openingLessonActive = false;
     currentOpeningHieroglyphic = null;
     openingHieroglyphicSolvedCard = false;
     openingHieroglyphicBaseClue = { key: null, text: '' };
@@ -25029,7 +25043,9 @@ function startOpeningPracticeAsColor(color) {
     resetOpeningPracticeBoard();
     orientOpeningPracticeBoard(openingPracticeUserColor);
     if (openingPracticeUserColor === 'b') {
-        setTimeout(() => playOpeningInitialWhiteMove(), 150);
+        // Amb el taller a la vista, el tauler antic és amagat: no cal que el
+        // motor hi faci la primera jugada blanca.
+        setTimeout(() => { if (!document.body.classList.contains('opening-lab-on')) playOpeningInitialWhiteMove(); }, 150);
     }
 }
 
@@ -25401,18 +25417,23 @@ function setupEvents() {
     $('#btn-league-play').click(() => { if (guardCalibrationAccess()) startLeagueRound(); });
     $('#btn-li-play').on('click', () => startLeagueRoundFromInterlude());
     $('#btn-li-home').on('click', () => leaveLeagueInterludeHome());
+    // El taller d'obertures (tallerobertures.js) analitza amb el seu propi
+    // worker de Stockfish 19 i anomena les posicions amb el graf de l'app.
+    if (window.ElTaulerOpeningLab && typeof window.ElTaulerOpeningLab.configure === 'function') {
+        window.ElTaulerOpeningLab.configure({
+            stockfishUrl: HIERO_STOCKFISH_URL,
+            getGraph: () => getOpeningPositionGraph(),
+            onHiero: () => { initOpeningBundleBoard(); startOpeningTheoryHieroglyphic(); }
+        });
+    }
     $('#btn-opening').click(() => {
         renderOpeningStatsScreen();
-        renderPersonalRepertoire();
-        renderPersonalOpeningSection();
-        renderOpeningHieroglyphicBanner();
-        renderOpeningLessonButtons();
         initOpeningBundleBoard();
-        startOpeningPracticeAsColor(openingPracticeUserColor);
         setOpeningScreenMode('overview');
         $('#start-screen').hide();
         $('#opening-screen').show();
         navPush('opening-screen');
+        if (window.ElTaulerOpeningLab && typeof window.ElTaulerOpeningLab.open === 'function') window.ElTaulerOpeningLab.open();
         setTimeout(() => resizeOpeningBoardToViewport(), 50);
     });
     $(document).on('click', '.opening-lesson-btn', function() {

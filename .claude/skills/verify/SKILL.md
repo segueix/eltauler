@@ -221,6 +221,30 @@ Conduir amb Playwright + Chromium preinstal·lat
     `.app-switch-hint` (comptador a `eltauler_app_switch_hint_v1`; posar-hi
     `3` perquè no surti).
 
+18. **Obertures = «La teva obertura»** (`tallerobertures.js` +
+    `tallerobertures.css`): `#btn-opening` (o `?mode=openings`) obre
+    `#opening-screen` amb el taller `#opening-lab` (un sol tauler,
+    `#olab-board`). Estat: `ElTaulerOpeningLab._state()` (`phase`: `user`,
+    `judging`, `rival`, `conflict`, `done`; `sans`, `color`, `store`). Les
+    jugades es fan clicant `#olab-board [data-square=..]` (mode tocar, sense
+    espera mínima) o arrossegant (mode arrossegar). Fa servir Stockfish 19 REAL
+    (funciona al Chromium headless; cada decisió triga 1–3 s): esperar que
+    `phase` torni a `user`/`conflict`/`done`. Per fer el rival determinista,
+    `Math.random = () => 0.01` abans de jugar. Conflicte de pla: botons
+    `[data-olab-act="keep-plan"]` / `"change-plan"`; error en recordar:
+    `[data-olab-act="swap"]`; problemes de coherència: `[data-olab-review]`.
+    El repertori és a `chess_openingWorkshop_v1`. **Obertures amb nom**: en
+    acabar una línia fora de llibre, coherent i nova surt
+    `#olab-name-prompt` (camp `#olab-newname`, `[data-olab-act="save-name"]` o
+    Enter, `"decline-name"`); es desen a `sides.<color>.named` i es llisten a
+    `#olab-named` (`[data-olab-practice]`, `[data-olab-rename]`,
+    `[data-olab-delete]`). Practicant, el rival segueix la línia desada
+    (`state().follow`). Amb profunditat 6 (`#olab-depth`) i la llista d.4,
+    Cf3, Af4, e3, h3, Ad3 la primera línia ja surt del llibre. Els blocs antics de la
+    secció (pràctica, errors, jeroglífic d'obertura) només surten en entrar-hi
+    des d'altres llocs (`#olab-hiero`, missions, historial); `setOpeningScreenMode('overview')`
+    torna al taller.
+
 ## Fluxos útils
 
 - **Final de partida real per la UI**: `#btn-new-game` → `#btn-resign` →
