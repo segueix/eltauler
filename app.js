@@ -5879,7 +5879,10 @@ function startLeagueInterludeMusic() {
         volume: want.volume,
         startedAt: () => leagueInterlude ? Math.max(0, (totalMs - leagueInterlude.remainingMs) / 1000) : 0
     }).then(ok => {
-        if (!ok || !leagueInterlude) return;
+        if (!ok) return;
+        // Al registre de música composta (Configuració › Veus de lectura).
+        try { want.R.registerComposition({ where: 'lliga', style: spec.style, seed: spec.seed, loop: false }); } catch (e) {}
+        if (!leagueInterlude) return;
         if (document.hidden) leagueJinglePlayer.pause();
         $('#li-music').html(`<svg class="btn-ic" aria-hidden="true"><use href="#ic-music"/></svg>Sona: ${escapeHtml(want.R.jingleTitle(spec))} · núm. ${spec.seed % 100000}`)
             .attr('title', 'Peça composta ara mateix per l’app: cada vegada n’és una de nova').show();
@@ -31403,7 +31406,72 @@ function refreshVoiceMusicSettingsUi() {
         status.style.display = status.textContent ? '' : 'none';
     }
 }
+// Registre de la música composta per l'app (radioambient.js): les peces es
+// tornen a generar exactament amb l'estil i la llavor desats.
+let composedPreviewPlayer = null;
+let composedPreviewKey = null;
+function renderComposedMusicRegistry() {
+    const R = window.ElTaulerRadioAmbient;
+    const box = document.getElementById('composed-music-list');
+    const count = document.getElementById('composed-music-count');
+    if (!R || typeof R.registryList !== 'function' || !box) return;
+    const list = R.registryList();
+    if (count) count.textContent = list.length ? '(' + list.length + ')' : '';
+    const wrap = document.getElementById('composed-music');
+    if (wrap && !wrap.open) return;
+    if (!list.length) { box.innerHTML = '<div class="setting-help">Encara no n’ha sonat cap: la primera arribarà entre partides de la lliga o a la TV.</div>'; return; }
+    const sorted = list.slice().sort((a, b) => (b.fav ? 1 : 0) - (a.fav ? 1 : 0) || b.at - a.at);
+    box.innerHTML = sorted.map(e => {
+        const key = R.registryKey(e);
+        const spec = R.registrySpec(e);
+        const when = new Date(e.at);
+        const date = when.toLocaleDateString('ca-ES', { day: 'numeric', month: 'short' }) + ' ' + when.toLocaleTimeString('ca-ES', { hour: '2-digit', minute: '2-digit' });
+        const playing = composedPreviewKey === key;
+        return `<div class="cm-row${playing ? ' is-playing' : ''}">
+            <div class="cm-info"><span class="cm-title">${escapeHtml(R.jingleTitle(spec))}</span>
+            <span class="cm-meta">${e.where === 'tv' ? 'Stockfish TV' : 'Lliga'} · ${escapeHtml(date)} · núm. ${e.seed % 100000}</span></div>
+            <button type="button" class="btn btn-secondary cm-btn" data-cm-play="${escapeHtml(key)}" aria-label="${playing ? 'Atura' : 'Escolta'} ${escapeHtml(R.jingleTitle(spec))}" title="${playing ? 'Atura' : 'Escolta-la'}"><svg class="btn-ic" aria-hidden="true"><use href="#${playing ? 'ic-stop' : 'ic-play'}"/></svg></button>
+            <button type="button" class="btn btn-secondary cm-btn cm-fav" data-cm-fav="${escapeHtml(key)}" aria-pressed="${e.fav ? 'true' : 'false'}" title="${e.fav ? 'Treu-la de les preferides' : 'Desa-la com a preferida'}" aria-label="Preferida"><svg class="btn-ic" aria-hidden="true"><use href="#ic-bookmark"/></svg></button>
+        </div>`;
+    }).join('');
+}
+function toggleComposedPreview(key) {
+    const R = window.ElTaulerRadioAmbient;
+    if (!R) return;
+    if (!composedPreviewPlayer) composedPreviewPlayer = R.createJinglePlayer();
+    if (composedPreviewKey === key) {
+        composedPreviewPlayer.stop(true);
+        composedPreviewKey = null;
+        renderComposedMusicRegistry();
+        return;
+    }
+    const e = R.registryList().find(x => R.registryKey(x) === key);
+    if (!e) return;
+    const coord = voiceMusicApi();
+    const prefs = coord ? coord.prefs() : { volume: 20 };
+    composedPreviewKey = key;
+    renderComposedMusicRegistry();
+    composedPreviewPlayer.play(R.registrySpec(e), {
+        volume: prefs.volume > 0 ? prefs.volume : 20,
+        onEnded: () => { if (composedPreviewKey === key) { composedPreviewKey = null; renderComposedMusicRegistry(); } }
+    }).then(ok => {
+        if (!ok && composedPreviewKey === key) {
+            composedPreviewKey = null;
+            renderComposedMusicRegistry();
+            showToast('Ara no es pot reproduir: comprova que la música estigui activada.', 'warn');
+        }
+    });
+}
 function initVoiceMusicSettingsUi() {
+    $('#composed-music').off('toggle').on('toggle', () => {
+        renderComposedMusicRegistry();
+        if (!document.getElementById('composed-music').open && composedPreviewPlayer) { composedPreviewPlayer.stop(true); composedPreviewKey = null; }
+    });
+    $(document).off('click.cm').on('click.cm', '[data-cm-play]', function () { toggleComposedPreview(this.getAttribute('data-cm-play')); })
+        .on('click.cm', '[data-cm-fav]', function () {
+            const R = window.ElTaulerRadioAmbient;
+            if (R) { R.toggleFavourite(this.getAttribute('data-cm-fav')); renderComposedMusicRegistry(); }
+        });
     const coord = voiceMusicApi();
     if (coord && typeof coord.setQuietCheck === 'function') coord.setQuietCheck(timedGameInProgress);
     $('#voice-music-mode').off('change').on('change', function () {
@@ -31424,6 +31492,7 @@ function initVoiceMusicSettingsUi() {
 function refreshDeviceSettingsUi() {
     try { refreshSoundSettingsUi(); } catch (e) {}
     try { refreshVoiceMusicSettingsUi(); } catch (e) {}
+    try { renderComposedMusicRegistry(); } catch (e) {}
     try { refreshDailyNotifyToggle(); } catch (e) {}
 }
 

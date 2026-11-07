@@ -4277,14 +4277,29 @@
         const screenVisible = options.visible;
         const controller = { state: options.getState };
         let voice = null, radioAmbience = null;
-        // Melodia de fons: una a l'atzar per partida (identificador de la
-        // partida a l'estat) o, si no n'hi ha, per a cada retransmissió.
-        let melodyKey, melody = null;
+        // Música de fons: un bucle que l'app COMPON per a cada partida
+        // (identificador de la partida a l'estat) o, si no n'hi ha, per a cada
+        // retransmissió: estil, tonalitat, solista i melodia nous cada vegada
+        // (radioambient.js, composeMelodyId). Sense compositor, una de les
+        // melodies de la ràdio.
+        let melodyKey, melody = null, registered = null;
         function gameMelody(api, state) {
             const key = state && state.game && state.game.id !== undefined ? 'game:' + state.game.id
                 : (state && state.gameKey !== undefined ? 'key:' + state.gameKey : 'session');
-            if (!melody || key !== melodyKey) { melodyKey = key; melody = api.pickMelody(Math.random, melody); }
+            if (!melody || key !== melodyKey) {
+                melodyKey = key;
+                melody = typeof api.composeMelodyId === 'function' ? api.composeMelodyId(Math.random, melody) : api.pickMelody(Math.random, melody);
+            }
             return melody;
+        }
+        // Quan un bucle compost comença a sonar, queda al registre de música
+        // composta (Configuració › Veus de lectura).
+        function registerPlaying(api, playing) {
+            if (!playing || playing === registered || typeof api.parseComposedId !== 'function') return;
+            const p = api.parseComposedId(playing);
+            if (!p) return;
+            registered = playing;
+            try { api.registerComposition({ where: 'tv', style: p.style, seed: p.seed, loop: true }); } catch (err) {}
         }
         if (prefix !== 'sftv' && options.host) {
             options.host.textContent = '';
@@ -4331,6 +4346,7 @@
         const api = root.ElTaulerRadioAmbient;
         const st = radioAmbience ? radioAmbience.status() : 'off';
         const playing = radioAmbience && radioAmbience.playing ? radioAmbience.playing() : null;
+        if (st === 'playing' && api) registerPlaying(api, playing);
         status.textContent = st === 'unavailable'
             ? 'La música de fons no està disponible en aquest navegador. La veu continua funcionant.'
             : (st === 'playing' && playing && api ? 'Ara sona: ' + api.melodyInfo(playing).name + ' (' + api.melodyInfo(playing).description + ').' : '');

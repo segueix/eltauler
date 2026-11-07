@@ -207,3 +207,81 @@ describe('connexió amb la pantalla entre partides de la lliga', () => {
         expect(html).toMatch(/<symbol id="ic-music"/);
     });
 });
+
+describe('música composta a la TV Stockfish vs Lozza', () => {
+    test('a cada partida, un bucle compost de 32 s exactes, sense cop final', () => {
+        const id = R.composeMelodyId(seeded(5), null);
+        const p = R.parseComposedId(id);
+        expect(p).not.toBeNull();
+        expect(R.melodyId(id)).toBe(id);
+        const sp = R.composedLoopSpec(id);
+        expect(sp.loop).toBe(true);
+        expect(sp.chords.length * sp.beat * 4).toBeCloseTo(R.MELODY_SECONDS, 6);
+        // L'últim compàs és la dominant: torna a la tònica en començar de nou.
+        expect(sp.degrees[sp.degrees.length - 1]).toBe(4);
+        const info = R.melodyInfo(id);
+        expect(info.composed).toBe(true);
+        expect(info.name).toBe(R.jingleTitle(sp));
+        expect(info.description).toMatch(/composta ara per l’app, núm\. \d+/);
+        const d = R.samples(id, SR, seeded());
+        expect(d.length).toBe(R.MELODY_SECONDS * SR);
+        // Sense esvaïment: el bucle continua sonant fins a l'últim instant.
+        expect(rms(d, d.length - Math.round(0.5 * SR), d.length)).toBeGreaterThan(0.02);
+    });
+    test('estil diferent de la partida anterior; identificadors dolents, a la melodia per defecte', () => {
+        let prev = R.composeMelodyId(seeded(1), null);
+        for (let k = 0; k < 20; k++) {
+            const next = R.composeMelodyId(Math.random, prev);
+            expect(R.parseComposedId(next).style).not.toBe(R.parseComposedId(prev).style);
+            prev = next;
+        }
+        expect(R.parseComposedId('c:no-existeix:5')).toBeNull();
+        expect(R.melodyId('c:no-existeix:5')).toBe(R.MELODIES[0].id);
+        expect(R.melodyId('bossa')).toBe('bossa');
+    });
+    test('la TV fa servir el compositor i desa al registre el que sona', () => {
+        const tv = fs.readFileSync(path.join(__dirname, '../stockfishtv.js'), 'utf8');
+        expect(tv).toMatch(/api\.composeMelodyId\(Math\.random, melody\)/);
+        expect(tv).toMatch(/api\.registerComposition\(\{ where: 'tv'/);
+    });
+});
+
+describe('registre de la música composta', () => {
+    function memory() {
+        const data = {};
+        return { getItem: k => (k in data ? data[k] : null), setItem: (k, v) => { data[k] = String(v); }, data };
+    }
+    test('desa estil i llavor, sense duplicats; la peça es torna a generar igual', () => {
+        const st = memory();
+        R.registerComposition({ where: 'lliga', style: 'rumba', seed: 12, at: 1 }, st);
+        R.registerComposition({ where: 'tv', style: 'himne', seed: 7, loop: true, at: 2 }, st);
+        R.registerComposition({ where: 'lliga', style: 'rumba', seed: 12, at: 3 }, st);
+        const list = R.registryList(st);
+        expect(list.map(e => R.registryKey(e))).toEqual(['rumba:12:t', 'himne:7:b']);
+        expect(list[0].at).toBe(3);
+        expect(R.registrySpec(list[1])).toEqual(R.composeJingle('himne', 7, { loop: true }));
+        expect(R.registrySpec(list[0])).toEqual(R.composeJingle('rumba', 12));
+        expect(R.registerComposition({ style: 'no-existeix', seed: 1 }, st)).toBeNull();
+    });
+    test('es guarden les 60 darreres i totes les preferides', () => {
+        const st = memory();
+        R.registerComposition({ where: 'lliga', style: 'funk', seed: 1, at: 0 }, st);
+        expect(R.toggleFavourite('funk:1:t', st)).toBe(true);
+        for (let k = 2; k <= 80; k++) R.registerComposition({ where: 'lliga', style: 'galop', seed: k, at: k }, st);
+        const list = R.registryList(st);
+        expect(list.filter(e => !e.fav)).toHaveLength(60);
+        expect(list.find(e => R.registryKey(e) === 'funk:1:t').fav).toBe(true);
+        // Tornar-la a sentir no li treu la marca de preferida.
+        R.registerComposition({ where: 'lliga', style: 'funk', seed: 1, at: 99 }, st);
+        expect(R.registryList(st)[0]).toMatchObject({ style: 'funk', fav: true, at: 99 });
+        expect(R.toggleFavourite('funk:1:t', st)).toBe(false);
+    });
+    test('Configuració mostra el registre amb escolta i preferides', () => {
+        const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+        const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+        expect(html).toContain('id="composed-music-list"');
+        expect(app).toMatch(/data-cm-play=/);
+        expect(app).toMatch(/data-cm-fav=/);
+        expect(app).toMatch(/registerComposition\(\{ where: 'lliga'/);
+    });
+});

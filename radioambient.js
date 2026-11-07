@@ -36,8 +36,15 @@
         { id: 'marimba', name: 'Illa de marimba', description: 'marimba, steel drum, baix i maraca de calipso' },
         { id: 'lofi', name: 'Estudi lo-fi', description: 'piano elèctric, bateria mandrosa i cruixit de vinil' }
     ];
-    function melodyId(id) { return MELODIES.some(m => m.id === id) ? id : MELODIES[0].id; }
-    function melodyInfo(id) { return MELODIES.find(m => m.id === melodyId(id)); }
+    function melodyId(id) {
+        if (parseComposedId(id)) return String(id);
+        return MELODIES.some(m => m.id === id) ? id : MELODIES[0].id;
+    }
+    function melodyInfo(id) {
+        const spec = composedLoopSpec(id);
+        if (spec) return { id: String(id), name: jingleTitle(spec), description: 'composta ara per l’app, núm. ' + (spec.seed % 100000), composed: true, style: spec.style, seed: spec.seed };
+        return MELODIES.find(m => m.id === melodyId(id));
+    }
     // Una melodia a l'atzar per a cada partida; si n'hi ha més d'una, mai la
     // mateixa que la partida anterior.
     function pickMelody(random = Math.random, previous = null) {
@@ -794,6 +801,8 @@
     // Mostres d'una melodia (Float32Array, 32 s, a `sampleRate`). No hi ha
     // enregistraments, veus ni xarxa: tot es calcula aquí.
     function samples(melody, sampleRate = 22050, random = Math.random) {
+        const composed = composedLoopSpec(melody);
+        if (composed) return jingleSamples(composed, sampleRate, random);
         const syn = createSynth(sampleRate, MELODY_SECONDS, random);
         return syn.finish(SCORES[melodyId(melody)](syn));
     }
@@ -801,6 +810,8 @@
     // generar una melodia nova a cada partida no deixi la pantalla glaçada.
     // El resultat és idèntic al de samples() amb la mateixa font d'atzar.
     function samplesAsync(melody, sampleRate = 22050, random = Math.random, opts = {}) {
+        const composed = composedLoopSpec(melody);
+        if (composed) return jingleSamplesAsync(composed, sampleRate, random, opts);
         return renderAsync(SCORES[melodyId(melody)], MELODY_SECONDS, sampleRate, random, opts);
     }
     function renderAsync(scoreFn, seconds, sampleRate, random, opts = {}) {
@@ -1010,7 +1021,10 @@
     // El cop final arriba entre el segon 24,5 i el 26,5 del compte enrere: es
     // calcula quants compassos hi caben al tempo triat i s'hi ajusta el tempo.
     const JINGLE_END = [24.5, 26.5];
-    function composeJingle(style, seed) {
+    // opts.loop: bucle de fons de 32 s per a la TV (sense cop final; l'últim
+    // compàs és la dominant, que torna a la tònica en començar de nou).
+    function composeJingle(style, seed, opts) {
+        const loop = !!(opts && opts.loop);
         const id = jingleId(style);
         const st = STYLES[id];
         const s = (seed >>> 0) || 1;
@@ -1018,7 +1032,7 @@
         const tonic = pickOf(r, st.keys);
         const mode = st.mode;
         const wanted = st.beat[0] + r() * (st.beat[1] - st.beat[0]);
-        const target = JINGLE_END[0] + r() * (JINGLE_END[1] - JINGLE_END[0]);
+        const target = loop ? MELODY_SECONDS : JINGLE_END[0] + r() * (JINGLE_END[1] - JINGLE_END[0]);
         const bars = Math.max(6, Math.round(target / (wanted * 4)));
         const beat = target / (bars * 4);
         const lead = pickOf(r, st.leads);
@@ -1036,7 +1050,7 @@
         const chords = degrees.map(dg => buildChord(tonic, mode, dg, st, st.seventh || (mode !== 'major' && dg === 4)));
         const finalPcs = chordPcs(tonic, mode, 0, st.seventh);
         const spec = {
-            style: id, seed: s, tonic, mode, beat, degrees, lead, variant,
+            style: id, seed: s, loop, tonic, mode, beat, degrees, lead, variant,
             keyName: PC_NAMES[tonic] + ' ' + MODE_NAMES[mode],
             leadName: LEAD_NAMES[lead],
             chords,
@@ -1108,9 +1122,10 @@
     // variants: cops suaus o acords llargs), baix i timbal suau.
     function fanfarriaScore(syn, spec) {
         const beat = spec.beat, bar = beat * 4, end = spec.chords.length * bar;
+        const cr = spec.loop ? () => 1 : cresc;
         const brass = { gain: 0.014, attack: 0.06, release: 0.12, detune: 2 };
         spec.chords.forEach((chord, b) => {
-            const t0 = b * bar, v = cresc(t0, end);
+            const t0 = b * bar, v = cr(t0, end);
             if (spec.variant === 0) {
                 [[0, 0.8, 0.9], [2, 1.6, 0.75]].forEach(([t, d, vel]) =>
                     chord.notes.forEach(n => syn.reed(t0 + t * beat, n - 12, d * beat, vel * v, brass)));
@@ -1125,10 +1140,12 @@
         });
         spec.melody.forEach(([b, t, n, d]) => {
             const start = b * bar + t * beat;
-            playLead(syn, spec.lead, start, n, d * beat - 0.04, cresc(start, end));
+            playLead(syn, spec.lead, start, n, d * beat - 0.04, cr(start, end));
         });
-        jingleFinal(syn, end, spec.final.notes, spec.final.root, { hold: 1.4 });
-        playLead(syn, spec.lead, end, spec.final.top, 1.4, 1);
+        if (!spec.loop) {
+            jingleFinal(syn, end, spec.final.notes, spec.final.root, { hold: 1.4 });
+            playLead(syn, spec.lead, end, spec.final.top, 1.4, 1);
+        }
         return TARGET_RMS;
     }
 
@@ -1138,9 +1155,10 @@
     // Abans del final, un carilló suau.
     function galopScore(syn, spec) {
         const beat = spec.beat, bar = beat * 4, eighth = beat / 2, end = spec.chords.length * bar;
+        const cr = spec.loop ? () => 1 : cresc;
         const pizz = { decay: 0.45, partials: [1, 0.5, 0.25, 0.1], damp: 1.2, gain: 0.09, attack: 0.004 };
         spec.chords.forEach((chord, b) => {
-            const t0 = b * bar, v = cresc(t0, end);
+            const t0 = b * bar, v = cr(t0, end);
             const tones = chord.notes.slice(0, 3).concat([chord.notes[0] + 12]);
             [0, 2].forEach((t, k) => {
                 syn.pluck(t0 + t * beat, chord.root + (k ? 7 : 0) + 12, 0.75 * v, pizz);
@@ -1154,11 +1172,13 @@
             });
             if (spec.variant === 0) for (let t = 0; t < 4; t++) syn.block(t0 + t * beat, 0.25, t % 2 ? 1450 : 1900, 0.008, 0.5);
         });
-        // Carilló suau (tres notes de l'acord final, avall).
-        spec.final.notes.slice(1).reverse().forEach((n, k) => syn.struck(end - bar + 2 * beat + k * beat * 0.5, n + 24, 0.5,
-            [1, 2.76, 5.4], [1, 0.35, 0.12], [0.8, 0.3, 0.1], { gain: 0.045 }));
-        jingleFinal(syn, end, spec.final.notes, spec.final.root, { hold: 1.2 });
-        playLead(syn, spec.lead, end, spec.final.top, 1.2, 1);
+        if (!spec.loop) {
+            // Carilló suau (tres notes de l'acord final, avall).
+            spec.final.notes.slice(1).reverse().forEach((n, k) => syn.struck(end - bar + 2 * beat + k * beat * 0.5, n + 24, 0.5,
+                [1, 2.76, 5.4], [1, 0.35, 0.12], [0.8, 0.3, 0.1], { gain: 0.045 }));
+            jingleFinal(syn, end, spec.final.notes, spec.final.root, { hold: 1.2 });
+            playLead(syn, spec.lead, end, spec.final.top, 1.2, 1);
+        }
         return TARGET_RMS;
     }
 
@@ -1171,10 +1191,11 @@
     ];
     function rumbaScore(syn, spec) {
         const beat = spec.beat, bar = beat * 4, eighth = beat / 2, end = spec.chords.length * bar;
+        const cr = spec.loop ? () => 1 : cresc;
         const guitar = { decay: 0.4, partials: [1, 0.55, 0.3, 0.15], damp: 1.3, gain: 0.075, attack: 0.004 };
         const thumb = { decay: 0.7, partials: [1, 0.6, 0.3], damp: 1, gain: 0.1, attack: 0.004 };
         spec.chords.forEach((chord, b) => {
-            const t0 = b * bar, v = cresc(t0, end);
+            const t0 = b * bar, v = cr(t0, end);
             RUMBA_STRUMS[spec.variant % 2].forEach(([e, vel, up]) => {
                 const notes = up ? chord.notes.slice().reverse() : chord.notes;
                 notes.forEach((n, k) => syn.pluck(t0 + e * eighth + k * 0.011, n, vel * v, guitar));
@@ -1189,11 +1210,13 @@
         });
         spec.melody.forEach(([b, t, n, d]) => {
             const start = b * bar + t * beat;
-            playLead(syn, spec.lead, start, n, d * beat - 0.04, cresc(start, end));
+            playLead(syn, spec.lead, start, n, d * beat - 0.04, cr(start, end));
         });
-        jingleFinal(syn, end, spec.final.notes, spec.final.root, { hold: 1.1 });
-        spec.final.notes.forEach((n, k) => syn.pluck(end + k * 0.014, n, 0.9, guitar));
-        playLead(syn, spec.lead, end, spec.final.top, 1.2, 1);
+        if (!spec.loop) {
+            jingleFinal(syn, end, spec.final.notes, spec.final.root, { hold: 1.1 });
+            spec.final.notes.forEach((n, k) => syn.pluck(end + k * 0.014, n, 0.9, guitar));
+            playLead(syn, spec.lead, end, spec.final.top, 1.2, 1);
+        }
         return TARGET_RMS;
     }
 
@@ -1207,8 +1230,9 @@
     ];
     function funkScore(syn, spec) {
         const beat = spec.beat, bar = beat * 4, eighth = beat / 2, end = spec.chords.length * bar;
+        const cr = spec.loop ? () => 1 : cresc;
         spec.chords.forEach((chord, b) => {
-            const t0 = b * bar, v = cresc(t0, end);
+            const t0 = b * bar, v = cr(t0, end);
             FUNK_STABS[spec.variant % 2].forEach((t, k) => chord.notes.forEach((n, j) => syn.epiano(t0 + t * beat + j * 0.008, n, (k === 0 ? 0.5 : 0.36) * v)));
             FUNK_BASS[spec.variant % 2].forEach(([t, iv, vel]) => syn.bass(t0 + t * beat, chord.root + iv, vel * 0.85 * v, 0.35));
             [0, 2.5].forEach((t, k) => syn.kick(t0 + t * beat, (k ? 0.45 : 0.65) * v, 50));
@@ -1217,11 +1241,13 @@
         });
         spec.melody.forEach(([b, t, n, d]) => {
             const start = b * bar + t * beat;
-            playLead(syn, spec.lead, start, n, d * beat - 0.04, cresc(start, end));
+            playLead(syn, spec.lead, start, n, d * beat - 0.04, cr(start, end));
         });
-        jingleFinal(syn, end, spec.final.notes, spec.final.root, { hold: 1.2 });
-        spec.final.notes.forEach((n, j) => syn.epiano(end + j * 0.012, n + 12, 0.6));
-        playLead(syn, spec.lead, end, spec.final.top, 1.4, 1);
+        if (!spec.loop) {
+            jingleFinal(syn, end, spec.final.notes, spec.final.root, { hold: 1.2 });
+            spec.final.notes.forEach((n, j) => syn.epiano(end + j * 0.012, n + 12, 0.6));
+            playLead(syn, spec.lead, end, spec.final.top, 1.4, 1);
+        }
         return TARGET_RMS;
     }
 
@@ -1231,22 +1257,25 @@
     const HIMNE_ARPS = [[0, 1, 2, 3, 2, 1, 2, 3], [0, 2, 1, 3, 1, 2, 0, 2]];
     function himneScore(syn, spec) {
         const beat = spec.beat, bar = beat * 4, eighth = beat / 2, end = spec.chords.length * bar;
+        const cr = spec.loop ? () => 1 : cresc;
         const harp = { decay: 1.2, partials: [1, 0.5, 0.22, 0.1], damp: 1, gain: 0.07, attack: 0.004 };
         spec.chords.forEach((chord, b) => {
-            const t0 = b * bar, v = cresc(t0, end);
+            const t0 = b * bar, v = cr(t0, end);
             chord.notes.forEach(n => { syn.strings(t0, n - 12, bar, 0.011 * v, 0.6); syn.pad(t0, n, bar, 0.008, 0.6); });
             const tones = chord.notes.slice(0, 3).concat([chord.notes[0] + 12]);
             HIMNE_ARPS[spec.variant % 2].forEach((idx, e) => syn.pluck(t0 + e * eighth, tones[idx], (e === 0 ? 0.8 : 0.5) * v, harp));
             syn.bass(t0, chord.root, 0.75 * v, 1.1);
             syn.kick(t0, 0.5 * v, 44);
         });
-        for (let k = 0; k < 8; k++) syn.kick(end - bar / 2 + k * bar / 16, 0.2 + 0.03 * k, 46);
+        if (!spec.loop) for (let k = 0; k < 8; k++) syn.kick(end - bar / 2 + k * bar / 16, 0.2 + 0.03 * k, 46);
         spec.melody.forEach(([b, t, n, d]) => {
             const start = b * bar + t * beat;
-            playLead(syn, spec.lead, start, n, d * beat - 0.05, cresc(start, end));
+            playLead(syn, spec.lead, start, n, d * beat - 0.05, cr(start, end));
         });
-        jingleFinal(syn, end, spec.final.notes, spec.final.root, { hold: 1.0 });
-        playLead(syn, spec.lead, end, spec.final.top, 1.2, 1);
+        if (!spec.loop) {
+            jingleFinal(syn, end, spec.final.notes, spec.final.root, { hold: 1.0 });
+            playLead(syn, spec.lead, end, spec.final.top, 1.2, 1);
+        }
         return TARGET_RMS;
     }
 
@@ -1265,16 +1294,88 @@
     function asSpec(spec) {
         return spec && typeof spec === 'object' ? spec : composeJingle(spec, Math.floor(Math.random() * 4294967295) + 1);
     }
+    // Les tornades (30 s) s'esvaeixen al final; els bucles de la TV (32 s)
+    // es repeteixen sense tall, sense esvaïment.
     function jingleSamples(spec, sampleRate = 22050, random = Math.random) {
         const sp = asSpec(spec);
-        const syn = createSynth(sampleRate, JINGLE_SECONDS, random);
-        return shapeJingle(syn.finish(JINGLE_SCORES[sp.style](syn, sp)), sampleRate);
+        const syn = createSynth(sampleRate, sp.loop ? MELODY_SECONDS : JINGLE_SECONDS, random);
+        const data = syn.finish(JINGLE_SCORES[sp.style](syn, sp));
+        return sp.loop ? data : shapeJingle(data, sampleRate);
     }
     function jingleSamplesAsync(spec, sampleRate = 22050, random = Math.random, opts = {}) {
         const sp = asSpec(spec);
-        return renderAsync(syn => JINGLE_SCORES[sp.style](syn, sp), JINGLE_SECONDS, sampleRate, random, opts)
-            .then(data => shapeJingle(data, sampleRate));
+        return renderAsync(syn => JINGLE_SCORES[sp.style](syn, sp), sp.loop ? MELODY_SECONDS : JINGLE_SECONDS, sampleRate, random, opts)
+            .then(data => sp.loop ? data : shapeJingle(data, sampleRate));
     }
+
+    // ── Música composta a la TV ──────────────────────────────────────────
+    // Identificador d'un bucle compost: «c:estil:llavor». El reproductor de
+    // fons el tracta com qualsevol melodia (melodyId, melodyInfo, samples).
+    function composedMelodyId(style, seed) { return 'c:' + jingleId(style) + ':' + ((seed >>> 0) || 1); }
+    function parseComposedId(id) {
+        const m = /^c:([a-z]+):(\d+)$/.exec(String(id || ''));
+        if (!m || !JINGLES.some(j => j.id === m[1])) return null;
+        return { style: m[1], seed: (Number(m[2]) >>> 0) || 1 };
+    }
+    function composedLoopSpec(id) {
+        const p = parseComposedId(id);
+        return p ? composeJingle(p.style, p.seed, { loop: true }) : null;
+    }
+    // Un bucle nou per a cada partida de la TV, d'un estil diferent de l'anterior.
+    function composeMelodyId(random = Math.random, previous = null) {
+        const prev = parseComposedId(previous);
+        const style = pickJingle(random, prev ? prev.style : null);
+        return composedMelodyId(style, Math.floor(random() * 4294967295) + 1);
+    }
+
+    // ── Registre de la música composta ───────────────────────────────────
+    // Cada peça es pot tornar a generar exactament amb l'estil i la llavor:
+    // el registre només desa això (i on va sonar, quan i si és preferida).
+    // Es guarden les 60 darreres i totes les preferides (fins a 100).
+    const REGISTRY_KEY = 'eltauler_composed_music';
+    const REGISTRY_RECENT = 60, REGISTRY_FAVS = 100;
+    function storageOf(storage) {
+        if (storage) return storage;
+        try { return root && root.localStorage ? root.localStorage : null; } catch (err) { return null; }
+    }
+    function registryList(storage) {
+        const st = storageOf(storage);
+        if (!st) return [];
+        try {
+            const raw = JSON.parse(st.getItem(REGISTRY_KEY) || '[]');
+            return Array.isArray(raw) ? raw.filter(e => e && JINGLES.some(j => j.id === e.style) && Number(e.seed) > 0) : [];
+        } catch (err) { return []; }
+    }
+    function registrySave(list, storage) {
+        const st = storageOf(storage);
+        if (!st) return;
+        const favs = list.filter(e => e.fav).slice(0, REGISTRY_FAVS);
+        const rest = list.filter(e => !e.fav).slice(0, REGISTRY_RECENT);
+        const keep = list.filter(e => favs.includes(e) || rest.includes(e));
+        try { st.setItem(REGISTRY_KEY, JSON.stringify(keep)); } catch (err) {}
+    }
+    function registryKey(e) { return e.style + ':' + e.seed + ':' + (e.loop ? 'b' : 't'); }
+    // entry = { where: 'lliga' | 'tv', style, seed, loop, at }
+    function registerComposition(entry, storage) {
+        if (!entry || !JINGLES.some(j => j.id === entry.style)) return null;
+        const e = { where: entry.where === 'tv' ? 'tv' : 'lliga', style: entry.style, seed: (entry.seed >>> 0) || 1,
+            loop: !!entry.loop, at: entry.at || Date.now(), fav: false };
+        const list = registryList(storage);
+        const old = list.findIndex(x => registryKey(x) === registryKey(e));
+        if (old >= 0) { e.fav = !!list[old].fav; list.splice(old, 1); }
+        list.unshift(e);
+        registrySave(list, storage);
+        return e;
+    }
+    function toggleFavourite(key, storage) {
+        const list = registryList(storage);
+        const e = list.find(x => registryKey(x) === key);
+        if (!e) return null;
+        e.fav = !e.fav;
+        registrySave(list, storage);
+        return e.fav;
+    }
+    function registrySpec(e) { return composeJingle(e.style, e.seed, { loop: !!e.loop }); }
 
     // Reproductor d'una tornada (una sola vegada, sense bucle). Té el seu propi
     // context d'àudio i respecta l'interruptor general de la música.
@@ -1337,6 +1438,7 @@
                     source.onended = () => {
                         if (entry === mine) entry = null;
                         try { source.disconnect(); gain.disconnect(); } catch (err) {}
+                        if (typeof o.onEnded === 'function') { try { o.onEnded(); } catch (err) {} }
                     };
                     return true;
                 }).catch(() => false);
@@ -1520,6 +1622,9 @@
         // Tornades de la lliga (pantalla entre partides).
         JINGLES, JINGLE_SECONDS, JINGLE_LEVEL, jingleId, jingleInfo, pickJingle, jingleSamples, jingleSamplesAsync, createJinglePlayer,
         composeJingle, jingleFingerprint, jingleTitle, _jingleStyles: STYLES, _scales: SCALES, _leadNames: LEAD_NAMES,
+        // Música composta a la TV i registre de les peces compostes.
+        composedMelodyId, parseComposedId, composedLoopSpec, composeMelodyId,
+        REGISTRY_KEY, registryList, registerComposition, toggleFavourite, registryKey, registrySpec,
         // Partitures, per als tests.
         _scores: { theme: THEME, oriental: ORIENTAL, bossa: BOSSA, vals: VALS, capvespre: CAPVESPRE,
             havanera: HAVANERA, celta: CELTA, nocturn: NOCTURN, marimba: MARIMBA, lofi: LOFI } };
