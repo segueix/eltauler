@@ -317,6 +317,56 @@ body.epaper-mode .olab-plan-chip { background: #fff; color: #000; border: 1px so
 .olab-named-btns { flex: 0 0 auto; display: flex; gap: 4px; }
 .olab-named-btns .btn-ic { width: 1em; height: 1em; margin: 0; }
 
+/* L'arbre genealògic del repertori: branques connectades amb línies. */
+.olab-tree-wrap { margin-top: 12px; font-size: 0.86rem; }
+.olab-tree-wrap > summary { cursor: pointer; font-weight: 800; color: var(--accent-gold); padding: 4px 0; display: list-item; }
+.olab-tree-ic { width: 1.1em; height: 1.1em; vertical-align: -0.2em; margin-right: 6px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.olab-tree-sum { color: var(--text-secondary); margin: 4px 0 8px; }
+.olab-tree ul { list-style: none; margin: 0; padding: 0 0 0 14px; }
+.olab-tree ul.olab-tree-root { padding-left: 0; }
+.olab-tn { position: relative; padding: 4px 0 0 12px; }
+.olab-tree-root > .olab-tn { padding-left: 0; }
+/* Línia vertical de germans i connector horitzontal cap a cada fill. */
+.olab-tn::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    border-left: 2px solid rgba(201, 162, 39, 0.45);
+}
+.olab-tn:last-child::before { bottom: auto; height: 22px; }
+.olab-tn::after {
+    content: '';
+    position: absolute;
+    left: 0; top: 22px; width: 10px;
+    border-top: 2px solid rgba(201, 162, 39, 0.45);
+}
+.olab-tree-root > .olab-tn::before, .olab-tree-root > .olab-tn::after { display: none; }
+body.epaper-mode .olab-tn::before, body.epaper-mode .olab-tn::after { border-color: #888; }
+.olab-tn-row {
+    padding: 6px 8px;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.14);
+    border-left: 3px solid var(--accent-gold);
+}
+.olab-tn--d1 > .olab-tn-row { border-left-color: #8b5cf6; }
+.olab-tn--d2 > .olab-tn-row { border-left-color: #0d9488; }
+.olab-tn--d3 > .olab-tn-row { border-left-color: #f97316; }
+body.day-mode .olab-tn-row { background: rgba(120, 95, 40, 0.07); }
+body.epaper-mode .olab-tn-row { background: #fff; border: 1px solid #cfcfcf; border-left: 3px solid #000; }
+.olab-tn-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.olab-tn-kind {
+    font-size: 0.66rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+}
+.olab-tn-name { font-weight: 700; min-width: 0; overflow-wrap: anywhere; }
+.olab-tn-moves { margin-top: 2px; overflow-wrap: anywhere; }
+.olab-tn-mine { color: var(--accent-gold); }
+.olab-tn-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; margin-top: 4px; }
+.olab-tn-meta { font-size: 0.76rem; color: var(--text-secondary); }
+
 .olab-more { margin-top: 12px; font-size: 0.88rem; }
 .olab-more summary { cursor: pointer; font-weight: 700; color: var(--accent-gold); padding: 4px 0; }
 .olab-howto { margin: 6px 0 10px; padding-left: 20px; line-height: 1.45; color: var(--text-secondary); }

@@ -240,7 +240,11 @@ Conduir amb Playwright + Chromium preinstal·lat
     `#olab-named` (`[data-olab-practice]`, `[data-olab-rename]`,
     `[data-olab-delete]`). Practicant, el rival segueix la línia desada
     (`state().follow`). Amb profunditat 6 (`#olab-depth`) i la llista d.4,
-    Cf3, Af4, e3, h3, Ad3 la primera línia ja surt del llibre. Els blocs antics de la
+    Cf3, Af4, e3, h3, Ad3 la primera línia ja surt del llibre.
+    **Arbre genealògic**: plegable `#olab-tree-wrap` (només es pinta obert);
+    branques `.olab-tn` (tronc, famílies, variants) i `[data-olab-tree-play]`.
+    Per provar-lo sense jugar, sembrar `chess_openingWorkshop_v1` amb nodes
+    fets amb `annotateLine` + `candidateInfo` (cada node amb `line`). Els blocs antics de la
     secció (pràctica, errors, jeroglífic d'obertura) només surten en entrar-hi
     des d'altres llocs (`#olab-hiero`, missions, historial); `setOpeningScreenMode('overview')`
     torna al taller.

@@ -6664,7 +6664,7 @@
         body.epaper-mode #start-screen .engagement-banner .eng-cta { background: #222 !important; color: #fff !important; }
     </style>
     <link rel="stylesheet" href="bulletpractice.css?v=1.2.1">
-    <link rel="stylesheet" href="tallerobertures.css?v=1.2.0">
+    <link rel="stylesheet" href="tallerobertures.css?v=1.3.0">
     <link rel="stylesheet" href="canviapp.css?v=1.0.0">
 </head>
 <body>
@@ -9133,6 +9133,10 @@
                         <div class="olab-plan" id="olab-plan"></div>
                         <div class="olab-issues" id="olab-issues" hidden></div>
                         <div class="olab-named" id="olab-named" hidden></div>
+                        <details class="olab-tree-wrap" id="olab-tree-wrap">
+                            <summary><svg class="olab-tree-ic" aria-hidden="true"><use href="#ic-opening"/></svg>L’arbre de la teva obertura <span class="olab-muted" id="olab-tree-count"></span></summary>
+                            <div class="olab-tree" id="olab-tree"></div>
+                        </details>
                     </div>
                 </div>
                 <details class="olab-more">
@@ -9142,6 +9146,7 @@
                         <li><strong>Una posició, una jugada:</strong> cada jugada acceptada queda al teu repertori, també si hi arribes per un altre ordre.</li>
                         <li><strong>El teu pla:</strong> on va cada peça la primera vegada que la mous. Si una jugada nova el contradiu sense un motiu que Stockfish 19 confirmi, tries: mantens el pla o el canvies. La coherència arriba al 100% quan totes les línies segueixen el mateix pla o en justifiquen l’excepció.</li>
                         <li><strong>Les teves obertures:</strong> quan acabes una línia on surts de la teoria amb una jugada teva i tot és coherent, et demanem un nom. Es guarda amb les altres, el tauler la reconeix quan hi tornes i la pots practicar: el rival en segueix la línia i tu recordes les teves jugades.</li>
+                        <li><strong>L’arbre de la teva obertura:</strong> totes les teves línies juntes, com un arbre genealògic: el tronc comú, les famílies (una per cada resposta del rival) i les seves variants, amb les teves obertures amb nom. Cada branca es pot jugar.</li>
                         <li><strong>Repàs:</strong> a les posicions que ja tens, has de recordar la teva jugada. El rival tria respostes de la teoria i et porta on et toca repassar o on encara no has decidit.</li>
                     </ol>
                     <div class="olab-opts">
@@ -10290,7 +10295,7 @@
     <script src="jeropedagogia.js?v=1.2.1"></script>
     <script src="sons.js?v=1.0.0"></script>
     <script src="tutorial.js?v=1.0.5"></script>
-    <script src="tallerobertures.js?v=1.2.0"></script>
+    <script src="tallerobertures.js?v=1.3.0"></script>
     <script src="veuneural.js?v=1.2.2"></script>
     <script src="radioambient.js?v=2.1.0"></script>
     <script src="musicafons.js?v=1.2.0"></script>

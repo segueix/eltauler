@@ -206,10 +206,30 @@
         'Countergambit': ['contragambit', 'm'], 'Defense': ['defensa', 'f'],
         'System': ['sistema', 'm'], 'Line': ['línia', 'f'], 'Opening': ['obertura', 'f'],
         'Game': ['partida', 'f'], 'Trap': ['parany', 'm'], 'Formation': ['formació', 'f'],
-        'Setup': ['esquema', 'm'], 'Complex': ['complex', 'm'], 'Countermove': ['contrajugada', 'f']
+        'Setup': ['esquema', 'm'], 'Complex': ['complex', 'm'], 'Countermove': ['contrajugada', 'f'],
+        'Variations': ['variants', 'fp'], 'Lines': ['línies', 'fp'], 'Attacks': ['atacs', 'mp']
     };
+    // Complements de nom («Modern Bishop's Opening» → «obertura de l'alfil moderna»).
+    const COMPLEMENT_CA = { "Bishop's": "de l'alfil", "Knight's": 'del cavall' };
+    // Plural d'un adjectiu català (moderna → modernes, clàssica → clàssiques).
+    function pluralCa(word, fem) {
+        const w = String(word || '');
+        if (!w || w.indexOf(' ') >= 0) return w;
+        if (fem) {
+            if (/ca$/.test(w)) return w.replace(/ca$/, 'ques');
+            if (/ga$/.test(w)) return w.replace(/ga$/, 'gues');
+            if (/a$/.test(w)) return w.replace(/a$/, 'es');
+        }
+        if (/s$/.test(w)) return w;
+        return w + 's';
+    }
 
     function translateWords(text, gender) {
+        const plural = gender === 'fp' || gender === 'mp';
+        if (plural) {
+            const one = translateWords(text, gender[0]);
+            return one === text ? text : one.split(' ').map(w => pluralCa(w, gender === 'fp')).join(' ');
+        }
         const idx = gender === 'f' ? 1 : 0;
         if (ADJ_CA[text]) return ADJ_CA[text][idx];
         // Diversos mots: només es tradueixen si tots són coneguts; si no, és un
@@ -219,8 +239,9 @@
         // Nom propi + adjectius purs («Accelerated Panov» → «Panov accelerat»).
         const pure = words.filter(w => PURE_ADJ.indexOf(w) >= 0);
         if (pure.length && pure.length < words.length) {
-            return words.filter(w => PURE_ADJ.indexOf(w) < 0).join(' ') + ' ' + pure.map(w => ADJ_CA[w][idx]).join(' ');
+            return words.filter(w => PURE_ADJ.indexOf(w) < 0).map(w => COMPLEMENT_CA[w] || w).join(' ') + ' ' + pure.map(w => ADJ_CA[w][idx]).join(' ');
         }
+        if (words.every(w => COMPLEMENT_CA[w])) return words.map(w => COMPLEMENT_CA[w]).join(' ');
         return text;
     }
     // Adjectius que no són gentilicis: es poden posar darrere d'un nom propi.
@@ -234,7 +255,7 @@
         if (s === 'Declined') return 'refusat';
         let m = s.match(/^(.*?)\s*Gambit (Accepted|Declined)$/);
         if (m) return 'gambit ' + (m[1] ? translateWords(m[1], 'm') + ' ' : '') + (m[2] === 'Accepted' ? 'acceptat' : 'refusat');
-        m = s.match(/^(.*?)\s*(Variation|Attack|Gambit|Countergambit|Defense|System|Line|Opening|Game|Trap|Formation|Setup|Complex|Countermove)$/);
+        m = s.match(/^(.*?)\s*(Variations|Variation|Attacks|Attack|Gambit|Countergambit|Defense|System|Lines|Line|Opening|Game|Trap|Formation|Setup|Complex|Countermove)$/);
         if (m && HEAD_CA[m[2]]) {
             const [head, gender] = HEAD_CA[m[2]];
             if (!m[1]) return head;
@@ -978,6 +999,82 @@
         return entry;
     }
 
+    // ------------------------------------------------------------------
+    // L'arbre genealògic del repertori
+    // ------------------------------------------------------------------
+    // Totes les línies del repertori d'un color (la línia de cada decisió més
+    // la jugada) formen un arbre. Es comprimeix en BRANQUES: un tram de jugades
+    // fins que el rival té més d'una resposta (o la línia s'acaba). Les branques
+    // de primer nivell són les FAMÍLIES; les de sota, les VARIANTS.
+    // nameOf(path) → { label, mine, own } posa nom a cada branca (opcional).
+    // Cada branca: { moves:[{san, ply, user, node}], path, startPly, children,
+    //   label, mine, own, positions, mastered, issues, lines }.
+    function familyTree(side, color, nameOf) {
+        const nodes = (side && side.nodes) || {};
+        const c = color === 'b' ? 'b' : 'w';
+        const root = { kids: new Map() };
+        Object.keys(nodes).forEach(k => {
+            const n = nodes[k];
+            if (!n || typeof n.san !== 'string') return;
+            const seq = (Array.isArray(n.line) ? n.line : []).concat([n.san]);
+            let t = root;
+            seq.forEach((san, i) => {
+                let kid = t.kids.get(san);
+                if (!kid) {
+                    kid = { kids: new Map(), san, ply: i + 1, user: (i % 2 === 0 ? 'w' : 'b') === c, node: null };
+                    t.kids.set(san, kid);
+                }
+                t = kid;
+            });
+            if (t.user) t.node = n;
+        });
+        const scheme = computeScheme(nodes);
+        function branch(start, path) {
+            const moves = [];
+            const p = path.slice();
+            let t = start;
+            for (;;) {
+                moves.push({ san: t.san, ply: t.ply, user: t.user, node: t.node });
+                p.push(t.san);
+                if (t.kids.size !== 1) break;
+                t = t.kids.values().next().value;
+            }
+            const children = Array.from(t.kids.values()).map(k => branch(k, p));
+            children.sort((a, b) => b.lines - a.lines || a.path.join(' ').localeCompare(b.path.join(' ')));
+            const own = moves.filter(m => m.user && m.node);
+            const sum = f => children.reduce((acc, ch) => acc + ch[f], 0);
+            const out = {
+                moves, path: p, startPly: moves[0].ply, children,
+                positions: own.length + sum('positions'),
+                mastered: own.filter(m => (Number(m.node.box) || 0) >= MASTERED_BOX).length + sum('mastered'),
+                issues: own.filter(m => !nodeCoherence(m.node, scheme).ok).length + sum('issues'),
+                lines: children.length ? sum('lines') : 1,
+                label: '', mine: false, own: false
+            };
+            if (typeof nameOf === 'function') {
+                const nm = nameOf(p) || {};
+                out.label = nm.label || '';
+                out.mine = !!nm.mine;
+                out.own = !!nm.own;
+            }
+            return out;
+        }
+        const families = Array.from(root.kids.values()).map(k => branch(k, []));
+        families.sort((a, b) => b.lines - a.lines);
+        const total = f => families.reduce((acc, x) => acc + x[f], 0);
+        return { families, positions: total('positions'), lines: total('lines'), issues: total('issues'), mastered: total('mastered') };
+    }
+
+    // «1.e4 c5 2.Nf3» / «1...c5 2.Nf3»: numeració d'un tram que comença a la mitja jugada startPly.
+    function formatMoves(moves) {
+        return (moves || []).map((m, i) => {
+            const white = m.ply % 2 === 1;
+            const num = Math.ceil(m.ply / 2);
+            if (white) return num + '.' + m.san;
+            return (i === 0 ? num + '...' : '') + m.san;
+        }).join(' ');
+    }
+
     // Nombre de jugades de l'usuari en una línia (per allargar la pràctica
     // fins al final de l'obertura desada).
     function userMovesIn(sans, color) {
@@ -1001,6 +1098,7 @@
         srsAfter, isDue, rivalCandidates, pickWeighted,
         emptyStore, normalizeStore, rememberEval, repertoireReport, PIECE_CA,
         namedOpeningFor, namingCandidate, addNamedOpening, userMovesIn, MAX_NAMED,
+        familyTree, formatMoves,
         dominantVariation, OPTION_COLORS, groupOptions, optionSquareMarks, optionShadow, hexToRgba
     };
 
@@ -1029,6 +1127,7 @@
             pending: null, forceDecideKey: null, reviewNote: '', feedback: '', rivalNote: '',
             lineStats: null, lastName: '', orientation: null, wired: false, engine: null,
             follow: null, namePrompt: null, optionMarks: null,
+            storeVersion: 0, treeKey: '', treePaths: [],
             evalMem: new Map(), inflight: new Map(), saveTimer: null
         };
 
@@ -1079,6 +1178,7 @@
             ui.depth = ui.store.prefs.depth;
         }
         function saveStore(now) {
+            ui.storeVersion++;
             if (ui.saveTimer) { clearTimeout(ui.saveTimer); ui.saveTimer = null; }
             const write = () => {
                 const { evals, ...rest } = ui.store;
@@ -1819,6 +1919,7 @@
             renderGuide();
             renderStats();
             renderNamed();
+            renderTree();
             renderControls();
         }
         function renderTop() {
@@ -1960,6 +2061,84 @@
                     '<button type="button" class="btn btn-secondary olab-btn-sm" data-olab-delete="' + esc(o.id) + '" aria-label="Esborra ' + esc(o.name) + '" title="Esborra-la"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trash"/></svg></button></div></div>';
             }).join('');
         }
+        // L'arbre genealògic: es construeix només amb el plegable obert i quan
+        // el repertori (o el color) ha canviat.
+        function treeNameOf(path) {
+            const Chess = ChessCtor();
+            const keys = L.annotateLine(Chess, path).keys;
+            const mine = L.namedOpeningFor(side().named, keys);
+            if (mine) return { label: mine.name, mine: true };
+            const nm = L.lineName(ctx(), path, keys);
+            return { label: nm.nameCa || 'Línia pròpia', own: !nm.inBook };
+        }
+        function renderTree() {
+            const wrap = byId('olab-tree-wrap');
+            const box = byId('olab-tree');
+            const count = byId('olab-tree-count');
+            const total = Object.keys(side().nodes).length;
+            if (count) count.textContent = total ? '· ' + total + (total === 1 ? ' posició' : ' posicions') : '';
+            if (!wrap || !box || !wrap.open) return;
+            const key = ui.color + '|' + ui.storeVersion + '|' + side().named.length;
+            if (key === ui.treeKey) return;
+            ui.treeKey = key;
+            const tree = L.familyTree(side(), ui.color, treeNameOf);
+            ui.treePaths = [];
+            if (!tree.families.length) {
+                box.innerHTML = '<div class="olab-muted">Encara no hi ha res: cada jugada que decideixis farà créixer l’arbre.</div>';
+                return;
+            }
+            const kindOf = depth => ui.color === 'w'
+                ? (depth === 0 ? 'Tronc' : depth === 1 ? 'Família' : 'Variant')
+                : (depth === 0 ? 'Família' : 'Variant');
+            const movesHtml = moves => {
+                const txt = L.formatMoves(moves).split(' ');
+                // Les jugades teves en negreta, les del rival normals.
+                let mi = 0;
+                return txt.map(tok => {
+                    const isNum = /^\d+\.+$/.test(tok);
+                    const m = moves[mi];
+                    const numMatch = tok.match(/^(\d+\.+)(.*)$/);
+                    const san = numMatch ? numMatch[2] : tok;
+                    const num = numMatch ? numMatch[1] : '';
+                    if (isNum) return esc(tok);
+                    mi++;
+                    return esc(num) + (m && m.user ? '<b class="olab-tn-mine">' + esc(san) + '</b>' : esc(san));
+                }).join(' ');
+            };
+            const meta = b => {
+                const bits = [b.lines + (b.lines === 1 ? ' línia' : ' línies'), b.positions + (b.positions === 1 ? ' posició teva' : ' posicions teves')];
+                if (b.positions) bits.push(b.mastered + (b.mastered === 1 ? ' dominada' : ' dominades'));
+                return esc(bits.join(' · ')) + (b.issues ? ' · <span class="olab-warn">⚠ ' + b.issues + ' trenca' + (b.issues === 1 ? '' : 'n') + ' el pla</span>' : '');
+            };
+            const node = (b, depth, parentLabel) => {
+                const idx = ui.treePaths.push({ path: b.path, label: b.label }) - 1;
+                const same = parentLabel && b.label === parentLabel;
+                // Una variant hereta el nom de la família: només se n'ensenya la part pròpia.
+                const fam = String(parentLabel || '').split(':')[0];
+                const shown = !b.mine && fam && b.label.indexOf(fam + ': ') === 0 ? b.label.slice(fam.length + 2) : b.label;
+                const name = same ? '<span class="olab-muted">mateixa obertura</span>'
+                    : (b.mine ? '✨ ' : '') + esc(shown) + (b.own && !b.mine ? ' <span class="olab-chip olab-chip--own">pròpia</span>' : '');
+                return '<li class="olab-tn olab-tn--d' + Math.min(depth, 3) + '"><div class="olab-tn-row">' +
+                    '<div class="olab-tn-head"><span class="olab-tn-kind">' + kindOf(depth) + '</span><span class="olab-tn-name">' + name + '</span></div>' +
+                    '<div class="olab-tn-moves">' + movesHtml(b.moves) + '</div>' +
+                    '<div class="olab-tn-foot"><span class="olab-tn-meta">' + meta(b) + '</span>' +
+                    '<button type="button" class="btn btn-secondary olab-btn-sm" data-olab-tree-play="' + idx + '">Juga-la</button></div></div>' +
+                    (b.children.length ? '<ul>' + b.children.map(ch => node(ch, depth + 1, b.label)).join('') + '</ul>' : '') + '</li>';
+            };
+            box.innerHTML = '<div class="olab-tree-sum">' + tree.lines + (tree.lines === 1 ? ' línia' : ' línies') + ' · ' + tree.positions + ' posicions teves' +
+                (tree.issues ? ' · <span class="olab-warn">⚠ ' + tree.issues + '</span>' : '') + '</div>' +
+                '<ul class="olab-tree-root">' + tree.families.map(f => node(f, 0, '')).join('') + '</ul>';
+        }
+        function playTreeBranch(i) {
+            const b = ui.treePaths[i];
+            if (!b) return;
+            startLine({
+                follow: { id: null, name: b.label || 'aquesta variant', sans: b.path.slice() },
+                feedback: '<div class="olab-fb olab-fb--hint">Jugues la branca «<b>' + esc(b.label || L.formatMoves([])) + '</b>» de l’arbre: el rival la segueix fins al final i després tria com sempre.</div>'
+            });
+            const top = byId('opening-lab');
+            if (top && top.scrollIntoView) top.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
         function renderControls() {
             const undoBtn = byId('olab-undo');
             if (undoBtn) undoBtn.disabled = !ui.sans.length || (ui.sans.length === 1 && ui.color === 'b');
@@ -1993,6 +2172,8 @@
             };
             jq(document).on('click', '#opening-lab [data-olab-opt]', function () { focusOption(this); });
             jq(document).on('keydown', '#opening-lab [data-olab-opt]', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); focusOption(this); } });
+            jq(document).on('click', '#opening-lab [data-olab-tree-play]', function () { playTreeBranch(Number(this.getAttribute('data-olab-tree-play'))); });
+            jq('#olab-tree-wrap').on('toggle', () => renderTree());
             jq(document).on('click', '#opening-lab [data-olab-practice]', function () { practice(this.getAttribute('data-olab-practice')); });
             jq(document).on('click', '#opening-lab [data-olab-rename]', function () {
                 const o = side().named.find(x => x.id === this.getAttribute('data-olab-rename'));

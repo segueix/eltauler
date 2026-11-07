@@ -268,6 +268,59 @@ describe('resposta del rival', () => {
     });
 });
 
+describe('l’arbre genealògic del repertori', () => {
+    function repertoire() {
+        const nodes = {};
+        const lines = [
+            ['e4', 'c5', 'Nf3', 'd6', 'd4'],
+            ['e4', 'c5', 'Nf3', 'Nc6', 'd4'],
+            ['e4', 'e5', 'Nf3', 'Nc6', 'Bc4'],
+            ['e4', 'e6', 'd4']
+        ];
+        lines.forEach(l => { for (let i = 0; i < l.length; i += 2) decide(nodes, l.slice(0, i + 1), { box: i === 0 ? 4 : 1 }); });
+        return { nodes, named: [], declined: [] };
+    }
+
+    test('tronc comú, una família per resposta del rival i variants a sota', () => {
+        const tree = L.familyTree(repertoire(), 'w', p => ({ label: p.join(' ') }));
+        expect(tree.families).toHaveLength(1);
+        const trunk = tree.families[0];
+        expect(L.formatMoves(trunk.moves)).toBe('1.e4');
+        expect(trunk.children.map(f => L.formatMoves(f.moves))).toEqual(['1...c5 2.Nf3', '1...e5 2.Nf3 Nc6 3.Bc4', '1...e6 2.d4']);
+        const sicilian = trunk.children[0];
+        expect(sicilian.children.map(v => L.formatMoves(v.moves)).sort()).toEqual(['2...Nc6 3.d4', '2...d6 3.d4']);
+        expect(sicilian.children[0].path.slice(0, 3)).toEqual(['e4', 'c5', 'Nf3']);
+        expect(sicilian.label).toBe('e4 c5 Nf3');
+    });
+
+    test('compta línies, posicions teves (sense repetir el tronc), dominades i trencaments del pla', () => {
+        const side = repertoire();
+        const tree = L.familyTree(side, 'w');
+        expect(tree.lines).toBe(4);
+        expect(tree.positions).toBe(Object.keys(side.nodes).length);
+        expect(tree.mastered).toBe(1);
+        expect(tree.issues).toBe(0);
+        // Una línia nova on el peó de d va a d3 contra un pla majoritari d4.
+        decide(side.nodes, ['e4', 'c6', 'd3']);
+        const t2 = L.familyTree(side, 'w');
+        expect(t2.issues).toBe(1);
+        expect(t2.families[0].children.find(f => f.moves[0].san === 'c6').issues).toBe(1);
+    });
+
+    test('amb negres, les famílies són les primeres jugades del rival', () => {
+        const nodes = {};
+        decide(nodes, ['e4', 'c5']);
+        decide(nodes, ['d4', 'Nf6']);
+        const tree = L.familyTree({ nodes }, 'b');
+        expect(tree.families.map(f => L.formatMoves(f.moves)).sort()).toEqual(['1.d4 Nf6', '1.e4 c5']);
+    });
+
+    test('noms en català de les variants en plural i amb complements', () => {
+        expect(L.translateOpeningName('Sicilian Defense: Modern Variations, Main Line')).toBe('Defensa Siciliana: variants modernes, línia principal');
+        expect(L.translateOpeningName("Italian Game: Two Knights Defense, Modern Bishop's Opening")).toBe("Obertura Italiana: defensa dels dos cavalls, obertura de l'alfil moderna");
+    });
+});
+
 describe('opcions de la pista: un color per obertura', () => {
     test('cada jugada sap cap a quina variant va', () => {
         const trie = L.buildSequenceTrie(DATA);
@@ -429,7 +482,7 @@ describe('integració a la pàgina', () => {
         // El taller va just després de la capçalera, abans dels blocs antics.
         expect(screen.indexOf('id="opening-lab"')).toBeGreaterThan(0);
         expect(screen.indexOf('id="opening-lab"')).toBeLessThan(screen.indexOf('id="personal-opening-banner"'));
-        ['olab-board', 'olab-name', 'olab-feedback', 'olab-undo', 'olab-hint', 'olab-new', 'olab-stats', 'olab-plan', 'olab-named'].forEach(id => {
+        ['olab-board', 'olab-name', 'olab-feedback', 'olab-undo', 'olab-hint', 'olab-new', 'olab-stats', 'olab-plan', 'olab-named', 'olab-tree'].forEach(id => {
             expect(screen).toContain('id="' + id + '"');
         });
     });
