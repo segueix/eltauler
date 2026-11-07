@@ -42,7 +42,7 @@
     }
     function melodyInfo(id) {
         const spec = composedLoopSpec(id);
-        if (spec) return { id: String(id), name: jingleTitle(spec), description: 'composta ara per l’app, núm. ' + (spec.seed % 100000), composed: true, style: spec.style, seed: spec.seed };
+        if (spec) return { id: String(id), name: jingleTitle(spec), description: 'composta ara per l’app', composed: true, style: spec.style, seed: spec.seed };
         return MELODIES.find(m => m.id === melodyId(id));
     }
     // Una melodia a l'atzar per a cada partida; si n'hi ha més d'una, mai la

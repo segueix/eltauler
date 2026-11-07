@@ -291,7 +291,7 @@ l'acord als temps forts, passos per l'escala entre mig, el motiu de la
 primera frase repetit a la segona i el final a la tònica. Tot surt d'una
 llavor (un enter); l'app recorda l'empremta de les 200 darreres peces
 (`eltauler_league_jingle_seen`) i no en repeteix cap. La pantalla diu quina
-sona («Sona: Rumba de la classificació · la menor · flauta · núm. 48213»). La
+sona («Sona: Rumba de la classificació · la menor · flauta»). La
 mateixa música composta sona també de fons a la TV Stockfish vs Lozza (un
 bucle de 32 s nou per a cada partida, `composeMelodyId`). Totes les peces
 queden al **registre** de Configuració › Veus de lectura › «Música composta

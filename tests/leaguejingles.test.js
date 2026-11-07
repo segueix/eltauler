@@ -222,7 +222,7 @@ describe('música composta a la TV Stockfish vs Lozza', () => {
         const info = R.melodyInfo(id);
         expect(info.composed).toBe(true);
         expect(info.name).toBe(R.jingleTitle(sp));
-        expect(info.description).toMatch(/composta ara per l’app, núm\. \d+/);
+        expect(info.description).toBe('composta ara per l’app');
         const d = R.samples(id, SR, seeded());
         expect(d.length).toBe(R.MELODY_SECONDS * SR);
         // Sense esvaïment: el bucle continua sonant fins a l'últim instant.
@@ -280,6 +280,8 @@ describe('registre de la música composta', () => {
         const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
         const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
         expect(html).toContain('id="composed-music-list"');
+        // Sense el número de la llavor a la vista: no aporta res a qui escolta.
+        expect(app).not.toMatch(/núm\. \$\{(spec|e)\.seed/);
         expect(app).toMatch(/data-cm-play=/);
         expect(app).toMatch(/data-cm-fav=/);
         expect(app).toMatch(/registerComposition\(\{ where: 'lliga'/);
