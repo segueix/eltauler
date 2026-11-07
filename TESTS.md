@@ -753,7 +753,12 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   la dominant, final a la tònica), cop final de les tornades entre el segon
   24,5 i el 26,5 i bucles de 32 s exactes sense esvaïment; reproductor d'una
   sola vegada (volum, punt d'inici, pausa, aturada abans d'hora); registre de
-  peces compostes (60 darreres i totes les preferides, sense duplicats).
+  peces compostes (200 darreres i totes les preferides, sense duplicats, menys
+  de 20 kB). **Bucles sense final**: la lliga i el registre fan servir el
+  bucle, el reproductor el repeteix i el punt d'inici dona la volta; cap estil
+  no falla en compondre'n (abans 1 de cada 6 rumbes). **Historial ordenat**
+  (5 darreres, preferides i arxiu per dies) i **baixada en MP3** (quatre
+  voltes amb esvaïment final, codificació a trossos amb lamejs, nom ASCII).
 - **`estratagemes.test.js`** — **Les 36 estratagemes** (`estratagemes.js`):
   28 estratagemes amb el número tradicional i de 4 a 8 frases originals
   cadascun (160), totes breus, acabades en punt, sense «victòries segures» ni

@@ -1046,6 +1046,10 @@
         let degrees;
         if (body >= 8) degrees = a.concat(a2.slice(0, body - 8), b);
         else degrees = a.concat(b.slice(0, Math.max(0, body - 4)));
+        // Bucles lents (rumba a 32 s: fins a 14 compassos): A' té com a molt
+        // quatre compassos i la B es repeteix fins a omplir-ho. Abans hi
+        // faltaven acords i la composició fallava.
+        while (degrees.length < body) degrees = degrees.concat(b);
         degrees = degrees.slice(0, body).concat([4]);
         const chords = degrees.map(dg => buildChord(tonic, mode, dg, st, st.seventh || (mode !== 'major' && dg === 4)));
         const finalPcs = chordPcs(tonic, mode, 0, st.seventh);
@@ -1068,7 +1072,7 @@
         // Frases: A (el motiu), A' (mateix ritme i contorn sobre els acords
         // nous, si hi cap), B (contrast) i la cadència a l'últim compàs.
         const idx = n => Array.from({ length: n }, (_, k) => k);
-        const aLen = Math.min(4, body), a2Len = body >= 8 ? body - 8 : 0, bLen = body - aLen - a2Len;
+        const aLen = Math.min(4, body), a2Len = body >= 8 ? Math.min(aLen, body - 8) : 0, bLen = body - aLen - a2Len;
         const ra = rh(aLen);
         const A = composePhrase(r, ctx, idx(aLen), ra);
         let notes = A.notes;
@@ -1330,10 +1334,13 @@
 
     // ── Registre de la música composta ───────────────────────────────────
     // Cada peça es pot tornar a generar exactament amb l'estil i la llavor:
-    // el registre només desa això (i on va sonar, quan i si és preferida).
-    // Es guarden les 60 darreres i totes les preferides (fins a 100).
+    // el registre només desa això (i on va sonar, quan i si és preferida),
+    // uns 90 bytes per peça; el so no es desa mai. Per això es poden
+    // conservar les 200 darreres (uns 18 kB) i totes les preferides (fins a
+    // 100). La pantalla en mostra les 5 darreres a la vista i la resta,
+    // ordenada (registryGroups).
     const REGISTRY_KEY = 'eltauler_composed_music';
-    const REGISTRY_RECENT = 60, REGISTRY_FAVS = 100;
+    const REGISTRY_RECENT = 200, REGISTRY_FAVS = 100, REGISTRY_LATEST = 5;
     function storageOf(storage) {
         if (storage) return storage;
         try { return root && root.localStorage ? root.localStorage : null; } catch (err) { return null; }
@@ -1375,9 +1382,100 @@
         registrySave(list, storage);
         return e.fav;
     }
-    function registrySpec(e) { return composeJingle(e.style, e.seed, { loop: !!e.loop }); }
+    // Totes les peces del registre es tornen a generar EN BUCLE, sense final
+    // (també les tornades antigues de la lliga, que abans acabaven amb un acord).
+    function registrySpec(e) { return composeJingle(e.style, e.seed, { loop: true }); }
+    function dayKey(ts) {
+        const d = new Date(ts);
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+    // Historial ordenat: les 5 darreres, les preferides i l'arxiu per dies
+    // (del més nou al més antic). Cada peça surt en un sol lloc.
+    function registryGroups(list, now) {
+        const all = (Array.isArray(list) ? list : []).filter(Boolean).slice().sort((a, b) => (b.at || 0) - (a.at || 0));
+        const latest = all.slice(0, REGISTRY_LATEST);
+        const favs = all.slice(REGISTRY_LATEST).filter(e => e.fav);
+        const rest = all.slice(REGISTRY_LATEST).filter(e => !e.fav);
+        const t = typeof now === 'number' ? now : Date.now();
+        const today = dayKey(t), yesterday = dayKey(t - 86400000);
+        const days = [];
+        rest.forEach(e => {
+            const k = dayKey(e.at || 0);
+            let g = days.length ? days[days.length - 1] : null;
+            if (!g || g.day !== k) { g = { day: k, label: k === today ? 'Avui' : (k === yesterday ? 'Ahir' : null), items: [] }; days.push(g); }
+            g.items.push(e);
+        });
+        return { latest, favs, days };
+    }
 
-    // Reproductor d'una tornada (una sola vegada, sense bucle). Té el seu propi
+    // ── Baixada en MP3 ───────────────────────────────────────────────────
+    // La peça és un bucle de 32 s: el fitxer en porta unes quantes voltes
+    // (per defecte quatre, uns 2 minuts) i s'esvaeix només als darrers segons
+    // perquè el fitxer no acabi amb un tall.
+    const EXPORT_RATE = 22050;
+    function exportSamples(spec, opts) {
+        const o = opts || {};
+        const sp = asSpec(spec);
+        const loopSpec = sp.loop ? sp : composeJingle(sp.style, sp.seed, { loop: true });
+        const cycles = Math.max(1, Math.min(8, Math.round(o.cycles || 4)));
+        const fade = Math.max(0, Number(o.fadeSeconds) >= 0 ? Number(o.fadeSeconds) : 3);
+        const gen = o.generate || jingleSamplesAsync;
+        return Promise.resolve(gen(loopSpec, EXPORT_RATE, o.random || Math.random, { cancelled: o.cancelled })).then(cycle => {
+            if (!cycle) return null;
+            const out = new Float32Array(cycle.length * cycles);
+            for (let c = 0; c < cycles; c++) out.set(cycle, c * cycle.length);
+            const n = Math.min(out.length, Math.round(fade * EXPORT_RATE));
+            for (let i = 0; i < n; i++) out[out.length - n + i] *= Math.cos((i / n) * Math.PI / 2);
+            return out;
+        });
+    }
+    // Codifica a MP3 amb lamejs (es carrega només quan cal). Mono, 22.050 Hz,
+    // 64 kbps: uns 0,5 MB per minut. Treballa a trossos perquè la pantalla no
+    // es quedi encallada; opts = { kbps, onProgress(0-1), cancelled() }.
+    function encodeMp3(samples, lame, opts) {
+        const o = opts || {};
+        if (!lame || typeof lame.Mp3Encoder !== 'function') return Promise.reject(new Error('no-encoder'));
+        const enc = new lame.Mp3Encoder(1, EXPORT_RATE, o.kbps || 64);
+        const pcm = new Int16Array(samples.length);
+        for (let i = 0; i < samples.length; i++) {
+            const v = Math.max(-1, Math.min(1, samples[i]));
+            pcm[i] = v < 0 ? v * 0x8000 : v * 0x7fff;
+        }
+        const parts = [];
+        const BLOCK = 1152, PER_SLICE = 1152 * 60;
+        let pos = 0;
+        return new Promise((resolve, reject) => {
+            const step = () => {
+                if (o.cancelled && o.cancelled()) { reject(new Error('cancelled')); return; }
+                try {
+                    const end = Math.min(pcm.length, pos + PER_SLICE);
+                    for (; pos < end; pos += BLOCK) {
+                        const buf = enc.encodeBuffer(pcm.subarray(pos, Math.min(end, pos + BLOCK)));
+                        if (buf && buf.length) parts.push(new Uint8Array(buf));
+                    }
+                    if (typeof o.onProgress === 'function') o.onProgress(pos / pcm.length);
+                    if (pos < pcm.length) { setTimeout(step, 0); return; }
+                    const tail = enc.flush();
+                    if (tail && tail.length) parts.push(new Uint8Array(tail));
+                    resolve(parts);
+                } catch (err) { reject(err); }
+            };
+            step();
+        });
+    }
+    // Nom del fitxer: «El Tauler - Rumba de la classificacio - fa menor - vibrafon.mp3».
+    // Sense accents: amb lletres no ASCII alguns navegadors canvien el nom
+    // del fitxer per «download».
+    function mp3FileName(spec) {
+        const sp = asSpec(spec);
+        const title = jingleTitle(sp).replace(/ · /g, ' - ').replace(/·/g, '.');
+        const ascii = ('El Tauler - ' + title).normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .replace(/[’']/g, '').replace(/[^\x20-\x7e]/g, '');
+        return ascii.replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, ' ').trim() + '.mp3';
+    }
+
+    // Reproductor d'una peça composta: en bucle si la peça ho és (totes les noves),
+    // fins que s'atura. Té el seu propi
     // context d'àudio i respecta l'interruptor general de la música.
     // env = { createContext, generate(id, sampleRate, random, opts) → Promise }
     const JINGLE_LEVEL = 0.8;
@@ -1423,12 +1521,15 @@
                 return Promise.all([data, resumed]).then(([samples]) => {
                     if (my !== token || !allowed) return false;
                     const started = typeof o.startedAt === 'function' ? o.startedAt() : (o.offset || 0);
-                    const offset = Math.max(0, Math.min(JINGLE_SECONDS - 0.5, started));
+                    const length = samples.length / 22050;
+                    // En bucle no hi ha final: el punt d'inici dona la volta.
+                    const offset = sp.loop ? (Math.max(0, started) % length) : Math.max(0, Math.min(JINGLE_SECONDS - 0.5, started));
                     const buffer = ctx.createBuffer(1, samples.length, 22050);
                     buffer.getChannelData(0).set(samples);
                     const source = ctx.createBufferSource(), gain = ctx.createGain();
                     source.buffer = buffer;
-                    source.loop = false;
+                    // Les peces compostes sonen en bucle fins que s'aturen.
+                    source.loop = !!sp.loop;
                     gain.gain.value = 0;
                     source.connect(gain); gain.connect(ctx.destination);
                     source.start(0, offset);
@@ -1625,6 +1726,7 @@
         // Música composta a la TV i registre de les peces compostes.
         composedMelodyId, parseComposedId, composedLoopSpec, composeMelodyId,
         REGISTRY_KEY, registryList, registerComposition, toggleFavourite, registryKey, registrySpec,
+        REGISTRY_LATEST, registryGroups, exportSamples, encodeMp3, mp3FileName,
         // Partitures, per als tests.
         _scores: { theme: THEME, oriental: ORIENTAL, bossa: BOSSA, vals: VALS, capvespre: CAPVESPRE,
             havanera: HAVANERA, celta: CELTA, nocturn: NOCTURN, marimba: MARIMBA, lofi: LOFI } };
