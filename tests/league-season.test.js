@@ -383,7 +383,7 @@ describe('partides consecutives a les lligues de 30s i 1+0', () => {
     test('en acabar una jornada es mostra en lloc de la revisió; «Anar a l\'inici» l\'atura', () => {
         const hgo = fnSource('handleGameOver');
         expect(hgo).toMatch(/const leagueChainNext = wasLeagueMatch && !blunderMode && leagueInterludeWanted\(\);/);
-        expect(hgo).toMatch(/if \(leagueChainNext\) \{\s*hidePostGameStatusChip\(\);\s*if \(showLeagueInterlude\(msg, leagueOutcome, \{ clock: finalClockSnapshot, playerColor, oppName: finalClockOppName,\s*eloChange: isLeagueRatedGame \? change : null, reason: timeoutColor \? 'time' : null \}\)\) \{\s*persistPostGameAfterPaint\('league-interlude'\);\s*return;/);
+        expect(hgo).toMatch(/if \(leagueChainNext\) \{\s*hidePostGameStatusChip\(\);\s*if \(showLeagueInterlude\(msg, leagueOutcome, \{ clock: finalClockSnapshot, playerColor, oppName: finalClockOppName,\s*eloChange: isLeagueRatedGame \? change : null, reason: timeoutColor \? 'time' : null,\s*precision: finalPrecision, playerMoves: totalPlayerMoves,\s*gameId: [^}]*\}\)\) \{\s*persistPostGameAfterPaint\('league-interlude'\);\s*return;/);
         expect(fnSource('leaveLeagueInterludeHome')).toMatch(/hideLeagueInterlude\(\);[\s\S]*goToHomeScreen\(\);/);
         expect(fnSource('returnToMainMenuImmediate')).toMatch(/hideLeagueInterlude\(\)/);
     });
@@ -518,7 +518,8 @@ describe('pantalla entre partides: poc text i les dues posicions marcades', () =
             getLeagueTimeControlId: () => '1+0', syncLeagueUserRoc() {}, getMyOpponentForRound: () => 'bot4',
             getLeaguePlayer: id => players.find(p => p.id === id), nowMs: () => 0, setInterval: () => 1, clearInterval() {},
             leagueInterlude: null, resultFinalClockHtml: () => '<div>rellotge</div>', escapeHtml: x => x,
-            musicStarts: 0, startLeagueInterludeMusic() { ctx.musicStarts++; }
+            musicStarts: 0, startLeagueInterludeMusic() { ctx.musicStarts++; },
+            accRenders: 0, renderLeagueInterludeAccuracy() { ctx.accRenders++; }
         });
         vm.runInContext(fnSource('formatPts'), ctx);
         vm.runInContext(fnSource('formatEloChange'), ctx);

@@ -738,6 +738,12 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   davant del jeroglífic genèric), tàctiques del banc del mateix tema (que es
   mantenen amb «Una altra tàctica»), la teva obertura o les teves errades.
   També comprova que obrir un jeroglífic ja no buida `savedErrors`.
+- **`league-accuracy.test.js`** — a la **finestra entre partides de la
+  lliga amb rellotge**, l'encert de la partida que s'acaba de jugar i la
+  mitjana de la lliga (`leagueAccuracySummary`): la partida actual es compta
+  una sola vegada encara que ja sigui a l'historial, les partides sense cap
+  jugada pròpia no compten, els valors van de 0 a 100 i la finestra en té els
+  dos indicadors (amagats fins que hi ha dades).
 - **`leaguejingles.test.js`** — la **música que compon l'app**
   (`radioambient.js`, `composeJingle`): tornades de 30 s entre partides de la
   lliga i bucles de 32 s per a la TV Stockfish vs Lozza. Cinc estils
