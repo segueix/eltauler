@@ -32,6 +32,15 @@ describe('l’app compon les tornades', () => {
     const STYLES = R.JINGLES.map(j => j.id);
     const SEEDS = [1, 2, 3, 77, 1234, 98765, 4000000000];
 
+    test('cada estil fa servir tots els seus solistes i variants', () => {
+        STYLES.forEach(st => {
+            const leads = new Set(), variants = new Set();
+            for (let seed = 1; seed <= 400; seed++) { const sp = R.composeJingle(st, seed); leads.add(sp.lead); variants.add(sp.variant); }
+            expect(leads.size).toBe(R._jingleStyles[st].leads.length);
+            expect(variants.size).toBe(R._jingleStyles[st].variants);
+        });
+    });
+
     test('cinc estils amb nom i descripció', () => {
         expect(R.JINGLES).toHaveLength(5);
         expect(new Set(STYLES).size).toBe(5);
@@ -55,12 +64,21 @@ describe('l’app compon les tornades', () => {
             const sp = R.composeJingle(st, seed);
             const bar = sp.beat * 4, end = sp.chords.length * bar;
             // El cop final arriba entre el segon 24 i el 27 del compte enrere.
-            expect(end).toBeGreaterThanOrEqual(23.9);
-            expect(end).toBeLessThanOrEqual(27);
-            expect(sp.chords).toHaveLength(style.bars);
+            expect(end).toBeGreaterThanOrEqual(24.4);
+            expect(end).toBeLessThanOrEqual(26.6);
+            // Tempo tranquil, per acompanyar les partides (mai més de 106 ppm).
+            expect(60 / sp.beat).toBeLessThanOrEqual(106);
+            expect(60 / sp.beat).toBeGreaterThanOrEqual(70);
+            expect(sp.chords.length).toBeGreaterThanOrEqual(7);
+            expect(sp.chords.length).toBeLessThanOrEqual(12);
+            // Solista i variant d'acompanyament, dins de les opcions de l'estil.
+            expect(style.leads).toContain(sp.lead);
+            expect(sp.variant).toBeGreaterThanOrEqual(0);
+            expect(sp.variant).toBeLessThan(style.variants);
             // Cadència: l'últim acord abans del final és la dominant.
             expect(sp.degrees[sp.degrees.length - 1]).toBe(4);
-            expect(R.jingleTitle(sp)).toMatch(/ · (do|do♯|re|mi♭|mi|fa|fa♯|sol|la♭|la|si♭|si) (major|menor)$/);
+            expect(R.jingleTitle(sp)).toMatch(/ · (do|do♯|re|mi♭|mi|fa|fa♯|sol|la♭|la|si♭|si) (major|menor) · [a-zà-ú ]+$/);
+            expect(R.jingleTitle(sp).endsWith(R._leadNames[sp.lead])).toBe(true);
             expect(sp.final.notes[0] % 12).toBe(sp.tonic);
             expect(sp.final.top % 12).toBe(sp.tonic);
             if (st === 'galop') { expect(sp.patterns).toHaveLength(sp.chords.length); return; }
