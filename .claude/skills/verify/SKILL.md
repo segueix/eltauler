@@ -110,9 +110,11 @@ Conduir amb Playwright + Chromium preinstal·lat
     `tauler_tv_prefs.radioBackground = { sound: 'music' }`; la melodia que
     sona surt a `#sftv-radio-status` («Ara sona: …») i canvia amb
     `_controller().newGame()`. **Mòbil**: el disseny de la TV depèn de
-    `body.device-desktop`; per veure'l com en un telèfon cal un context amb
-    `hasTouch: true, isMobile: true` (si no, a 420 px surt la graella
-    d'escriptori i el tauler fa 0 px d'amplada).
+    `body.device-desktop` i de l'amplada: en una finestra d'ordinador de
+    menys de 760 px ja surt com al mòbil (abans el tauler hi feia 0 px). Per
+    provar-la com en un telèfon de debò, context amb
+    `hasTouch: true, isMobile: true`. El mateix val per a l'inici (dues
+    columnes a partir de 1000 px) i el taller d'Obertures (760 px).
 
 12. **Inici (bàners per seccions)**: `#start-screen.home-d` agrupa els
     bàners en `.home-sec--juga/avui/entrena/comunitat/apren/final`; els
