@@ -268,6 +268,89 @@ describe('resposta del rival', () => {
     });
 });
 
+describe('les teves obertures amb nom', () => {
+    // Repertori de blanques on la línia 1.d4 d5 2.Nf3 Nf6 3.Bf4 e6 4.e3 c5 5.h4
+    // surt de la teoria amb una jugada pròpia (5.h4).
+    const LINE = ['d4', 'd5', 'Nf3', 'Nf6', 'Bf4', 'e6', 'e3', 'c5', 'h4', 'Nc6'];
+    function build(extra) {
+        const nodes = {};
+        for (let i = 0; i < LINE.length; i += 2) decide(nodes, LINE.slice(0, i + 1), extra && extra[LINE[i]]);
+        return { name: '', nodes, named: [], declined: [] };
+    }
+    const keysOf = sans => L.annotateLine(Chess, sans).keys;
+
+    test('una sortida pròpia, coherent i nova es pot anomenar', () => {
+        const side = build();
+        const c = L.namingCandidate({ side, sans: LINE, keys: keysOf(LINE), leftAt: 9, color: 'w' });
+        expect(c).toMatchObject({ ok: true, leftPly: 9, leftSan: 'h4' });
+        expect(c.leftKey).toBe(keysOf(LINE)[8]);
+    });
+
+    test('si en surt el rival, la sortida és la teva primera jugada fora de la teoria', () => {
+        const side = build();
+        const c = L.namingCandidate({ side, sans: LINE, keys: keysOf(LINE), leftAt: 8, color: 'w' });
+        expect(c).toMatchObject({ ok: true, leftPly: 9, leftSan: 'h4', bookPly: 8 });
+    });
+
+    test('no es proposa si no surts tu del llibre, si és teoria o si no és coherent', () => {
+        const side = build();
+        expect(L.namingCandidate({ side, sans: LINE, keys: keysOf(LINE), leftAt: null, color: 'w' }).reason).toBe('book');
+        // Surt del llibre el rival amb l'última jugada: no hi ha cap jugada teva fora de la teoria.
+        expect(L.namingCandidate({ side, sans: LINE, keys: keysOf(LINE), leftAt: 10, color: 'w' }).reason).toBe('no-own-move');
+        // Una jugada del repertori que trenca el pla (Bg5 contra un pla Bf4 majoritari).
+        const conflictSide = build();
+        decide(conflictSide.nodes, ['d4', 'Nf6', 'Nf3', 'e6', 'Bf4']);
+        decide(conflictSide.nodes, ['d4', 'g6', 'Nf3', 'Bg7', 'Bf4']);
+        const k = L.positionKey(L.annotateLine(Chess, ['d4', 'd5', 'Nf3', 'Nf6']).game.fen());
+        const bad = Object.assign({}, conflictSide.nodes[k]);
+        conflictSide.nodes[k] = Object.assign(bad, L.candidateInfo(L.annotateLine(Chess, ['d4', 'd5', 'Nf3', 'Nf6']),
+            L.annotateLine(Chess, ['d4', 'd5', 'Nf3', 'Nf6']).game.moves({ verbose: true }).find(m => m.san === 'Bg5')));
+        const line2 = ['d4', 'd5', 'Nf3', 'Nf6', 'Bg5', 'e6', 'e3', 'c5', 'h4'];
+        for (let i = 4; i < line2.length; i += 2) decide(conflictSide.nodes, line2.slice(0, i + 1));
+        expect(L.namingCandidate({ side: conflictSide, sans: line2, keys: keysOf(line2), leftAt: 9, color: 'w' }).reason).toBe('incoherent');
+        // Una jugada que no és al repertori.
+        const missing = build();
+        delete missing.nodes[L.START_KEY];
+        expect(L.namingCandidate({ side: missing, sans: LINE, keys: keysOf(LINE), leftAt: 9, color: 'w' }).reason).toBe('missing');
+    });
+
+    test('es desa amb les altres, no es duplica i es reconeix en altres línies', () => {
+        const side = build();
+        const c = L.namingCandidate({ side, sans: LINE, keys: keysOf(LINE), leftAt: 9, color: 'w' });
+        const e = L.addNamedOpening(side, { name: '  El meu   Londres  ', sans: LINE, leftKey: c.leftKey, leftPly: c.leftPly, base: 'Sistema Londres', now: 5 });
+        expect(e).toMatchObject({ name: 'El meu Londres', leftPly: 9, practiced: 0 });
+        expect(side.named).toHaveLength(1);
+        expect(L.addNamedOpening(side, { name: 'Un altre', sans: LINE, leftKey: c.leftKey })).toBeNull();
+        expect(L.addNamedOpening(side, { name: '   ', sans: LINE, leftKey: 'x' })).toBeNull();
+        // Ja és teva: no es torna a proposar...
+        expect(L.namingCandidate({ side, sans: LINE, keys: keysOf(LINE), leftAt: 9, color: 'w' }).reason).toBe('known');
+        // ...i una línia amb una altra resposta del rival després de 5.h4 hi passa.
+        const other = LINE.slice(0, 9).concat(['h6']);
+        expect(L.namedOpeningFor(side.named, keysOf(other))).toBe(e);
+        expect(L.namedOpeningFor(side.named, keysOf(LINE.slice(0, 8)))).toBeNull();
+    });
+
+    test('una sortida descartada no es torna a demanar', () => {
+        const side = build();
+        const c = L.namingCandidate({ side, sans: LINE, keys: keysOf(LINE), leftAt: 9, color: 'w' });
+        side.declined.push(c.leftKey);
+        expect(L.namingCandidate({ side, sans: LINE, keys: keysOf(LINE), leftAt: 9, color: 'w' }).reason).toBe('declined');
+    });
+
+    test('la pràctica arriba fins al final de l’obertura desada', () => {
+        expect(L.userMovesIn(LINE, 'w')).toBe(5);
+        expect(L.userMovesIn(LINE, 'b')).toBe(5);
+        expect(L.userMovesIn(LINE.slice(0, 9), 'b')).toBe(4);
+    });
+
+    test('el magatzem conserva les obertures amb nom i descarta les malmeses', () => {
+        const s = L.normalizeStore({ sides: { w: { nodes: {}, named: [{ name: 'A', sans: ['e4'], leftKey: 'k' }, { name: '', sans: [], leftKey: 'x' }, null], declined: ['k2', 5] } } });
+        expect(s.sides.w.named.map(o => o.name)).toEqual(['A']);
+        expect(s.sides.w.declined).toEqual(['k2']);
+        expect(s.sides.b).toEqual({ name: '', nodes: {}, named: [], declined: [] });
+    });
+});
+
 describe('magatzem', () => {
     test('normalitza dades velles o malmeses', () => {
         const s = L.normalizeStore({ prefs: { color: 'b', depth: 99 }, sides: { w: { nodes: { k: { san: 'e4', origin: 'e2' }, bad: { foo: 1 } } } } });
@@ -298,7 +381,7 @@ describe('integració a la pàgina', () => {
         // El taller va just després de la capçalera, abans dels blocs antics.
         expect(screen.indexOf('id="opening-lab"')).toBeGreaterThan(0);
         expect(screen.indexOf('id="opening-lab"')).toBeLessThan(screen.indexOf('id="personal-opening-banner"'));
-        ['olab-board', 'olab-name', 'olab-feedback', 'olab-undo', 'olab-hint', 'olab-new', 'olab-stats', 'olab-plan'].forEach(id => {
+        ['olab-board', 'olab-name', 'olab-feedback', 'olab-undo', 'olab-hint', 'olab-new', 'olab-stats', 'olab-plan', 'olab-named'].forEach(id => {
             expect(screen).toContain('id="' + id + '"');
         });
     });

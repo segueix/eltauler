@@ -42,6 +42,9 @@
     const DEPTH_OPTIONS = [6, 8, 10, 12];
     const DEFAULT_DEPTH = 8;
     const MAX_EVALS = 700;
+    const MAX_NAMED = 40;
+    const MAX_NAME = 60;
+    const MAX_DECLINED = 200;
 
     // Llindars de Stockfish 19 (centipeons perduts respecte de la millor).
     const VERDICTS = [
@@ -737,8 +740,9 @@
     // ------------------------------------------------------------------
     // Magatzem (localStorage, viatja amb la sincronització: prefix chess_)
     // ------------------------------------------------------------------
+    function emptySide() { return { name: '', nodes: {}, named: [], declined: [] }; }
     function emptyStore() {
-        return { v: 1, prefs: { color: 'w', depth: DEFAULT_DEPTH }, sides: { w: { name: '', nodes: {} }, b: { name: '', nodes: {} } }, evals: {} };
+        return { v: 1, prefs: { color: 'w', depth: DEFAULT_DEPTH }, sides: { w: emptySide(), b: emptySide() }, evals: {} };
     }
 
     function normalizeStore(raw) {
@@ -757,6 +761,13 @@
                 const n = nodes[k];
                 if (n && typeof n.san === 'string' && typeof n.origin === 'string') s.sides[c].nodes[k] = n;
             });
+            (Array.isArray(side.named) ? side.named : []).forEach(o => {
+                if (o && typeof o.name === 'string' && o.name.trim() && Array.isArray(o.sans) && typeof o.leftKey === 'string') {
+                    s.sides[c].named.push(Object.assign({}, o, { name: o.name.trim().slice(0, MAX_NAME) }));
+                }
+            });
+            s.sides[c].named = s.sides[c].named.slice(0, MAX_NAMED);
+            s.sides[c].declined = (Array.isArray(side.declined) ? side.declined : []).filter(k => typeof k === 'string').slice(-MAX_DECLINED);
         });
         if (raw.evals && typeof raw.evals === 'object') s.evals = raw.evals;
         return s;
@@ -797,6 +808,79 @@
         };
     }
 
+    // ------------------------------------------------------------------
+    // Les teves obertures amb nom
+    // ------------------------------------------------------------------
+    // Una SORTIDA PRÒPIA és una línia completa on ets tu qui surt del llibre.
+    // S'identifica per la posició just després de la teva jugada nova (leftKey):
+    // qualsevol línia que hi passi és aquella obertura, sigui quina sigui la
+    // resposta del rival després.
+    function namedOpeningFor(named, keys) {
+        let best = null;
+        (named || []).forEach(o => {
+            const i = (keys || []).indexOf(o.leftKey);
+            if (i >= 0 && (!best || i < best.idx)) best = { opening: o, idx: i };
+        });
+        return best ? best.opening : null;
+    }
+
+    // Es pot proposar de posar-li nom si: la línia surt del llibre i hi fas
+    // almenys una jugada teva fora de la teoria, totes les teves jugades de la
+    // línia són al repertori i són coherents (pla i Stockfish 19), i no és ja
+    // una obertura teva ni l'has descartada.
+    // Retorna { ok, reason, leftKey, leftPly, leftSan, bookPly }.
+    function namingCandidate(opts) {
+        const o = opts || {};
+        const side = o.side || emptySide();
+        const sans = Array.isArray(o.sans) ? o.sans : [];
+        const keys = Array.isArray(o.keys) ? o.keys : [];
+        const color = o.color === 'b' ? 'b' : 'w';
+        const leftAt = o.leftAt;
+        if (!leftAt || leftAt > sans.length) return { ok: false, reason: 'book' };
+        // La primera jugada TEVA fora del llibre (pot ser la que en surt o, si
+        // en surt el rival, la teva resposta) és el que fa la sortida teva.
+        let ownPly = leftAt;
+        while (ownPly <= sans.length && (ownPly % 2 === 1 ? 'w' : 'b') !== color) ownPly++;
+        if (ownPly > sans.length) return { ok: false, reason: 'no-own-move' };
+        const leftKey = keys[ownPly - 1];
+        if (!leftKey) return { ok: false, reason: 'book' };
+        if (namedOpeningFor(side.named, keys)) return { ok: false, reason: 'known' };
+        if ((side.declined || []).indexOf(leftKey) >= 0) return { ok: false, reason: 'declined' };
+        const scheme = computeScheme(side.nodes);
+        for (let i = 0; i < sans.length; i++) {
+            if ((i % 2 === 0 ? 'w' : 'b') !== color) continue;
+            const before = i === 0 ? START_KEY : keys[i - 1];
+            const node = side.nodes ? side.nodes[before] : null;
+            if (!node || stripSan(node.san) !== stripSan(sans[i])) return { ok: false, reason: 'missing' };
+            if (!nodeCoherence(node, scheme).ok) return { ok: false, reason: 'incoherent' };
+        }
+        return { ok: true, leftKey, leftPly: ownPly, leftSan: sans[ownPly - 1], bookPly: leftAt };
+    }
+
+    function addNamedOpening(side, data) {
+        if (!side || !data) return null;
+        const name = String(data.name || '').replace(/\s+/g, ' ').trim().slice(0, MAX_NAME);
+        if (!name || !data.leftKey || !Array.isArray(data.sans)) return null;
+        if (!Array.isArray(side.named)) side.named = [];
+        if (side.named.some(o => o.leftKey === data.leftKey)) return null;
+        if (side.named.length >= MAX_NAMED) return null;
+        const now = typeof data.now === 'number' ? data.now : Date.now();
+        const entry = {
+            id: 'o' + now.toString(36) + Math.floor(Math.random() * 1e4).toString(36),
+            name, sans: data.sans.slice(), leftKey: data.leftKey, leftPly: data.leftPly || 0,
+            base: data.base || '', eco: data.eco || '', created: now, practiced: 0, lastPracticed: 0
+        };
+        side.named.push(entry);
+        if (Array.isArray(side.declined)) side.declined = side.declined.filter(k => k !== data.leftKey);
+        return entry;
+    }
+
+    // Nombre de jugades de l'usuari en una línia (per allargar la pràctica
+    // fins al final de l'obertura desada).
+    function userMovesIn(sans, color) {
+        return (sans || []).filter((_, i) => (i % 2 === 0 ? 'w' : 'b') === color).length;
+    }
+
     function schemeList(scheme) {
         return Object.keys(scheme || {}).map(origin => ({ origin, entry: scheme[origin] }))
             .sort((a, b) => a.entry.ply - b.entry.ply)
@@ -812,7 +896,8 @@
         planMoves, planMoveForOrigin, planLabel, schemeList, describeMove, planCheckText,
         scoreToCp, parseInfoLine, judgeMove, verdictFor, formatCp, formatLoss,
         srsAfter, isDue, rivalCandidates, pickWeighted,
-        emptyStore, normalizeStore, rememberEval, repertoireReport, PIECE_CA
+        emptyStore, normalizeStore, rememberEval, repertoireReport, PIECE_CA,
+        namedOpeningFor, namingCandidate, addNamedOpening, userMovesIn, MAX_NAMED
     };
 
     if (typeof document !== 'undefined' && typeof window !== 'undefined') {
@@ -839,6 +924,7 @@
             visit: null, hintLevel: 0, tapFrom: null, lastMove: null, expected: null, hintSquares: null,
             pending: null, forceDecideKey: null, reviewNote: '', feedback: '', rivalNote: '',
             lineStats: null, lastName: '', orientation: null, wired: false, engine: null,
+            follow: null, namePrompt: null,
             evalMem: new Map(), inflight: new Map(), saveTimer: null
         };
 
@@ -863,7 +949,18 @@
         function side() { return ui.store.sides[ui.color]; }
         function moveNo(ply) { return Math.ceil(ply / 2); }
         function moveLabel(ply, san) { return moveNo(ply) + (ply % 2 ? '.' : '...') + san; }
-        function userPlies() { return ui.sans.filter((_, i) => (i % 2 === 0 ? 'w' : 'b') === ui.color).length; }
+        function userPlies() { return L.userMovesIn(ui.sans, ui.color); }
+        // Practicant una obertura desada, la línia arriba com a mínim al seu final.
+        function lineDepth() { return ui.follow ? Math.max(ui.depth, L.userMovesIn(ui.follow.sans, ui.color)) : ui.depth; }
+        function followNext() {
+            const f = ui.follow;
+            if (!f || f.sans.length <= ui.sans.length) return null;
+            for (let i = 0; i < ui.sans.length; i++) if (f.sans[i] !== ui.sans[i]) return null;
+            return f.sans[ui.sans.length];
+        }
+        function namedHere() {
+            return L.namedOpeningFor(side().named, L.annotateLine(ChessCtor(), ui.sans).keys);
+        }
 
         // ---------------- magatzem ----------------
         function loadStore() {
@@ -1120,6 +1217,8 @@
             ui.forceDecideKey = null; ui.reviewNote = ''; ui.rivalNote = '';
             ui.feedback = o.feedback || '';
             ui.lineStats = { newCount: 0, recallOk: 0, recallTotal: 0 };
+            ui.follow = o.follow || null;
+            ui.namePrompt = null;
             if (Array.isArray(o.line)) {
                 for (const san of o.line) {
                     const m = ui.game.move(san, { sloppy: true });
@@ -1323,7 +1422,7 @@
             ui.pending = null;
             syncBoard(false);
             if (ui.game.game_over()) { finishLine('gameover'); return; }
-            if (userPlies() >= ui.depth) { finishLine('depth'); return; }
+            if (userPlies() >= lineDepth()) { finishLine('depth'); return; }
             rivalTurn();
         }
 
@@ -1337,18 +1436,24 @@
             const key = L.positionKey(fen);
             const Chess = ChessCtor();
             const legal = san => { try { return !!new Chess(fen).move(san, { sloppy: true }); } catch (e) { return false; } };
-            const book = L.bookMoves(ctx(), ui.sans, key).filter(b => legal(b.san));
-            const an = await analysis(fen, 'rival');
-            if (tok !== ui.token) return;
-            const engineLines = an ? an.lines.map(l => ({ san: l.san, cp: l.cp })) : [];
-            const nodeAfter = san => {
-                try { const g = new Chess(fen); if (!g.move(san, { sloppy: true })) return null; return side().nodes[L.positionKey(g.fen())] || null; } catch (e) { return null; }
-            };
-            // Normalitza el SAN del llibre amb el de chess.js (escacs inclosos).
-            const bookNorm = book.map(b => { const g = new Chess(fen); const m = g.move(b.san, { sloppy: true }); return { san: m.san, count: b.count }; });
-            const cands = L.rivalCandidates({ book: bookNorm, engine: engineLines, nodeAfter });
-            const pick = L.pickWeighted(cands);
-            if (!pick) { finishLine(engineLines.length || book.length ? 'nomoves' : 'noengine'); return; }
+            let pick = null;
+            // Practicant una obertura desada, el rival en segueix la línia.
+            const fl = followNext();
+            if (fl && legal(fl)) pick = { san: fl, source: 'follow' };
+            else {
+                const book = L.bookMoves(ctx(), ui.sans, key).filter(b => legal(b.san));
+                const an = await analysis(fen, 'rival');
+                if (tok !== ui.token) return;
+                const engineLines = an ? an.lines.map(l => ({ san: l.san, cp: l.cp })) : [];
+                const nodeAfter = san => {
+                    try { const g = new Chess(fen); if (!g.move(san, { sloppy: true })) return null; return side().nodes[L.positionKey(g.fen())] || null; } catch (e) { return null; }
+                };
+                // Normalitza el SAN del llibre amb el de chess.js (escacs inclosos).
+                const bookNorm = book.map(b => { const g = new Chess(fen); const m = g.move(b.san, { sloppy: true }); return { san: m.san, count: b.count }; });
+                const cands = L.rivalCandidates({ book: bookNorm, engine: engineLines, nodeAfter });
+                pick = L.pickWeighted(cands);
+                if (!pick) { finishLine(engineLines.length || book.length ? 'nomoves' : 'noengine'); return; }
+            }
             const wait = RIVAL_MIN_MS - (Date.now() - started);
             if (wait > 0) await sleep(wait);
             if (tok !== ui.token) return;
@@ -1357,7 +1462,7 @@
             ui.sans.push(mv.san);
             ui.marks[ui.sans.length - 1] = 'rival';
             ui.lastMove = { from: mv.from, to: mv.to };
-            ui.rivalNote = 'Rival: <b>' + esc(moveLabel(ui.sans.length, mv.san)) + '</b> <span class="olab-muted">(' + (pick.source === 'book' ? 'teoria' : 'Stockfish 19, fora de llibre') + ')</span>';
+            ui.rivalNote = 'Rival: <b>' + esc(moveLabel(ui.sans.length, mv.san)) + '</b> <span class="olab-muted">(' + (pick.source === 'book' ? 'teoria' : pick.source === 'follow' ? 'la teva obertura «' + esc(ui.follow.name) + '»' : 'Stockfish 19, fora de llibre') + ')</span>';
             syncBoard(true);
             userTurn();
         }
@@ -1368,18 +1473,80 @@
             const rep = L.repertoireReport(side());
             const s = ui.lineStats || { newCount: 0, recallOk: 0, recallTotal: 0 };
             const why = reason === 'gameover' ? 'La partida s’ha acabat.' : reason === 'noengine' ? 'Fora de llibre i sense Stockfish 19: la línia s’acaba aquí.' : reason === 'nomoves' ? 'El rival no té resposta preparada.' : 'Línia completada.';
-            ui.feedback = (ui.feedback || '') + '<div class="olab-fb olab-fb--done"><b>' + esc(why) + '</b> Noves decisions: <b>' + s.newCount + '</b> · Recordades: <b>' + s.recallOk + '/' + s.recallTotal + '</b> · Coherència del repertori: <b>' + rep.coherencePct + '%</b>.' +
-                '<div class="olab-fb-actions"><button type="button" class="btn btn-primary olab-btn-sm" data-olab-act="new">Una altra línia</button></div></div>';
+            let practiced = '';
+            if (ui.follow && reason !== 'noengine') {
+                const f = side().named.find(o => o.id === ui.follow.id);
+                if (f) { f.practiced = (f.practiced || 0) + 1; f.lastPracticed = Date.now(); practiced = ' Has practicat «' + esc(f.name) + '» (' + f.practiced + (f.practiced === 1 ? ' cop' : ' cops') + ').'; }
+            }
+            ui.feedback = (ui.feedback || '') + '<div class="olab-fb olab-fb--done"><b>' + esc(why) + '</b> Noves decisions: <b>' + s.newCount + '</b> · Recordades: <b>' + s.recallOk + '/' + s.recallTotal + '</b> · Coherència del repertori: <b>' + rep.coherencePct + '%</b>.' + practiced +
+                '<div class="olab-fb-actions"><button type="button" class="btn btn-primary olab-btn-sm" data-olab-act="new">Una altra línia</button>' +
+                (ui.follow ? '<button type="button" class="btn btn-secondary olab-btn-sm" data-olab-practice="' + esc(ui.follow.id) + '">Torna-la a practicar</button>' : '') + '</div></div>';
+            if (reason === 'depth' || reason === 'nomoves') offerName();
             saveStore(true);
             render();
             paintMarks();
+        }
+
+        // Sortida pròpia, coherent i nova: demana-li un nom.
+        function offerName() {
+            const Chess = ChessCtor();
+            const keys = L.annotateLine(Chess, ui.sans).keys;
+            const nm = L.lineName(ctx(), ui.sans, keys);
+            const cand = L.namingCandidate({ side: side(), sans: ui.sans, keys, leftAt: nm.leftAt, color: ui.color });
+            if (!cand.ok) return;
+            const base = L.lineName(ctx(), ui.sans.slice(0, cand.bookPly - 1), keys.slice(0, cand.bookPly - 1));
+            const suggestion = (base.nameCa ? base.nameCa.split(':')[0] + ', ' : '') + 'variant ' + cand.leftSan;
+            ui.namePrompt = { cand, sans: ui.sans.slice(), base: base.nameCa || '', eco: base.eco || '', suggestion };
+            ui.feedback += '<div class="olab-fb olab-fb--name" id="olab-name-prompt"><div class="olab-hint-title">✨ Has creat una sortida pròpia i coherent</div>' +
+                (cand.leftPly === cand.bookPly
+                    ? 'Amb <b>' + esc(moveLabel(cand.leftPly, cand.leftSan)) + '</b> surts de la teoria' + (base.nameCa ? ' (' + esc(base.nameCa) + ')' : '')
+                    : 'Fora de la teoria' + (base.nameCa ? ' (' + esc(base.nameCa) + ')' : '') + ', <b>' + esc(moveLabel(cand.leftPly, cand.leftSan)) + '</b> és la teva primera jugada pròpia') +
+                ' i totes les teves jugades segueixen el pla. Posa-li un nom: la guardarem amb les teves obertures, el tauler la reconeixerà i la podràs practicar.' +
+                '<div class="olab-name-form"><input type="text" class="olab-input" id="olab-newname" maxlength="60" placeholder="' + esc(suggestion) + '" aria-label="Nom de la teva obertura">' +
+                '<button type="button" class="btn btn-primary olab-btn-sm" data-olab-act="save-name">Desa-la</button>' +
+                '<button type="button" class="btn btn-secondary olab-btn-sm" data-olab-act="decline-name">Ara no</button></div></div>';
+            setTimeout(() => { const el = byId('olab-newname'); if (el && document.body.classList.contains('device-desktop')) el.focus(); }, 50);
+        }
+        function saveName() {
+            const p = ui.namePrompt;
+            if (!p) return;
+            const input = byId('olab-newname');
+            const name = (input && input.value.trim()) || p.suggestion;
+            const entry = L.addNamedOpening(side(), { name, sans: p.sans, leftKey: p.cand.leftKey, leftPly: p.cand.leftPly, base: p.base, eco: p.eco });
+            ui.namePrompt = null;
+            ui.feedback = ui.feedback.replace(/<div class="olab-fb olab-fb--name" id="olab-name-prompt">[\s\S]*$/, '');
+            if (entry) {
+                saveStore(true);
+                ui.feedback += '<div class="olab-fb olab-fb--ok"><span class="olab-pill olab-pill--excellent">Desada</span> «<b>' + esc(entry.name) + '</b>» ja és a <b>Les teves obertures</b>. Quan una línia hi passi, el tauler la reconeixerà, i la pots practicar quan vulguis.' +
+                    '<div class="olab-fb-actions"><button type="button" class="btn btn-secondary olab-btn-sm" data-olab-practice="' + esc(entry.id) + '">Practica-la ara</button></div></div>';
+            }
+            render();
+        }
+        function declineName() {
+            const p = ui.namePrompt;
+            if (!p) return;
+            side().declined.push(p.cand.leftKey);
+            ui.namePrompt = null;
+            saveStore(true);
+            ui.feedback = ui.feedback.replace(/<div class="olab-fb olab-fb--name" id="olab-name-prompt">[\s\S]*$/, '');
+            render();
+        }
+        function practice(id) {
+            const o = side().named.find(x => x.id === id);
+            if (!o) return;
+            startLine({
+                follow: { id: o.id, name: o.name, sans: o.sans.slice() },
+                feedback: '<div class="olab-fb olab-fb--hint">Practiques «<b>' + esc(o.name) + '</b>»: el rival seguirà la teva línia i tu has de recordar les teves jugades.</div>'
+            });
+            const top = byId('opening-lab');
+            if (top && top.scrollIntoView) top.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
         function undo() {
             if (!ui.game || !ui.sans.length) return;
             ui.token++;
             ui.pending = null; ui.expected = null; ui.hintSquares = null; ui.tapFrom = null;
-            ui.forceDecideKey = null; ui.reviewNote = ''; ui.rivalNote = '';
+            ui.forceDecideKey = null; ui.reviewNote = ''; ui.rivalNote = ''; ui.namePrompt = null;
             undoMove();
             while (ui.sans.length && ui.game.turn() !== ui.color) undoMove();
             ui.feedback = '';
@@ -1434,6 +1601,8 @@
         // ---------------- accions dels botons ----------------
         function onAction(act) {
             if (act === 'new') { startLine(); return; }
+            if (act === 'save-name') { saveName(); return; }
+            if (act === 'decline-name') { declineName(); return; }
             if (act === 'swap' && ui.pending && ui.pending.swap && ui.phase === 'user') {
                 const sw = ui.pending.swap;
                 ui.forceDecideKey = currentKey();
@@ -1497,6 +1666,7 @@
             renderMoves();
             renderGuide();
             renderStats();
+            renderNamed();
             renderControls();
         }
         function renderTop() {
@@ -1517,12 +1687,21 @@
             if (!el) return;
             const keys = L.annotateLine(ChessCtor(), ui.sans).keys;
             const nm = L.lineName(ctx(), ui.sans, keys);
+            const mine = L.namedOpeningFor(side().named, keys);
             let text = nm.nameCa || (ui.sans.length ? 'Obertura sense nom' : 'Posició inicial');
             let chip;
-            if (!ui.sans.length) chip = '<span class="olab-chip">Comença</span>';
-            else if (nm.inBook) chip = '<span class="olab-chip olab-chip--book">Teoria</span>';
-            else chip = '<span class="olab-chip olab-chip--own">Línia pròpia des de la jugada ' + moveNo(nm.leftAt || ui.sans.length) + '</span>';
-            const html = (nm.eco ? '<span class="olab-eco">' + esc(nm.eco) + '</span>' : '') + '<span class="olab-name-text">' + esc(text) + '</span>' + chip;
+            let html;
+            if (mine) {
+                // La línia passa per una obertura teva: el nom és el teu.
+                text = mine.name;
+                chip = '<span class="olab-chip olab-chip--mine">La teva obertura</span>';
+                html = '<span class="olab-name-text">' + esc(text) + (mine.base ? '<span class="olab-name-base">a partir de ' + esc(mine.base) + '</span>' : '') + '</span>' + chip;
+            } else {
+                if (!ui.sans.length) chip = '<span class="olab-chip">Comença</span>';
+                else if (nm.inBook) chip = '<span class="olab-chip olab-chip--book">Teoria</span>';
+                else chip = '<span class="olab-chip olab-chip--own">Línia pròpia des de la jugada ' + moveNo(nm.leftAt || ui.sans.length) + '</span>';
+                html = (nm.eco ? '<span class="olab-eco">' + esc(nm.eco) + '</span>' : '') + '<span class="olab-name-text">' + esc(text) + '</span>' + chip;
+            }
             if (el.innerHTML !== html) {
                 el.innerHTML = html;
                 if (text !== ui.lastName) {
@@ -1613,6 +1792,22 @@
                 }
             }
         }
+        function renderNamed() {
+            const el = byId('olab-named');
+            if (!el) return;
+            const list = side().named || [];
+            if (!list.length) { el.hidden = true; el.innerHTML = ''; return; }
+            el.hidden = false;
+            const current = ui.follow ? ui.follow.id : null;
+            el.innerHTML = '<div class="olab-named-title">Les teves obertures</div>' + list.map(o => {
+                const meta = 'des de ' + moveLabel(o.leftPly, o.sans[o.leftPly - 1] || '') + (o.practiced ? ' · practicada ' + o.practiced + (o.practiced === 1 ? ' cop' : ' cops') : ' · encara sense practicar');
+                return '<div class="olab-named-row' + (o.id === current ? ' is-current' : '') + '">' +
+                    '<div class="olab-named-info"><b>' + esc(o.name) + '</b><span class="olab-muted">' + esc(meta) + '</span></div>' +
+                    '<div class="olab-named-btns"><button type="button" class="btn btn-primary olab-btn-sm" data-olab-practice="' + esc(o.id) + '">Practica</button>' +
+                    '<button type="button" class="btn btn-secondary olab-btn-sm" data-olab-rename="' + esc(o.id) + '" aria-label="Canvia el nom de ' + esc(o.name) + '" title="Canvia el nom"><svg class="btn-ic" aria-hidden="true"><use href="#ic-pencil"/></svg></button>' +
+                    '<button type="button" class="btn btn-secondary olab-btn-sm" data-olab-delete="' + esc(o.id) + '" aria-label="Esborra ' + esc(o.name) + '" title="Esborra-la"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trash"/></svg></button></div></div>';
+            }).join('');
+        }
         function renderControls() {
             const undoBtn = byId('olab-undo');
             if (undoBtn) undoBtn.disabled = !ui.sans.length || (ui.sans.length === 1 && ui.color === 'b');
@@ -1638,6 +1833,29 @@
             });
             jq(document).on('click', '#opening-lab [data-olab-act]', function () { onAction(this.getAttribute('data-olab-act')); });
             jq(document).on('click', '#opening-lab [data-olab-review]', function () { reviewIssue(this.getAttribute('data-olab-review')); });
+            jq(document).on('click', '#opening-lab [data-olab-practice]', function () { practice(this.getAttribute('data-olab-practice')); });
+            jq(document).on('click', '#opening-lab [data-olab-rename]', function () {
+                const o = side().named.find(x => x.id === this.getAttribute('data-olab-rename'));
+                if (!o) return;
+                const name = root.prompt('Nou nom per a la teva obertura', o.name);
+                if (name == null) return;
+                const clean = String(name).replace(/\s+/g, ' ').trim().slice(0, 60);
+                if (!clean) return;
+                o.name = clean;
+                if (ui.follow && ui.follow.id === o.id) ui.follow.name = clean;
+                saveStore(true);
+                render();
+            });
+            jq(document).on('click', '#opening-lab [data-olab-delete]', function () {
+                const id = this.getAttribute('data-olab-delete');
+                const o = side().named.find(x => x.id === id);
+                if (!o || !root.confirm('Segur que vols esborrar «' + o.name + '» de les teves obertures? Les jugades es queden al repertori.')) return;
+                side().named = side().named.filter(x => x.id !== id);
+                if (ui.follow && ui.follow.id === id) ui.follow = null;
+                saveStore(true);
+                render();
+            });
+            jq(document).on('keydown', '#olab-newname', function (e) { if (e.key === 'Enter') { e.preventDefault(); saveName(); } });
             jq('#olab-undo').on('click', () => undo());
             jq('#olab-hint').on('click', () => hint());
             jq('#olab-new').on('click', () => startLine());
@@ -1664,10 +1882,12 @@
             });
             jq('#olab-reset').on('click', () => {
                 const label = ui.color === 'w' ? 'amb blanques' : 'amb negres';
-                if (!root.confirm('Segur que vols esborrar tot el teu repertori ' + label + '? No es pot desfer.')) return;
+                if (!root.confirm('Segur que vols esborrar tot el teu repertori ' + label + ', també les obertures amb nom? No es pot desfer.')) return;
                 side().nodes = {};
+                side().named = [];
+                side().declined = [];
                 saveStore(true);
-                startLine({ feedback: '<div class="olab-fb olab-fb--hint">Repertori ' + label + ' esborrat. Comença de nou.</div>' });
+                startLine({ feedback: '<div class="olab-fb olab-fb--hint">Repertori ' + label + ' esborrat (jugades i obertures amb nom). Comença de nou.</div>' });
             });
             jq('#olab-hiero').on('click', () => { if (typeof cfg.onHiero === 'function') cfg.onHiero(); });
             root.addEventListener('resize', () => resize());

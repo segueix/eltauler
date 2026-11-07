@@ -104,6 +104,8 @@ body.epaper-mode .olab-name { background: #f2f2f2; }
 }
 .olab-chip--book { background: rgba(127, 207, 154, 0.18); color: var(--text-positive); }
 .olab-chip--own { background: rgba(201, 162, 39, 0.20); color: var(--accent-gold); }
+.olab-chip--mine { background: var(--accent-gold); color: var(--bg-dark); }
+.olab-name-base { display: block; font-size: 0.74rem; font-weight: 500; color: var(--text-secondary); }
 body.epaper-mode .olab-chip { background: #fff; border: 1px solid #cfcfcf; color: #222; }
 .olab-name--flash { animation: olab-flash 0.7s ease-out; }
 @keyframes olab-flash {
@@ -194,6 +196,10 @@ body.epaper-mode .olab-fb { background: #fff; border: 1px solid #cfcfcf; }
 .olab-fb--warn { border-left: 3px solid var(--severity-med); }
 .olab-fb--hint { border-left: 3px solid var(--accent-blue); }
 .olab-fb--done { border-left: 3px solid var(--accent-gold); }
+.olab-fb--name { border-left: 3px solid var(--accent-gold); background: rgba(201, 162, 39, 0.14); }
+body.epaper-mode .olab-fb--name { background: #fff; border-left-color: #000; }
+.olab-name-form { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.olab-name-form .olab-input { flex: 1 1 100%; }
 .olab-fb-sub { margin-top: 4px; font-size: 0.84rem; color: var(--text-secondary); }
 .olab-fb-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .olab-hint-title { font-weight: 700; margin-bottom: 4px; }
@@ -273,6 +279,21 @@ body.epaper-mode .olab-plan-chip { background: #fff; color: #000; border: 1px so
 }
 .olab-issue span { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 .olab-issue .btn { flex: 0 0 auto; width: auto; }
+
+.olab-named { margin-top: 12px; font-size: 0.88rem; }
+.olab-named-title { font-weight: 800; color: var(--accent-gold); margin-bottom: 4px; }
+.olab-named-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    border-top: 1px solid rgba(201, 162, 39, 0.14);
+}
+.olab-named-row.is-current .olab-named-info b { color: var(--accent-gold); }
+.olab-named-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; overflow-wrap: anywhere; }
+.olab-named-info .olab-muted { font-size: 0.76rem; }
+.olab-named-btns { flex: 0 0 auto; display: flex; gap: 4px; }
+.olab-named-btns .btn-ic { width: 1em; height: 1em; margin: 0; }
 
 .olab-more { margin-top: 12px; font-size: 0.88rem; }
 .olab-more summary { cursor: pointer; font-weight: 700; color: var(--accent-gold); padding: 4px 0; }

@@ -233,7 +233,14 @@ Conduir amb Playwright + Chromium preinstal·lat
     `Math.random = () => 0.01` abans de jugar. Conflicte de pla: botons
     `[data-olab-act="keep-plan"]` / `"change-plan"`; error en recordar:
     `[data-olab-act="swap"]`; problemes de coherència: `[data-olab-review]`.
-    El repertori és a `chess_openingWorkshop_v1`. Els blocs antics de la
+    El repertori és a `chess_openingWorkshop_v1`. **Obertures amb nom**: en
+    acabar una línia fora de llibre, coherent i nova surt
+    `#olab-name-prompt` (camp `#olab-newname`, `[data-olab-act="save-name"]` o
+    Enter, `"decline-name"`); es desen a `sides.<color>.named` i es llisten a
+    `#olab-named` (`[data-olab-practice]`, `[data-olab-rename]`,
+    `[data-olab-delete]`). Practicant, el rival segueix la línia desada
+    (`state().follow`). Amb profunditat 6 (`#olab-depth`) i la llista d.4,
+    Cf3, Af4, e3, h3, Ad3 la primera línia ja surt del llibre. Els blocs antics de la
     secció (pràctica, errors, jeroglífic d'obertura) només surten en entrar-hi
     des d'altres llocs (`#olab-hiero`, missions, historial); `setOpeningScreenMode('overview')`
     torna al taller.
