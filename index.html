@@ -2895,12 +2895,8 @@
         /* Feedback visual de moviments: move-correct/move-incorrect segueixen el
            MARCATGE UNIFICAT (bloc de dalt de tot) a tots els taulers. Aquí només
            queden les categories pròpies de les obertures: */
-        #opening-board .square-55d63.move-rival {
-            box-shadow: inset 0 0 0 4px rgba(33, 150, 243, 0.85) !important;
-            background-color: rgba(33, 150, 243, 0.28) !important;
-        }
-        /* La jugada actual del reproductor (hl-cur-from/to) duu el requadre compartit
-           amb .engine-move, definit al bloc de dalt. */
+        /* La resposta del rival i la jugada actual del reproductor (hl-cur-from/to)
+           duen la MARCA DE JUGADA ÚNICA, definida al bloc de dalt. */
         /* Transcripció clicable de l'historial: la jugada activa queda marcada */
         #history-moves {
             position: relative; margin-top: 8px; max-height: 118px; overflow-y: auto;
@@ -5884,20 +5880,46 @@
         }
         .square-55d63.black-3c85d.tap-move::after { border-color: #f0d9b5; }
         body.epaper-mode .square-55d63.black-3c85d.tap-move::after { border-color: #f2f2f2; }
-        /* Requadre de jugada (el mateix que marca els moviments de l'enginy en una
-           partida): també per a la jugada revisada a les partides col·lectives
-           (vots i transcripció) i als reproductors dels historials. */
-        .square-55d63.engine-move,
-        #catalans-board .square-55d63.cat-preview-from,
-        #catalans-board .square-55d63.cat-preview-to,
-        #catalans-replay-board .square-55d63.cat-preview-from,
-        #catalans-replay-board .square-55d63.cat-preview-to,
-        #history-board .square-55d63.hl-cur-from,
-        #history-board .square-55d63.hl-cur-to {
-            border-radius: 10px;
-            box-shadow: inset 0 0 0 3px #4b2f18 !important;
-            outline: none !important;
+        /* ============================================================
+           MARCA DE JUGADA ÚNICA (la de Stockfish TV) per a tots els taulers:
+           casella d'ORIGEN daurada amb vora discontínua i casella de DESTÍ
+           blau cel amb un cercle. Substitueix l'antic requadre marró.
+           · mark-from / mark-to: última jugada del motor o del rival (partida,
+             obertures, jeroglífics, tauler d'anàlisi, taller d'obertures).
+           · hl-cur-from / hl-cur-to: jugada actual dels reproductors.
+           · cat-preview-from / cat-preview-to: jugada revisada a les partides
+             col·lectives.
+           · sftv-from / sftv-to: última jugada dels taulers amb veu i ràdio
+             (boardexperience.js) i de la TV; aquí s'assegura que cap tema de
+             tauler en tapi els colors.
+           Guanya al color de la casella de qualsevol tema de tauler, però no
+           als colors de correcció (verd, vermell, ambre), que tenen prioritat,
+           i el cercle de destí d'una peça seleccionada (tap-move) es manté.
+           ============================================================ */
+        body .square-55d63:is(.mark-from, .hl-cur-from, .cat-preview-from, .sftv-from):not(.move-correct, .move-incorrect, .move-good, .square-error-played, .highlight-best, .highlight-best-to, .highlight-played, .highlight-played-to, .highlight-overlap) {
+            position: relative;
+            background-color: #d8ae55 !important;
         }
+        body .square-55d63:is(.mark-to, .hl-cur-to, .cat-preview-to, .sftv-to):not(.move-correct, .move-incorrect, .move-good, .square-error-played, .highlight-best, .highlight-best-to, .highlight-played, .highlight-played-to, .highlight-overlap) {
+            position: relative;
+            background-color: #51b9d4 !important;
+        }
+        body .square-55d63:is(.mark-from, .hl-cur-from, .cat-preview-from, .sftv-from, .mark-to, .hl-cur-to, .cat-preview-to, .sftv-to):not(.tap-move, .move-correct, .move-incorrect, .move-good, .square-error-played, .highlight-best, .highlight-best-to, .highlight-played, .highlight-played-to, .highlight-overlap)::after {
+            content: ''; position: absolute; inset: 4px; pointer-events: none; z-index: 1;
+        }
+        body .square-55d63:is(.mark-from, .hl-cur-from, .cat-preview-from, .sftv-from):not(.tap-move, .move-correct, .move-incorrect, .move-good, .square-error-played, .highlight-best, .highlight-best-to, .highlight-played, .highlight-played-to, .highlight-overlap)::after {
+            border: 3px dashed #5a3b09; border-radius: 4px;
+        }
+        body .square-55d63:is(.mark-to, .hl-cur-to, .cat-preview-to, .sftv-to):not(.tap-move, .move-correct, .move-incorrect, .move-good, .square-error-played, .highlight-best, .highlight-best-to, .highlight-played, .highlight-played-to, .highlight-overlap)::after {
+            border: 3px solid #fff; outline: 2px solid #095064; border-radius: 50%;
+        }
+        body .square-55d63:is(.mark-to, .hl-cur-to, .cat-preview-to, .sftv-to) img {
+            position: relative; z-index: 2; filter: drop-shadow(0 0 2px white) drop-shadow(0 1px 2px #143941);
+        }
+        body.epaper-mode .square-55d63:is(.mark-from, .hl-cur-from, .cat-preview-from, .sftv-from):not(.move-correct, .move-incorrect, .move-good, .square-error-played, .highlight-best, .highlight-best-to, .highlight-played, .highlight-played-to, .highlight-overlap) { background-color: #ddd !important; }
+        body.epaper-mode .square-55d63:is(.mark-to, .hl-cur-to, .cat-preview-to, .sftv-to):not(.move-correct, .move-incorrect, .move-good, .square-error-played, .highlight-best, .highlight-best-to, .highlight-played, .highlight-played-to, .highlight-overlap) { background-color: #aaa !important; }
+        body.epaper-mode .square-55d63:is(.mark-from, .hl-cur-from, .cat-preview-from, .sftv-from)::after { border-color: #222; }
+        body.epaper-mode .square-55d63:is(.mark-to, .hl-cur-to, .cat-preview-to, .sftv-to)::after { outline-color: #000; }
         /* Ordinador + mode «Toc»: contorn blau immediat per confirmar que la
            peça s'ha seleccionat. Es veu fins i tot sobre l'última jugada
            (engine-move), que porta un box-shadow i outline: none !important. */
@@ -6642,7 +6664,7 @@
         body.epaper-mode #start-screen .engagement-banner .eng-cta { background: #222 !important; color: #fff !important; }
     </style>
     <link rel="stylesheet" href="bulletpractice.css?v=1.2.1">
-    <link rel="stylesheet" href="tallerobertures.css?v=1.1.0">
+    <link rel="stylesheet" href="tallerobertures.css?v=1.1.1">
     <link rel="stylesheet" href="canviapp.css?v=1.0.0">
 </head>
 <body>
@@ -10268,7 +10290,7 @@
     <script src="jeropedagogia.js?v=1.2.1"></script>
     <script src="sons.js?v=1.0.0"></script>
     <script src="tutorial.js?v=1.0.5"></script>
-    <script src="tallerobertures.js?v=1.1.0"></script>
+    <script src="tallerobertures.js?v=1.1.1"></script>
     <script src="veuneural.js?v=1.2.2"></script>
     <script src="radioambient.js?v=2.1.0"></script>
     <script src="musicafons.js?v=1.2.0"></script>
@@ -10295,10 +10317,10 @@
     </script>
     <script src="gamebroadcast.js?v=1.1.0"></script>
     <script src="historytv.js?v=1.0.1"></script>
-    <script src="boardexperience.js?v=1.0.6"></script>
+    <script src="boardexperience.js?v=1.0.7"></script>
     <script src="bulletbank.js?v=1.0.0"></script>
     <script src="bulletpractice.js?v=1.2.6"></script>
-    <script src="app.js?v=1.0.148"></script>
+    <script src="app.js?v=1.0.149"></script>
     <!-- Pas a Remigi lliscant el dit pel mig de la portada (mòbil) -->
     <script src="canviapp.js?v=1.0.0"></script>
 

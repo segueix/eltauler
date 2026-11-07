@@ -1125,8 +1125,13 @@
         function paintMarks() {
             const jq = $();
             if (!jq) return;
-            jq('#olab-board .square-55d63').removeClass('tap-selected tap-move olab-last olab-expected olab-hint-sq');
-            if (ui.lastMove) { [ui.lastMove.from, ui.lastMove.to].forEach(sq => { const el = squareEl(sq); if (el) el.addClass('olab-last'); }); }
+            jq('#olab-board .square-55d63').removeClass('tap-selected tap-move mark-from mark-to olab-expected olab-hint-sq');
+            // Última jugada: la marca de jugada única de l'app (origen daurat, destí blau cel).
+            if (ui.lastMove) {
+                const f = squareEl(ui.lastMove.from), t = squareEl(ui.lastMove.to);
+                if (f) f.addClass('mark-from');
+                if (t) t.addClass('mark-to');
+            }
             if (ui.expected) { [ui.expected.from, ui.expected.to].forEach(sq => { if (sq) { const el = squareEl(sq); if (el) el.addClass('olab-expected'); } }); }
             if (ui.hintSquares) ui.hintSquares.forEach(sq => { const el = squareEl(sq); if (el) el.addClass('olab-hint-sq'); });
             if (ui.tapFrom) {

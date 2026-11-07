@@ -127,7 +127,7 @@
             const c = current();
             // Els colors de correcció/pista de l'exercici tenen prioritat.
             const feedback = el.querySelector('.highlight-played, .highlight-best, .move-correct, .move-incorrect, .move-good, .tut-ok, .tut-ko');
-            if (!c.disabled && (last || preview)) el.querySelectorAll('.engine-move').forEach(sq => sq.classList.remove('engine-move'));
+            if (!c.disabled && (last || preview)) el.querySelectorAll('.engine-move, .mark-from, .mark-to').forEach(sq => sq.classList.remove('engine-move', 'mark-from', 'mark-to'));
             const selected = el.querySelector('.tap-selected');
             const targets = dragSelection ? dragSelection.targets : Array.from(el.querySelectorAll('.tap-move')).map(s => s.getAttribute('data-square'));
             TV.applyBroadcastHighlights(el, { last: c.disabled || feedback ? null : last, preview,

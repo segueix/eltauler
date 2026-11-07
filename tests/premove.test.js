@@ -155,7 +155,7 @@ describe('selecció visual en mode Toc a l’ordinador', () => {
         expect(rule).not.toBeNull();
         expect(rule[1]).toMatch(/outline:\s*3px solid #1687e8 !important/);
         expect(rule[1]).toMatch(/box-shadow:\s*inset 0 0 0 3px #1687e8 !important/);
-        expect(html.indexOf(rule[0])).toBeGreaterThan(html.indexOf('.square-55d63.engine-move,'));
+        expect(html.indexOf(rule[0])).toBeGreaterThan(html.indexOf('MARCA DE JUGADA ÚNICA'));
         expect(html).toContain('body.control-tap #myBoard');
     });
 
