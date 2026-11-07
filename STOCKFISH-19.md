@@ -41,6 +41,17 @@ dos enllaços).
   ara un; la resposta de l'Antídot triga el mateix, també amb la generació de
   jeroglífics treballant de fons. El rival de les partides amb rellotge, la
   TV i el rival ordinari continuen amb el seu motor.
+- **Mesures del rival amb rellotge** (navegador, 4 nuclis, Stockfish 19 real,
+  12 partides: 1+0, 3+2 i 10+0, ROC 1200 i 2000, amb i sense generació de
+  jeroglífics forçada de fons). Temps de càlcul de cada cerca (del `go` al
+  `bestmove`): mediana de 0,12 a 0,54 s i màxim d'1,0 s, davant d'un
+  pressupost (`movetime`) de 0,55 a 5,7 s; com a molt 28 ms per sobre del
+  pressupost (1+0, ROC 2000) i cap partida perduda per temps. La feina de
+  fons no l'alenteix. El temps total de resposta (mediana d'1,4 a 9,9 s) és
+  sobretot la pausa humana volguda, no el càlcul. A més, a la pràctica la
+  generació de jeroglífics no corre mai durant una partida
+  (`isIdleForHieroglyphicPrep`). Per això el rival amb rellotge es manté amb
+  el seu worker: passar-lo al motor compartit no en milloraria la resposta.
 - **Obertures («La teva obertura», `tallerobertures.js`)**: la secció és un
   sol tauler que analitza amb el motor compartit a prioritat de pantalla
   (`sf19AnalyzeForLab`): passa davant de la generació de jeroglífics. Cada jugada nova de l'usuari s'analitza amb MultiPV 4
