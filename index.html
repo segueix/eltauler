@@ -6459,15 +6459,18 @@
         .hb-mode--lilac { --mode: #b9a3f0; }
         .hb-mode--sky { --mode: #8dbcf0; }
         #start-screen .home-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-        /* Lliga: bàner gran daurat (el mode més jugat) */
-        #start-screen .league-hero { --hb-a: #c9a227; --hb-b: #7d5a12; color: #fff; }
+        /* Lliga: bàner gran blau reial (el mode més jugat), que contrasta amb
+           el daurat de «Juga contra Stockfish» (i cap botó no és verd). */
+        #start-screen .league-hero { --hb-a: #3466d6; --hb-b: #1a2f78; color: #fff; }
+        /* Vora clara fina: el fons de l'app canvia de color i pot ser blau. */
+        #start-screen .league-hero { box-shadow: 0 0 0 1.5px rgba(255,255,255,0.28), 0 8px 20px rgba(0,0,0,0.28); }
         #start-screen .league-hero .hb-ic { background: rgba(255,255,255,0.2); }
         #start-screen .league-hero .hb-sub { color: rgba(255,255,255,0.92); font-weight: 700; }
         #start-screen .league-hero .hb-meta { color: rgba(255,255,255,0.85); font-weight: 600; }
         #start-screen .league-hero-play {
             display: flex; align-items: center; justify-content: center; gap: 8px; width: calc(100% - 32px); margin: 0 16px 14px;
             min-height: 46px; padding: 10px 14px; border: 0; border-radius: 14px; cursor: pointer;
-            background: #fff; color: #5a3f08; font-family: var(--hd-font); font-size: 1rem; font-weight: 800;
+            background: #fff; color: #1a2f78; font-family: var(--hd-font); font-size: 1rem; font-weight: 800;
         }
         #start-screen .league-hero-play[hidden] { display: none; }
         #start-screen .league-hero-play .btn-ic { width: 1.1em; height: 1.1em; margin: 0; }
@@ -6475,7 +6478,7 @@
         #start-screen .league-hero .league-hero-main[disabled] { opacity: 0.6; }
         /* L'antic avís «Proper partit de lliga» ara és dins el bàner. */
         #start-screen #league-banner { display: none !important; }
-        body.day-mode #start-screen .league-hero { --hb-a: #b48a1c; --hb-b: #6f4f0e; }
+        body.day-mode #start-screen .league-hero { --hb-a: #2f5cc0; --hb-b: #1a2f6e; }
         body.epaper-mode #start-screen .league-hero .hb-sub, body.epaper-mode #start-screen .league-hero .hb-meta { color: #222; }
         body.epaper-mode #start-screen .league-hero-play { background: #111; color: #fff; }
         #start-screen .hb-mode {
