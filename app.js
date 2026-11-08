@@ -5441,11 +5441,67 @@ function updateLeagueAccessUI() {
         if (unlocked) leagueBtn.removeAttr('title');
         else leagueBtn.attr('title', 'Es desbloqueja amb la partida inicial de calibratge.');
     }
-    if (!unlocked) $('#league-banner').hide();
+    if (!unlocked) { $('#league-banner').hide(); renderLeagueHero(); }
     else updateLeagueBanner();
 }
 
+// Bàner gran de la lliga a l'inici: estat de la temporada i proper rival.
+function leagueHeroState() {
+    if (!isLeagueUnlocked()) return { locked: true };
+    if (!currentLeague || currentLeague.completed) return { fresh: true };
+    const players = Array.isArray(currentLeague.players) ? currentLeague.players : [];
+    const round = currentLeague.currentRound;
+    const total = Array.isArray(currentLeague.schedule) && currentLeague.schedule.length ? currentLeague.schedule.length : 9;
+    const me = players.find(p => p.id === 'me');
+    const oppId = getMyOpponentForRound(round - 1);
+    const opp = oppId ? getLeaguePlayer(oppId) : null;
+    const tc = getLeagueTimeControlId();
+    // Abans de jugar cap partida tothom té 0 punts: la posició no diu res.
+    const started = !!(me && me.pj > 0);
+    return {
+        round, total, players: players.length,
+        rank: started ? findPlayerRank(players, 'me') : null,
+        pts: me ? me.pts || 0 : 0,
+        tc: tc === 'none' ? 'sense rellotge' : tc,
+        opp: opp ? { name: opp.name, rank: started ? findPlayerRank(players, opp.id) : null, elo: opp.elo } : null
+    };
+}
+function renderLeagueHero() {
+    const sub = document.getElementById('league-hero-sub');
+    if (!sub) return;
+    let st;
+    try { st = leagueHeroState(); } catch (e) { st = { fresh: true }; }
+    const meta = document.getElementById('league-hero-meta');
+    const play = document.getElementById('btn-league-hero-play');
+    const label = document.getElementById('league-hero-play-label');
+    if (st.locked) {
+        sub.textContent = 'Es desbloqueja amb la partida inicial de calibratge';
+        if (meta) meta.textContent = '';
+        if (play) play.hidden = true;
+        return;
+    }
+    if (st.fresh) {
+        sub.textContent = 'Temporada nova: 9 jornades contra rivals del teu nivell';
+        if (meta) meta.textContent = '';
+        if (play) play.hidden = true;
+        return;
+    }
+    const bits = [`Jornada ${st.round}/${st.total}`];
+    if (st.rank) bits.push(`${leagueOrdinal(st.rank)} de ${st.players}`);
+    bits.push(leaguePointsLabel(st.pts), st.tc);
+    sub.textContent = bits.join(' · ');
+    if (meta) meta.textContent = st.opp ? `Proper rival: ${st.opp.name} · ${st.opp.rank ? leagueOrdinal(st.opp.rank) + ' · ' : ''}ROC ${st.opp.elo}` : '';
+    if (play) {
+        play.hidden = !st.opp;
+        if (label) label.textContent = `Juga la jornada ${st.round}`;
+    }
+}
+
 function updateLeagueBanner() {
+    updateLeagueBannerData();
+    renderLeagueHero();
+}
+function updateLeagueBannerData() {
     const banner = $('#league-banner');
     if (!banner.length) return;
 
@@ -25478,6 +25534,7 @@ function setupEvents() {
     });
 
     $('#league-banner').on('click', () => { if (guardCalibrationAccess()) startLeagueRound(); });
+    $('#btn-league-hero-play').off('click').on('click', () => { if (guardCalibrationAccess()) startLeagueRound(); });
     $('#btn-league-banner-play').on('click', (e) => { e.stopPropagation(); if (guardCalibrationAccess()) startLeagueRound(); });
 
     $('#btn-badges').click(() => { updateBadgesModal(); $('#badges-modal').css('display', 'flex'); });

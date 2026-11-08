@@ -6458,7 +6458,29 @@
         .hb-mode--gold { --mode: #e3b84a; }
         .hb-mode--lilac { --mode: #b9a3f0; }
         .hb-mode--sky { --mode: #8dbcf0; }
-        #start-screen .home-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+        #start-screen .home-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+        /* Lliga: bàner gran blau reial (el mode més jugat), que contrasta amb
+           el daurat de «Juga contra Stockfish» (i cap botó no és verd). */
+        #start-screen .league-hero { --hb-a: #3466d6; --hb-b: #1a2f78; color: #fff; }
+        /* Vora clara fina: el fons de l'app canvia de color i pot ser blau. */
+        #start-screen .league-hero { box-shadow: 0 0 0 1.5px rgba(255,255,255,0.28), 0 8px 20px rgba(0,0,0,0.28); }
+        #start-screen .league-hero .hb-ic { background: rgba(255,255,255,0.2); }
+        #start-screen .league-hero .hb-sub { color: rgba(255,255,255,0.92); font-weight: 700; }
+        #start-screen .league-hero .hb-meta { color: rgba(255,255,255,0.85); font-weight: 600; }
+        #start-screen .league-hero-play {
+            display: flex; align-items: center; justify-content: center; gap: 8px; width: calc(100% - 32px); margin: 0 16px 14px;
+            min-height: 46px; padding: 10px 14px; border: 0; border-radius: 14px; cursor: pointer;
+            background: #fff; color: #1a2f78; font-family: var(--hd-font); font-size: 1rem; font-weight: 800;
+        }
+        #start-screen .league-hero-play[hidden] { display: none; }
+        #start-screen .league-hero-play .btn-ic { width: 1.1em; height: 1.1em; margin: 0; }
+        #start-screen .league-hero-play:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+        #start-screen .league-hero .league-hero-main[disabled] { opacity: 0.6; }
+        /* L'antic avís «Proper partit de lliga» ara és dins el bàner. */
+        #start-screen #league-banner { display: none !important; }
+        body.day-mode #start-screen .league-hero { --hb-a: #2f5cc0; --hb-b: #1a2f6e; }
+        body.epaper-mode #start-screen .league-hero .hb-sub, body.epaper-mode #start-screen .league-hero .hb-meta { color: #222; }
+        body.epaper-mode #start-screen .league-hero-play { background: #111; color: #fff; }
         #start-screen .hb-mode {
             display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
             min-height: 80px; padding: 10px 6px; border-radius: 16px; cursor: pointer;
@@ -7160,11 +7182,26 @@
                         </div>
                         <button class="btn btn-primary btn-hero" id="btn-new-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg>Nova partida</button>
                     </div>
+                    <!-- Lliga: bàner gran amb l'estat de la temporada (jornada,
+                         posició, punts i ritme) i el proper rival. Tocar-lo obre la
+                         lliga; «Juga la jornada» la comença directament. Ho omple
+                         renderLeagueHero() (app.js). -->
+                    <div class="hb-card league-hero" id="league-hero">
+                        <button type="button" class="hb hb--lg hb--bare league-hero-main" id="btn-league">
+                            <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-trophy"/></svg></span>
+                            <span class="hb-text">
+                                <span class="hb-title">Lliga</span>
+                                <span class="hb-sub" id="league-hero-sub">9 jornades contra rivals del teu nivell</span>
+                                <span class="hb-meta" id="league-hero-meta"></span>
+                            </span>
+                            <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
+                        </button>
+                        <button type="button" class="league-hero-play" id="btn-league-hero-play" hidden><svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg><span id="league-hero-play-label">Juga la jornada</span></button>
+                    </div>
                     <!-- Els altres modes contra el motor -->
                     <div class="home-modes">
                         <button type="button" class="hb-mode hb-mode--sky" id="btn-positional-game"><svg class="hb-mode-ic" aria-hidden="true"><use href="#ic-scope"/></svg><span>Joc vista</span></button>
                         <button type="button" class="hb-mode hb-mode--lilac" id="btn-antidote-game"><svg class="hb-mode-ic" aria-hidden="true"><use href="#ic-dna"/></svg><span>Rival Antídot</span></button>
-                        <button type="button" class="hb-mode hb-mode--gold" id="btn-league"><svg class="hb-mode-ic" aria-hidden="true"><use href="#ic-trophy"/></svg><span>Lliga</span></button>
                     </div>
                     <!-- Per a qui encara ha de fer la partida de calibratge: si no sap
                          jugar, que aprengui primer. El mostra tutorial.js. -->
@@ -10474,7 +10511,7 @@
     <script src="boardexperience.js?v=1.0.7"></script>
     <script src="bulletbank.js?v=1.0.0"></script>
     <script src="bulletpractice.js?v=1.2.6"></script>
-    <script src="app.js?v=1.0.162"></script>
+    <script src="app.js?v=1.0.163"></script>
     <!-- Pas a Remigi lliscant el dit pel mig de la portada (mòbil) -->
     <script src="canviapp.js?v=1.0.0"></script>
 
