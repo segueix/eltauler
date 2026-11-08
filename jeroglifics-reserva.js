@@ -7,6 +7,335 @@
 // >>> RESERVA (generat) >>>
 const RESERVE = [
  {
+  "id": "hgr_r1b1k2r2pn1pppq1B1pn2p1B52p5Q5P1P3PP1P1R",
+  "createdAt": 0,
+  "updatedAt": 0,
+  "source": "reserve",
+  "fen": "r1b1k2r/2pn1ppp/q1B1pn2/p1B5/2p5/Q5P1/P3PP1P/1R3RK1 w kq - 2 17",
+  "sideToMove": "w",
+  "line": [
+   "c6b5",
+   "a6b7",
+   "b5d7",
+   "f6d7",
+   "b1b7"
+  ],
+  "sanLine": [
+   "Bb5",
+   "Qb7",
+   "Bxd7+",
+   "Nxd7",
+   "Rxb7"
+  ],
+  "finalType": "discovery",
+  "difficulty": 57,
+  "status": "new",
+  "attempts": 0,
+  "startedAt": null,
+  "solvedAt": null,
+  "deviceCreated": null,
+  "bestMove": "c6b5",
+  "bestMoveSan": "Bb5",
+  "solutionMoves": [
+   "c6b5",
+   "b5d7",
+   "b1b7"
+  ],
+  "replyMoves": [
+   "a6b7",
+   "f6d7"
+  ],
+  "theme": "discovery",
+  "tacticKind": "descoberta",
+  "playerMove": null,
+  "conclusion": {
+   "version": 1,
+   "fen": "r1b1k2r/2pn1ppp/q1B1pn2/p1B5/2p5/Q5P1/P3PP1P/1R3RK1 w kq - 2 17",
+   "line": [
+    "c6b5",
+    "a6b7",
+    "b5d7",
+    "f6d7",
+    "b1b7"
+   ],
+   "finalFen": "r1b1k2r/1Rpn1ppp/4p3/p1B5/2p5/Q5P1/P3PP1P/5RK1 b kq - 0 19",
+   "kind": "material",
+   "finalSan": "Rxb7",
+   "gain": 4,
+   "checkedReplies": 23,
+   "checkedAlternatives": 37,
+   "explanation": "Rxb7 culmina la combinació: el guany material ja s’ha produït i es conserven almenys 4 punts nets després de qualsevol resposta immediata legal. Stockfish confirma que la millor defensa no iguala la posició.",
+   "uniqueness": "Cap altra jugada legal culmina aquest guany material ara. Stockfish també descarta una altra continuació amb avantatge decisiu.",
+   "alternativeSan": "Bf8",
+   "alternativeLine": [
+    "Bf8",
+    "Rxf8",
+    "Rxb7",
+    "Bxb7"
+   ],
+   "alternativeEval": {
+    "type": "cp",
+    "value": -375
+   },
+   "minDepth": 14,
+   "requestedDepth": 16,
+   "sacrifices": [
+    {
+     "kind": "refused",
+     "step": 1,
+     "offered": "b",
+     "offerUci": "c6b5",
+     "replyUci": "a6b7",
+     "captureUci": "a6b5",
+     "acceptedFen": "r1b1k2r/2pn1ppp/4pn2/pqB5/2p5/Q5P1/P3PP1P/1R3RK1 w kq - 0 18",
+     "square": "b5",
+     "loss": 3,
+     "compensationKind": "material",
+     "checkedDepth": 18,
+     "captureEvalType": "cp",
+     "captureEval": 552
+    }
+   ]
+  },
+  "finalMotif": "discovery",
+  "finalMotifs": [
+   "discovery",
+   "major_win"
+  ],
+  "finalMotifLabel": "descoberta",
+  "finalMotifReason": "Segona jugada (Bxd7+): En moure a d7 es destapa un atac de la torre sobre la dama. La jugada final (Rxb7) en cobra el guany.",
+  "origin": "engine_selfplay",
+  "sourceGameId": null,
+  "sourceFen": "r1b1k2r/2pn1ppp/q1B1pn2/p1B5/2p5/Q5P1/P3PP1P/1R3RK1 w kq - 2 17",
+  "sourceMoveNumber": null,
+  "adaptationNote": null,
+  "difficultyPercent": 57,
+  "ratingEstimate": null,
+  "pv": [
+   "c6b5",
+   "a6b7",
+   "b5d7",
+   "f6d7",
+   "b1b7"
+  ],
+  "evalBefore": 328,
+  "publishedAt": 1794175819275
+ },
+ {
+  "id": "hgr_r6k1b5pp3q31p1p2pn1p63BRP1PP1P3KQ5R2b",
+  "createdAt": 0,
+  "updatedAt": 0,
+  "source": "reserve",
+  "fen": "r6k/1b5p/p3q3/1p1p2pn/1p6/3BRP1P/P1P3KQ/5R2 b - - 0 30",
+  "sideToMove": "b",
+  "line": [
+   "e6e3",
+   "h2c7",
+   "h5f4",
+   "g2h1",
+   "f4d3"
+  ],
+  "sanLine": [
+   "Qxe3",
+   "Qc7",
+   "Nf4+",
+   "Kh1",
+   "Nxd3"
+  ],
+  "finalType": "fork",
+  "difficulty": 40,
+  "status": "new",
+  "attempts": 0,
+  "startedAt": null,
+  "solvedAt": null,
+  "deviceCreated": null,
+  "bestMove": "e6e3",
+  "bestMoveSan": "Qxe3",
+  "solutionMoves": [
+   "e6e3",
+   "h5f4",
+   "f4d3"
+  ],
+  "replyMoves": [
+   "h2c7",
+   "g2h1"
+  ],
+  "theme": "fork",
+  "tacticKind": "forquilla",
+  "playerMove": null,
+  "conclusion": {
+   "version": 1,
+   "fen": "r6k/1b5p/p3q3/1p1p2pn/1p6/3BRP1P/P1P3KQ/5R2 b - - 0 30",
+   "line": [
+    "e6e3",
+    "h2c7",
+    "h5f4",
+    "g2h1",
+    "f4d3"
+   ],
+   "finalFen": "r6k/1bQ4p/p7/1p1p2p1/1p6/3nqP1P/P1P5/5R1K w - - 0 33",
+   "kind": "material",
+   "finalSan": "Nxd3",
+   "gain": 5,
+   "checkedReplies": 36,
+   "checkedAlternatives": 39,
+   "explanation": "Nxd3 culmina la combinació: el guany material ja s’ha produït i es conserven almenys 5 punts nets després de qualsevol resposta immediata legal. Stockfish confirma que la millor defensa no iguala la posició.",
+   "uniqueness": "Cap altra jugada legal culmina aquest guany material ara. Stockfish també descarta una altra continuació amb avantatge decisiu.",
+   "alternativeSan": "Ng6",
+   "alternativeLine": [
+    "Ng6",
+    "Bxg6",
+    "hxg6",
+    "Qxb7"
+   ],
+   "alternativeEval": {
+    "type": "cp",
+    "value": 166
+   },
+   "minDepth": 14,
+   "requestedDepth": 16,
+   "sacrifices": []
+  },
+  "finalMotif": "fork",
+  "finalMotifs": [
+   "fork",
+   "major_win"
+  ],
+  "finalMotifLabel": "forquilla",
+  "finalMotifReason": "Segona jugada (Nf4+): El cavall a f4 ataca alhora el rei i l'alfil. La jugada final (Nxd3) en cobra el guany.",
+  "origin": "engine_selfplay",
+  "sourceGameId": null,
+  "sourceFen": "r6k/1b5p/p3q3/1p1p2pn/1p6/3BRP1P/P1P3KQ/5R2 b - - 0 30",
+  "sourceMoveNumber": null,
+  "adaptationNote": null,
+  "difficultyPercent": 40,
+  "ratingEstimate": null,
+  "pv": [
+   "e6e3",
+   "h2c7",
+   "h5f4",
+   "g2h1",
+   "f4d3"
+  ],
+  "evalBefore": 340,
+  "publishedAt": 1794175804096
+ },
+ {
+  "id": "hgr_2r1r1k1pQ3p1p6p12q2n25B22N2K1PPP4P1R2R4b",
+  "createdAt": 0,
+  "updatedAt": 0,
+  "source": "reserve",
+  "fen": "2r1r1k1/pQ3p1p/6p1/2q2n2/5B2/2N2K1P/PP4P1/R2R4 b - - 2 25",
+  "sideToMove": "b",
+  "line": [
+   "e8e3",
+   "f3f2",
+   "e3e4",
+   "f2f1",
+   "e4f4"
+  ],
+  "sanLine": [
+   "Re3+",
+   "Kf2",
+   "Re4+",
+   "Kf1",
+   "Rxf4+"
+  ],
+  "finalType": "discovery",
+  "difficulty": 57,
+  "status": "new",
+  "attempts": 0,
+  "startedAt": null,
+  "solvedAt": null,
+  "deviceCreated": null,
+  "bestMove": "e8e3",
+  "bestMoveSan": "Re3+",
+  "solutionMoves": [
+   "e8e3",
+   "e3e4",
+   "e4f4"
+  ],
+  "replyMoves": [
+   "f3f2",
+   "f2f1"
+  ],
+  "theme": "discovery",
+  "tacticKind": "descoberta",
+  "playerMove": null,
+  "conclusion": {
+   "version": 1,
+   "fen": "2r1r1k1/pQ3p1p/6p1/2q2n2/5B2/2N2K1P/PP4P1/R2R4 b - - 2 25",
+   "line": [
+    "e8e3",
+    "f3f2",
+    "e3e4",
+    "f2f1",
+    "e4f4"
+   ],
+   "finalFen": "2r3k1/pQ3p1p/6p1/2q2n2/5r2/2N4P/PP4P1/R2R1K2 w - - 0 28",
+   "kind": "material",
+   "finalSan": "Rxf4+",
+   "gain": 3,
+   "checkedReplies": 3,
+   "checkedAlternatives": 53,
+   "explanation": "Rxf4+ culmina la combinació: el guany material ja s’ha produït i es conserven almenys 3 punts nets després de qualsevol resposta immediata legal. Stockfish confirma que la millor defensa no iguala la posició.",
+   "uniqueness": "Cap altra jugada legal culmina aquest guany material ara. Stockfish també descarta una altra continuació amb avantatge decisiu.",
+   "alternativeSan": "Qc4+",
+   "alternativeLine": [
+    "Qc4+",
+    "Kg1",
+    "Qc5+",
+    "Kh2"
+   ],
+   "alternativeEval": {
+    "type": "cp",
+    "value": 0
+   },
+   "minDepth": 14,
+   "requestedDepth": 16,
+   "sacrifices": [
+    {
+     "kind": "refused",
+     "step": 1,
+     "offered": "r",
+     "offerUci": "e8e3",
+     "replyUci": "f3f2",
+     "captureUci": "f4e3",
+     "acceptedFen": "2r3k1/pQ3p1p/6p1/2q2n2/8/2N1BK1P/PP4P1/R2R4 b - - 0 26",
+     "square": "e3",
+     "loss": 5,
+     "compensationKind": "material",
+     "checkedDepth": 18,
+     "captureEvalType": "mate",
+     "captureEval": 2
+    }
+   ]
+  },
+  "finalMotif": "discovery",
+  "finalMotifs": [
+   "discovery",
+   "check"
+  ],
+  "finalMotifLabel": "descoberta",
+  "finalMotifReason": "Segona jugada (Re4+): En moure a e4 es destapa un escac descobert de la dama. La jugada final (Rxf4+) en cobra el guany.",
+  "origin": "engine_selfplay",
+  "sourceGameId": null,
+  "sourceFen": "2r1r1k1/pQ3p1p/6p1/2q2n2/5B2/2N2K1P/PP4P1/R2R4 b - - 2 25",
+  "sourceMoveNumber": null,
+  "adaptationNote": null,
+  "difficultyPercent": 57,
+  "ratingEstimate": null,
+  "pv": [
+   "e8e3",
+   "f3f2",
+   "e3e4",
+   "f2f1",
+   "e4f4"
+  ],
+  "evalBefore": 888,
+  "publishedAt": 1794175737698
+ },
+ {
   "fen": "5b2/1k3P1R/8/4P2P/8/4P1K1/3r4/2q5 b - - 1 38",
   "solutionMoves": [
    "c1f1",
