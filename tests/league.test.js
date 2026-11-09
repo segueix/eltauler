@@ -333,7 +333,7 @@ describe('a l\'app: graella nova i lliga encara no començada', () => {
     test('createNewLeague sorteja els rivals amb leagueOpponentOffsets dins de ELO_MIN-ELO_MAX i en desa el desplaçament', () => {
         const fn = fnSource('createNewLeague');
         expect(fn).toMatch(/ElTaulerCore\.leagueOpponentOffsets\(\)/);
-        expect(fn).toMatch(/ElTaulerCore\.leagueOpponentRating\(baseRating \+ division\.shift, offset, ELO_MIN, ELO_MAX\)/);
+        expect(fn).toMatch(/ElTaulerCore\.leagueOpponentRating\(baseRating \+ level\.shift, offset, ELO_MIN, ELO_MAX\)/);
         expect(fn).toMatch(/offset: offset/);
         expect(fn).not.toMatch(/randInt\(-25, 25\)/);
     });
@@ -345,7 +345,9 @@ describe('a l\'app: graella nova i lliga encara no començada', () => {
             currentLeague: { id: 'l1', players, baseRating: saved },
             getLeaguePlayer: id => ctx.currentLeague.players.find(p => p.id === id),
             getCurrentUserLeagueRoc: () => base, isLeagueTimeControlLocked: () => locked,
-            leagueRoundUnderway: () => underway
+            leagueRoundUnderway: () => underway,
+            // El grup de l'escala es recalcula amb la referència nova (LLIGA.md §6).
+            refreshLeagueLadderGroup() { ctx.refreshed = (ctx.refreshed || 0) + 1; }
         });
         vm.runInContext(fnSource('syncLeagueUserRoc'), ctx);
         ctx.syncLeagueUserRoc();
@@ -357,6 +359,7 @@ describe('a l\'app: graella nova i lliga encara no començada', () => {
         expect(ctx.currentLeague.baseRating).toBe(1300);
         expect(ctx.currentLeague.players.map(p => p.elo)).toEqual([1300, 1400]);
         expect(ctx.saves).toBe(1);
+        expect(ctx.refreshed).toBe(1);
     });
 
     test('començada (o amb una jornada en joc), els rivals queden congelats i només es mou el jugador', () => {

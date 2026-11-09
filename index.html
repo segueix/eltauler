@@ -5686,6 +5686,56 @@
         .league-career-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 5px 0; }
         .league-career-row > span:last-child { color: var(--text-secondary); white-space: nowrap; font-size: 0.78rem; }
         .league-career-main { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+        .league-more.lg-more-orange { border-left-color: var(--lg-orange); }
+        /* L'escalada (LLIGA.md §6): set graons, del municipi al món */
+        .lg-ladder-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin: -4px 0 10px; }
+        .lg-ladder { display: flex; align-items: center; gap: 0; padding: 0; margin: 0; border: 0; background: none; cursor: pointer; font: inherit; color: inherit; }
+        .lg-step { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; font-size: 0.95rem; line-height: 1;
+            background: var(--lg-tint); border: 2px solid transparent; opacity: 0.55; position: relative; }
+        .lg-step + .lg-step { margin-left: 8px; }
+        .lg-step + .lg-step::before { content: ''; position: absolute; right: 100%; top: 50%; width: 8px; height: 2px; background: var(--lg-tint); }
+        .lg-step.is-done { opacity: 1; background: var(--lg-green); }
+        .lg-step.is-done::before, .lg-step.is-current::before { background: var(--lg-green) !important; }
+        .lg-step.is-current { opacity: 1; background: var(--lg-orange); border-color: var(--accent-gold); transform: scale(1.18); }
+        .lg-step.is-best:not(.is-done):not(.is-current) { opacity: 0.85; border-color: var(--lg-gold); }
+        .lg-home-btn { border: 0; border-radius: 999px; padding: 4px 11px; font: inherit; font-size: 0.78rem; font-weight: 800; cursor: pointer;
+            background: var(--lg-tint); color: var(--text-primary); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .lg-home-btn:focus-visible, .lg-ladder:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: 2px; }
+        .league-ladder-level { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; margin-bottom: 6px; border-radius: 10px; background: var(--lg-tint); border-left: 5px solid transparent; }
+        .league-ladder-level.is-current { border-left-color: var(--lg-orange); }
+        .league-ladder-level.is-done { border-left-color: var(--lg-green); }
+        .league-ladder-level .lll-ic { font-size: 1.2rem; line-height: 1.5; }
+        .league-ladder-level .lll-name { font-weight: 800; color: var(--text-primary); display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+        .league-ladder-level .lll-groups { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+        .league-ladder-level .lll-groups .lg-chip { opacity: 0.7; }
+        .league-ladder-level .lll-groups .lg-chip.is-mine { opacity: 1; outline: 2px solid var(--accent-gold); }
+        .lg-from { display: block; font-size: 0.72rem; font-weight: 600; color: var(--text-secondary); line-height: 1.2; overflow-wrap: anywhere; }
+        body.epaper-mode .lg-step.is-current { border-color: #111; }
+        /* Finestra «On jugues?» */
+        .lhm-card { text-align: left; max-width: 420px; }
+        .lhm-card .modal-title { text-align: center; }
+        .lhm-card .close-modal { white-space: nowrap; }
+        .lhm-field { margin: 9px 0; position: relative; }
+        .lhm-field[hidden] { display: none; }
+        .lhm-label { display: block; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 4px; }
+        .lhm-card input, .lhm-card select { width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.18); border: 1px solid rgba(201,162,39,0.35);
+            border-radius: 10px; color: var(--text-primary); padding: 9px 11px; font-family: var(--font-ui); font-size: 0.95rem; }
+        .lhm-card select option { color: #111; }
+        .lhm-card input:focus, .lhm-card select:focus { outline: none; border-color: var(--accent-gold); }
+        body.day-mode .lhm-card input, body.day-mode .lhm-card select { background: #fff; }
+        body.epaper-mode .lhm-card input, body.epaper-mode .lhm-card select { background: #ededed; color: #222; border-color: #777; }
+        .lhm-suggest { position: absolute; left: 0; right: 0; top: 100%; z-index: 5; margin-top: 2px; border-radius: 10px; overflow: hidden;
+            background: var(--bg-card); border: 1px solid rgba(201,162,39,0.45); box-shadow: 0 8px 18px rgba(0,0,0,0.35); }
+        .lhm-suggest[hidden] { display: none; }
+        .lhm-suggest button { display: block; width: 100%; text-align: left; padding: 8px 11px; border: 0; background: none; color: var(--text-primary);
+            font: inherit; font-size: 0.9rem; cursor: pointer; }
+        .lhm-suggest button small { color: var(--text-secondary); font-size: 0.74rem; margin-left: 6px; }
+        .lhm-suggest button:hover, .lhm-suggest button.is-active { background: var(--lg-tint); }
+        .lhm-error { color: #e57373; font-size: 0.8rem; font-weight: 700; margin: 4px 0; }
+        .lhm-error[hidden] { display: none; }
+        .lhm-preview { list-style: none; margin: 10px 0 12px; padding: 8px 10px; border-radius: 10px; background: var(--lg-tint); font-size: 0.8rem; line-height: 1.55; color: var(--text-secondary); }
+        .lhm-preview:empty { display: none; }
+        .lhm-preview li b { color: var(--text-primary); }
         /* Lliga ràpida: compte enrere entre partida i partida. Poc text: el
            resultat, el rellotge, el compte enrere i les dues posicions. */
         .league-interlude { z-index: 1200; }
@@ -7190,7 +7240,7 @@
                         <button type="button" class="hb hb--lg hb--bare league-hero-main" id="btn-league">
                             <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-trophy"/></svg></span>
                             <span class="hb-text">
-                                <span class="hb-title">Lliga</span>
+                                <span class="hb-title" id="league-hero-title">Lliga</span>
                                 <span class="hb-sub" id="league-hero-sub">9 jornades contra rivals del teu nivell</span>
                                 <span class="hb-meta" id="league-hero-meta"></span>
                             </span>
@@ -9109,6 +9159,46 @@
             </div>
         </div>
 
+        <!-- On juga el jugador (LLIGA.md §6): dona nom a les lligues de l'escalada
+             (municipi, comarca, província, territori). La pinta app.js:
+             openLeagueHomeModal. -->
+        <div class="modal-overlay" id="league-home-modal" role="dialog" aria-modal="true" aria-labelledby="league-home-title">
+            <div class="modal-content lhm-card">
+                <div class="modal-title" id="league-home-title">📍 On jugues?</div>
+                <p class="promotion-hint">La lliga comença al teu municipi i puja per la comarca, la província, el país, els Països Catalans, Europa i el món.</p>
+                <div class="lhm-field">
+                    <label class="lhm-label" for="league-home-territory">Territori</label>
+                    <select id="league-home-territory"></select>
+                </div>
+                <div class="lhm-field lhm-mun">
+                    <label class="lhm-label" for="league-home-municipi">Municipi</label>
+                    <input id="league-home-municipi" type="text" maxlength="60" placeholder="Escriu el teu municipi" autocomplete="off" spellcheck="false"
+                        role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="league-home-suggest">
+                    <div class="lhm-suggest" id="league-home-suggest" role="listbox" hidden></div>
+                </div>
+                <div class="lhm-field">
+                    <label class="lhm-label" for="league-home-comarca" id="league-home-comarca-label">Comarca</label>
+                    <input id="league-home-comarca" type="text" maxlength="60" list="league-home-comarques" autocomplete="off">
+                    <datalist id="league-home-comarques"></datalist>
+                </div>
+                <div class="lhm-field">
+                    <label class="lhm-label" for="league-home-provincia" id="league-home-provincia-label">Província</label>
+                    <input id="league-home-provincia" type="text" maxlength="60" list="league-home-provincies" autocomplete="off">
+                    <datalist id="league-home-provincies"></datalist>
+                </div>
+                <div class="lhm-field" id="league-home-pais-field" hidden>
+                    <label class="lhm-label" for="league-home-pais">País</label>
+                    <input id="league-home-pais" type="text" maxlength="60" autocomplete="off">
+                </div>
+                <div class="lhm-error" id="league-home-error" hidden></div>
+                <ol class="lhm-preview" id="league-home-preview" aria-label="Les lligues de la teva escalada"></ol>
+                <div class="catalans-msg-actions">
+                    <button class="btn btn-primary" id="league-home-save" type="button">Desa</button>
+                    <button class="close-modal" id="league-home-skip" type="button">Ara no</button>
+                </div>
+            </div>
+        </div>
+
         <div class="modal-overlay" id="username-modal">
             <div class="modal-content">
                 <div class="modal-title" id="username-modal-title">👤 Tria el teu nom d'usuari</div>
@@ -9190,6 +9280,12 @@
                  renderLeague (app.js). -->
             <div class="league-meta lg-meta">
                 <div class="lg-title" id="league-name">—</div>
+                <!-- L'escalada (LLIGA.md §6): els set nivells, del municipi al
+                     món, amb el d'aquesta temporada marcat. Obre el detall. -->
+                <div class="lg-ladder-row">
+                    <button type="button" class="lg-ladder" id="league-ladder-steps" aria-label="L'escalada de lligues: obre el detall"></button>
+                    <button type="button" class="lg-home-btn" id="btn-league-home" title="On jugues: dona nom a les lligues">📍 <span id="league-home-label">Tria on jugues</span></button>
+                </div>
                 <div class="lg-tiles">
                     <div class="lg-tile lgc-teal">
                         <small>JORNADA</small>
@@ -9211,8 +9307,8 @@
                         <em id="league-tc-note"></em>
                     </div>
                     <div class="lg-tile lgc-purple">
-                        <small>DIVISIÓ</small>
-                        <b id="league-division">Segona</b>
+                        <small id="league-division-label">NIVELL</small>
+                        <b id="league-division">Municipal</b>
                         <em id="league-division-sub">↑ podi · ↓ 3 últims</em>
                     </div>
                     <div class="lg-tile lgc-green">
@@ -9243,13 +9339,17 @@
                 </table>
             </div>
             <div class="lg-legend">
-                <span class="lg-key lg-key-up">Puja de divisió</span>
-                <span class="lg-key lg-key-down">Baixa</span>
+                <span class="lg-key lg-key-up" id="league-key-up">Puja de nivell</span>
+                <span class="lg-key lg-key-down" id="league-key-down">Baixa de nivell</span>
                 <span class="lg-legend-text">Victòria 1 · taules ½ · desempats: directe, victòries, Sonneborn-Berger</span>
             </div>
 
             <div class="league-history" id="league-history"></div>
 
+            <details class="league-more lg-more-orange" id="league-ladder-box">
+                <summary><span class="lg-more-ic lgc-orange" aria-hidden="true">🪜</span>L'escalada: del municipi al món</summary>
+                <div id="league-ladder"></div>
+            </details>
             <details class="league-more lg-more-teal" id="league-rounds-box">
                 <summary><span class="lg-more-ic lgc-teal" aria-hidden="true">📅</span>Resultats de totes les jornades</summary>
                 <div id="league-rounds"></div>
@@ -10473,7 +10573,8 @@
     <!-- App Logic -->
     <!-- obertures.js i jeroglifics-reserva.js es carreguen quan el navegador
          queda lliure (app.js: loadDeferredData), no amb la pàgina. -->
-    <script src="core.js?v=1.0.48"></script>
+    <script src="core.js?v=1.0.49"></script>
+    <script src="localitats.js?v=1.0.0"></script>
     <script src="antidoteprogress.js?v=1.0.0"></script>
     <script src="hieroclosure.js?v=1.2.0"></script>
     <script src="reviewsacrifices.js?v=1.0.0"></script>
@@ -10511,7 +10612,7 @@
     <script src="boardexperience.js?v=1.0.7"></script>
     <script src="bulletbank.js?v=1.0.0"></script>
     <script src="bulletpractice.js?v=1.2.6"></script>
-    <script src="app.js?v=1.0.163"></script>
+    <script src="app.js?v=1.0.164"></script>
     <!-- Pas a Remigi lliscant el dit pel mig de la portada (mòbil) -->
     <script src="canviapp.js?v=1.0.0"></script>
 

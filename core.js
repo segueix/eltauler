@@ -4486,12 +4486,126 @@
         return Math.round((lo + hi) / 2);
     }
 
-    // Divisions (LLIGA.md §6): cada temporada es juga en una divisió, que
-    // desplaça tota la graella de rivals respecte de la referència del jugador.
-    // Podi (1r-3r): puja; últims tres (8è-10è): baixa. Es comença a Segona.
-    // El desplaçament és de 50 punts per divisió: les partides de lliga ja
-    // fan pujar o baixar la puntuació del jugador (i, amb ella, la referència
-    // de la graella), i la divisió hi afegeix un repte, no un salt de nivell.
+    // Escala de lligues (LLIGA.md §6): del municipi del jugador al món, en
+    // set nivells. Cada temporada es juga en un nivell; el podi (1r-3r) puja
+    // al següent i els tres últims baixen a l'anterior. Es comença al
+    // municipal.
+    //
+    // - shift: desplaçament de la graella respecte de la referència del
+    //   jugador. Els rivals continuen essent del seu nivell (±200, §3), però
+    //   cada nivell els fa 40 punts més forts que l'anterior: al municipal, el
+    //   jugador és favorit (podi 56% jugant al seu nivell) i al mundial n'ha
+    //   de fer molt més del que diu la seva puntuació (podi 3%).
+    //   scripts/lliga-lichess/simulate_ladder.js.
+    // - groups: llindars dels grups per ELO del nivell (dos o tres lligues per
+    //   nivell). El grup surt de l'ELO mitjà de la graella (referència +
+    //   desplaçament): C per sota del primer llindar, B entre tots dos, A per
+    //   sobre del darrer. Als nivells de dalt només hi ha B i A.
+    const LEAGUE_LEVELS = [
+        { id: 'municipal', label: 'Municipal', icon: '🏘️', shift: -120, groups: [600, 900] },
+        { id: 'comarcal', label: 'Comarcal', icon: '⛰️', shift: -80, groups: [700, 1000] },
+        { id: 'provincial', label: 'Provincial', icon: '🏛️', shift: -40, groups: [800, 1100] },
+        { id: 'territorial', label: 'Catalana', icon: '🏰', shift: 0, groups: [900, 1200] },
+        { id: 'ppcc', label: 'Països Catalans', icon: '🗺️', shift: 40, groups: [1200] },
+        { id: 'europa', label: 'Europea', icon: '🇪🇺', shift: 80, groups: [1350] },
+        { id: 'mundial', label: 'Mundial', icon: '🌍', shift: 120, groups: [1500] }
+    ];
+    const LEAGUE_START_LEVEL = 0;
+    function leagueLevel(level) {
+        const i = Number.isFinite(level) ? Math.max(0, Math.min(LEAGUE_LEVELS.length - 1, Math.round(level))) : LEAGUE_START_LEVEL;
+        return Object.assign({ level: i }, LEAGUE_LEVELS[i]);
+    }
+    // Grups d'un nivell, del més fluix al més fort: [{ id, label, min, max }]
+    // (min o max null a l'extrem obert).
+    function leagueLevelGroups(level) {
+        const th = leagueLevel(level).groups;
+        const ids = th.length === 2 ? ['C', 'B', 'A'] : ['B', 'A'];
+        return ids.map(function (id, i) {
+            return { id: id, label: 'Grup ' + id, min: i === 0 ? null : th[i - 1], max: i < th.length ? th[i] - 1 : null };
+        });
+    }
+    // Grup que toca a una graella d'ELO mitjà `center` en aquest nivell.
+    function leagueLevelGroup(level, center) {
+        const groups = leagueLevelGroups(level);
+        const c = Number.isFinite(center) ? center : 0;
+        for (let i = groups.length - 1; i > 0; i--) if (c >= groups[i].min) return groups[i];
+        return groups[0];
+    }
+    // «fins a 599», «600-899», «900 o més».
+    function leagueGroupRangeText(group) {
+        if (!group) return '';
+        if (group.min === null) return 'fins a ' + group.max;
+        if (group.max === null) return group.min + ' o més';
+        return group.min + '–' + group.max;
+    }
+    // Nivell de la temporada següent segons la posició final (1-10).
+    function leagueNextLevel(level, rank, players) {
+        const cur = leagueLevel(level).level;
+        const n = Number.isFinite(players) ? players : 10;
+        if (rank >= 1 && rank <= 3) return Math.min(LEAGUE_LEVELS.length - 1, cur + 1);
+        if (rank > n - 3 && rank <= n) return Math.max(0, cur - 1);
+        return cur;
+    }
+
+    // «de Vic», «d'Osona», «del Bages», «dels Ports», «de la Selva», «de l'Anoia».
+    function catalanDe(name) {
+        const s = String(name == null ? '' : name).replace(/\s+/g, ' ').trim();
+        if (!s) return '';
+        let m;
+        if ((m = /^el\s+(.+)$/i.exec(s))) return 'del ' + m[1];
+        if ((m = /^els\s+(.+)$/i.exec(s))) return 'dels ' + m[1];
+        if (/^(la|les)\s+/i.test(s) || /^l['’]/i.test(s)) return 'de ' + s;
+        // Vocal (o h muda) al davant: «d'». La i i la u davant de vocal són
+        // consonants («de Iàtova», «de Uixó»).
+        if (/^h?[aeiouàèéíïòóúü]/i.test(s) && !/^h?[iuíúïü][aeiouàèéíòóú]/i.test(s)) return "d'" + s;
+        return 'de ' + s;
+    }
+    // Lliga del nivell «territori» segons on juga el jugador: [nom, curt].
+    const LEAGUE_TERRITORY_NAMES = {
+        cat: ['Lliga Catalana', 'Catalana'],
+        val: ['Lliga Valenciana', 'Valenciana'],
+        bal: ['Lliga Balear', 'Balear'],
+        and: ['Lliga Andorrana', 'Andorrana'],
+        nord: ['Lliga de la Catalunya Nord', 'Catalunya Nord'],
+        franja: ['Lliga de la Franja', 'Franja'],
+        alguer: ['Lliga Algueresa', 'Algueresa']
+    };
+    // Nom de la lliga d'un nivell per a la localitat del jugador (home: {
+    // territory, municipi, comarca, provincia, pais }). Sense localitat, els
+    // noms genèrics.
+    function leagueLevelName(level, home) {
+        const h = home || {};
+        const L = leagueLevel(level);
+        switch (L.id) {
+            case 'municipal': return h.municipi ? 'Lliga ' + catalanDe(h.municipi) : 'Lliga Local';
+            case 'comarcal': return h.comarca ? 'Lliga Comarcal ' + catalanDe(h.comarca) : 'Lliga Comarcal';
+            case 'provincial': return h.provincia ? 'Lliga Provincial ' + catalanDe(h.provincia) : 'Lliga Provincial';
+            case 'territorial': {
+                const t = LEAGUE_TERRITORY_NAMES[h.territory || 'cat'];
+                if (t) return t[0];
+                return h.pais ? 'Lliga Nacional ' + catalanDe(h.pais) : 'Lliga Nacional';
+            }
+            case 'ppcc': return 'Lliga dels Països Catalans';
+            case 'europa': return 'Lliga Europea';
+            default: return 'Lliga Mundial';
+        }
+    }
+    // Nom curt del nivell per a la rajola: «Municipal», «Catalana», «Mundial».
+    function leagueLevelShort(level, home) {
+        const L = leagueLevel(level);
+        if (L.id !== 'territorial') return L.label;
+        const h = home || {};
+        const t = LEAGUE_TERRITORY_NAMES[h.territory || 'cat'];
+        return t ? t[1] : 'Nacional';
+    }
+    // «Lliga de Vic · Grup B».
+    function leagueFullName(level, groupId, home) {
+        return leagueLevelName(level, home) + (groupId ? ' · Grup ' + groupId : '');
+    }
+
+    // Divisions (LLIGA.md §6, abans de l'escala de nivells): les lligues
+    // començades amb divisions s'acaben amb divisions i el palmarès en conserva
+    // el nom. Ja no se'n creen de noves.
     const LEAGUE_DIVISIONS = [
         { name: 'Quarta Divisió', shift: -100 },
         { name: 'Tercera Divisió', shift: -50 },
@@ -10472,6 +10586,17 @@
         LEAGUE_START_DIVISION,
         leagueDivision,
         leagueNextDivision,
+        LEAGUE_LEVELS,
+        LEAGUE_START_LEVEL,
+        leagueLevel,
+        leagueLevelGroups,
+        leagueLevelGroup,
+        leagueGroupRangeText,
+        leagueNextLevel,
+        catalanDe,
+        leagueLevelName,
+        leagueLevelShort,
+        leagueFullName,
         LEAGUE_AUTO_TCS,
         LEAGUE_INTERLUDE_SECONDS,
         leagueAutoChains,

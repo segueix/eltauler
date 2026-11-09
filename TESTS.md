@@ -163,11 +163,18 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   `startGame`. Classificació (`leagueStandings`): punts, enfrontament directe
   només si tots els empatats s'han enfrontat, victòries, Sonneborn-Berger i les
   lligues velles sense resultats. Rendiment (`leaguePerformanceRating`):
-  esperança igual a la puntuació, monotonia i extrems. Divisions
-  (`leagueDivision`, `leagueNextDivision`) i el desplaçament de la graella. Una
+  esperança igual a la puntuació, monotonia i extrems. Escala de nivells
+  (`LLIGA.md` §6: `leagueLevel`, `leagueLevelGroups`, `leagueLevelGroup`,
+  `leagueNextLevel`): set nivells del municipal al mundial a 40 punts l'un de
+  l'altre, dos o tres grups per ELO sense forats, grup per l'ELO mitjà de la
+  graella, podi que puja i tres últims que baixen sense sortir de l'escala,
+  noms segons la localitat (`leagueLevelName`, `catalanDe`) i desplaçament de
+  la graella; les divisions velles es continuen llegint. Una
   temporada sencera amb el codi real d'`applyLeagueAfterGame` i
   `finalizeLeagueSeason`: 45 resultats, cada parella un cop, colors desats,
-  campió que puja, últim que baixa i palmarès a `chess_leagueCareer`. Les
+  campió que puja de nivell, últim que baixa (no al municipal), el millor
+  nivell que no baixa, una lliga de divisions que es tanca amb la divisió i
+  palmarès a `chess_leagueCareer`. Les
   partides de lliga puntuen (ritme o principal) sense comptar-se dues vegades.
   Personalitat: estils, repertori de la llista curada (totes les línies
   legals), llibre (`leagueBookMove`, `leagueBookDepth`), estil acotat a la
@@ -178,8 +185,9 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   jornada que toca gran i en un requadre i les dues posicions (la teva i la del
   rival, amb punts, color i ROC), sense les frases llargues ni l'escala de
   números. Final de la lliga: la revisió de la darrera jornada porta la
-  posició final gran (colors de podi, descens i mitja taula, campió, divisió)
-  i fora de la darrera jornada no surt. Pantalla: quatre rajoles i franja del
+  posició final gran (colors de podi, descens i mitja taula, campió, divisió o
+  nivell: «Puges a la Lliga Comarcal d'Osona», campió del món al mundial, sense
+  vermell al municipal) i fora de la darrera jornada no surt. Pantalla: quatre rajoles i franja del
   rival a la capçalera (sense el «Rellotge» repetit), colors de posició i
   d'estil, regles de color també en paper electrònic, textos curts (divisió,
   balanç, «1 punt») i la taula que cap al mòbil. Rellotge final amb el
@@ -191,6 +199,20 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   finestra de revisió, a l'historial, al botó de tornada a la revisió, a la
   capçalera d'Estadístiques, al mosaic de l'inici i a «Veure evolució»; ja no
   queda cap 📈 ni 📊.
+- **`league-ladder.test.js`** — la localitat del jugador i l'escala de lligues
+  (`LLIGA.md` §6). `localitats.js`: els 947 municipis de Catalunya d'Idescat
+  amb comarca i província (43 comarques, 4 províncies, article al davant,
+  comarques partides com la Cerdanya amb la província de cada municipi), cerca
+  sense accents, comarques dels altres territoris amb la província,
+  `normalizeHome` i l'origen dels rivals per nivell (comarca, província,
+  territori, ciutats dels Països Catalans, Europa i món). A l'app:
+  `createNewLeague` amb nivell, grup per ELO, noms del lloc, rivals de la
+  comarca i àlies internacionals a Europa; el grup que es recalcula si canvia
+  la referència; desar la localitat torna a sortejar la lliga no començada; les
+  lligues de divisions no començades passen a l'escala i les començades
+  s'acaben igual; la trajectòria (nivell, millor nivell, localitat). A la
+  pàgina: `localitats.js` entre `core.js` i `app.js`, la finestra «On jugues?»
+  i que obrir la lliga la demana.
 - **`league-rival.test.js`** — el rival de la lliga (`LLIGA.md` §2). Quan juga
   Stockfish 19 (`sf19RivalWanted`, `timedRivalActive`): lliga amb i sense
   rellotge i partida lliure amb rellotge sí; partida lliure sense rellotge,
