@@ -112,33 +112,83 @@ describe('rendiment (leaguePerformanceRating)', () => {
     });
 });
 
-describe('divisions', () => {
-    test('cinc divisions de 50 en 50 i es comença a Segona', () => {
-        expect(Core.LEAGUE_DIVISIONS.map(d => d.shift)).toEqual([-100, -50, 0, 50, 100]);
-        expect(Core.leagueDivision()).toEqual({ level: 2, name: 'Segona Divisió', shift: 0 });
-        expect(Core.leagueDivision(9).level).toBe(4);
-        expect(Core.leagueDivision(-3).level).toBe(0);
+describe('escala de nivells (LLIGA.md §6)', () => {
+    test('set nivells, del municipal al mundial, cada un 40 punts més fort; es comença al municipal', () => {
+        expect(Core.LEAGUE_LEVELS.map(l => l.id)).toEqual(['municipal', 'comarcal', 'provincial', 'territorial', 'ppcc', 'europa', 'mundial']);
+        expect(Core.LEAGUE_LEVELS.map(l => l.shift)).toEqual([-120, -80, -40, 0, 40, 80, 120]);
+        expect(Core.LEAGUE_START_LEVEL).toBe(0);
+        expect(Core.leagueLevel().level).toBe(0);
+        expect(Core.leagueLevel(9).level).toBe(6);
+        expect(Core.leagueLevel(-3).level).toBe(0);
     });
 
-    test('el podi puja, els tres últims baixen, la resta es queda', () => {
-        expect([1, 2, 3].map(r => Core.leagueNextDivision(2, r))).toEqual([3, 3, 3]);
-        expect([4, 5, 6, 7].map(r => Core.leagueNextDivision(2, r))).toEqual([2, 2, 2, 2]);
-        expect([8, 9, 10].map(r => Core.leagueNextDivision(2, r))).toEqual([1, 1, 1]);
-        expect(Core.leagueNextDivision(4, 1)).toBe(4);
-        expect(Core.leagueNextDivision(0, 10)).toBe(0);
+    test('dos o tres grups per ELO a cada nivell, ordenats i sense forats', () => {
+        Core.LEAGUE_LEVELS.forEach((L, i) => {
+            const g = Core.leagueLevelGroups(i);
+            expect([2, 3]).toContain(g.length);
+            expect(g[g.length - 1].id).toBe('A');
+            expect(g[0].min).toBe(null);
+            expect(g[g.length - 1].max).toBe(null);
+            for (let k = 1; k < g.length; k++) expect(g[k].min).toBe(g[k - 1].max + 1);
+        });
+        // Els llindars pugen amb el nivell: al mundial, el grup B ja és fort.
+        expect(Core.leagueLevelGroups(0).map(Core.leagueGroupRangeText)).toEqual(['fins a 599', '600–899', '900 o més']);
+        expect(Core.leagueLevelGroups(6).map(Core.leagueGroupRangeText)).toEqual(['fins a 1499', '1500 o més']);
     });
 
-    test('la divisió desplaça la graella: els rivals giren al voltant de la referència + desplaçament', () => {
+    test('el grup surt de l\'ELO mitjà de la graella', () => {
+        expect(['C', 'B', 'B', 'A'].map((id, k) => Core.leagueLevelGroup(0, [599, 600, 899, 900][k]).id)).toEqual(['C', 'B', 'B', 'A']);
+        expect(Core.leagueLevelGroup(4, 1199).id).toBe('B');
+        expect(Core.leagueLevelGroup(4, 1200).id).toBe('A');
+        expect(Core.leagueLevelGroup(6, 100).id).toBe('B');
+    });
+
+    test('el podi puja, els tres últims baixen, la resta es queda; no se surt de l\'escala', () => {
+        expect([1, 2, 3].map(r => Core.leagueNextLevel(2, r))).toEqual([3, 3, 3]);
+        expect([4, 5, 6, 7].map(r => Core.leagueNextLevel(2, r))).toEqual([2, 2, 2, 2]);
+        expect([8, 9, 10].map(r => Core.leagueNextLevel(2, r))).toEqual([1, 1, 1]);
+        expect(Core.leagueNextLevel(6, 1)).toBe(6);
+        expect(Core.leagueNextLevel(0, 10)).toBe(0);
+    });
+
+    test('noms de les lligues segons on juga el jugador', () => {
+        const vic = { territory: 'cat', municipi: 'Vic', comarca: 'Osona', provincia: 'Barcelona' };
+        expect([0, 1, 2, 3, 4, 5, 6].map(l => Core.leagueLevelName(l, vic))).toEqual([
+            'Lliga de Vic', "Lliga Comarcal d'Osona", 'Lliga Provincial de Barcelona', 'Lliga Catalana',
+            'Lliga dels Països Catalans', 'Lliga Europea', 'Lliga Mundial']);
+        const gandia = { territory: 'val', municipi: 'Gandia', comarca: 'la Safor', provincia: 'València' };
+        expect(Core.leagueLevelName(1, gandia)).toBe('Lliga Comarcal de la Safor');
+        expect(Core.leagueLevelName(3, gandia)).toBe('Lliga Valenciana');
+        expect(Core.leagueLevelShort(3, gandia)).toBe('Valenciana');
+        expect(Core.leagueLevelName(3, { territory: 'fora', municipi: 'Lió', pais: 'França' })).toBe('Lliga Nacional de França');
+        // Sense localitat, els genèrics.
+        expect([0, 1, 2, 3].map(l => Core.leagueLevelName(l))).toEqual(['Lliga Local', 'Lliga Comarcal', 'Lliga Provincial', 'Lliga Catalana']);
+        expect(Core.leagueFullName(1, 'B', vic)).toBe("Lliga Comarcal d'Osona · Grup B");
+    });
+
+    test('contraccions de «de»', () => {
+        expect(['el Bages', 'els Ports', 'la Selva', "l'Anoia", 'les Garrigues', 'Osona', 'Igualada', 'Hostalric', 'Barcelona', 'Iàtova']
+            .map(Core.catalanDe)).toEqual(['del Bages', 'dels Ports', 'de la Selva', "de l'Anoia", 'de les Garrigues',
+            "d'Osona", "d'Igualada", "d'Hostalric", 'de Barcelona', 'de Iàtova']);
+        expect(Core.catalanDe('')).toBe('');
+    });
+
+    test('el nivell desplaça la graella: els rivals giren al voltant de la referència + desplaçament', () => {
         const players = [{ id: 'me', elo: 1200 }, { id: 'b1', elo: 1200, offset: 0 }, { id: 'b2', elo: 1400, offset: 200 }];
-        const out = Core.rebasedLeagueRatings(players, 1200, 1000, 200, 2000, 50);
-        expect(out.map(p => p.elo)).toEqual([1000, 1050, 1250]);
-        expect(fnSource('createNewLeague')).toMatch(/leagueOpponentRating\(baseRating \+ division\.shift, offset, ELO_MIN, ELO_MAX\)/);
+        const out = Core.rebasedLeagueRatings(players, 1200, 1000, 200, 2000, 40);
+        expect(out.map(p => p.elo)).toEqual([1000, 1040, 1240]);
+        expect(fnSource('createNewLeague')).toMatch(/leagueOpponentRating\(baseRating \+ level\.shift, offset, ELO_MIN, ELO_MAX\)/);
+    });
+
+    test('les divisions de l\'antic sistema es continuen llegint', () => {
+        expect(Core.LEAGUE_DIVISIONS.map(d => d.shift)).toEqual([-100, -50, 0, 50, 100]);
+        expect(Core.leagueDivision(3).name).toBe('Primera Divisió');
     });
 });
 
 describe('temporada sencera a l\'app (applyLeagueAfterGame + finalizeLeagueSeason)', () => {
-    function seasonCtx(myOutcome) {
-        const store = {};
+    function seasonCtx(myOutcome, { level = 2, legacy = false, career = null } = {}) {
+        const store = career ? { chess_leagueCareer: JSON.stringify(career) } : {};
         const ids = ['me'].concat([1, 2, 3, 4, 5, 6, 7, 8, 9].map(i => 'bot' + i));
         const players = ids.map((id, i) => ({ id, name: id, elo: 1000 + i * 10, pj: 0, pg: 0, pp: 0, pe: 0, pts: 0 }));
         const ctx = vm.createContext({
@@ -153,7 +203,8 @@ describe('temporada sencera a l\'app (applyLeagueAfterGame + finalizeLeagueSeaso
             'finalizeLeagueSeason', 'applyLeagueAfterGame', 'getMyOpponentForRound', 'buildRoundRobinSchedule']
             .forEach(n => vm.runInContext(fnSource(n), ctx));
         ctx.currentLeague = { id: 'L', name: 'Lliga de prova', players, schedule: ctx.buildRoundRobinSchedule(ids),
-            currentRound: 1, completed: false, history: [], results: [], division: 2, divisionShift: 0,
+            currentRound: 1, completed: false, history: [], results: [],
+            ...(legacy ? { division: 2, divisionShift: 0 } : { ladder: { level, group: 'B' }, divisionShift: Core.leagueLevel(level).shift }),
             colors: Core.leaguePlayerColors(() => 0.1) };
         for (let round = 1; round <= 9; round++) {
             const opp = ctx.getMyOpponentForRound(round - 1);
@@ -175,23 +226,45 @@ describe('temporada sencera a l\'app (applyLeagueAfterGame + finalizeLeagueSeaso
         expect(pairs.size).toBe(45);
     });
 
-    test('guanyant-ho tot: campió, puja de divisió i queda al palmarès', () => {
+    test('guanyant-ho tot: campió, puja de nivell i queda al palmarès', () => {
         const { ctx, store } = seasonCtx('win');
         expect(ctx.currentLeague.completed).toBe(true);
-        expect(ctx.currentLeague.final).toMatchObject({ rank: 1, pts: 9, division: 2, nextDivision: 3, movement: 'up' });
+        expect(ctx.currentLeague.final).toMatchObject({ rank: 1, pts: 9, level: 2, group: 'B', nextLevel: 3, movement: 'up' });
         const career = JSON.parse(store.chess_leagueCareer);
-        expect(career.division).toBe(3);
+        expect(career.level).toBe(3);
+        expect(career.bestLevel).toBe(3);
         expect(career.seasons).toHaveLength(1);
-        expect(career.seasons[0]).toMatchObject({ name: 'Lliga de prova', rank: 1, timeControl: '1+0' });
+        expect(career.seasons[0]).toMatchObject({ name: 'Lliga de prova', rank: 1, timeControl: '1+0', level: 2, group: 'B', nextLevel: 3 });
     });
 
-    test('perdent-ho tot: últim i baixa de divisió', () => {
+    test('perdent-ho tot: últim i baixa de nivell; al municipal no es baixa', () => {
         const { ctx } = seasonCtx('loss');
-        expect(ctx.currentLeague.final).toMatchObject({ rank: 10, pts: 0, movement: 'down', nextDivision: 1 });
+        expect(ctx.currentLeague.final).toMatchObject({ rank: 10, pts: 0, movement: 'down', nextLevel: 1 });
+        const muni = seasonCtx('loss', { level: 0 }).ctx;
+        expect(muni.currentLeague.final).toMatchObject({ rank: 10, level: 0, nextLevel: 0, movement: 'stay' });
     });
 
-    test('la divisió nova es fa servir en crear la temporada següent', () => {
-        expect(fnSource('createNewLeague')).toMatch(/ElTaulerCore\.leagueDivision\(loadLeagueCareer\(\)\.division\)/);
+    test('el millor nivell no baixa en baixar', () => {
+        const { store } = seasonCtx('loss', { level: 4, career: { level: 4, bestLevel: 5, seasons: [] } });
+        const career = JSON.parse(store.chess_leagueCareer);
+        expect(career.level).toBe(3);
+        expect(career.bestLevel).toBe(5);
+    });
+
+    test('una lliga de l\'antic sistema es tanca amb la divisió i l\'escalada comença al municipal', () => {
+        const { ctx, store } = seasonCtx('win', { legacy: true });
+        expect(ctx.currentLeague.final).toMatchObject({ rank: 1, division: 2, nextLevel: 0, movement: 'start' });
+        const career = JSON.parse(store.chess_leagueCareer);
+        expect(career.level).toBe(0);
+        expect(career.seasons[0]).toMatchObject({ division: 2 });
+        expect(career.seasons[0].level).toBeUndefined();
+    });
+
+    test('el nivell nou es fa servir en crear la temporada següent', () => {
+        const fn = fnSource('createNewLeague');
+        expect(fn).toMatch(/const level = ElTaulerCore\.leagueLevel\(career\.level\);/);
+        expect(fn).toMatch(/const group = ElTaulerCore\.leagueLevelGroup\(level\.level, baseRating \+ level\.shift\);/);
+        expect(fn).toMatch(/ladder: \{ level: level\.level, group: group\.id \}/);
     });
 });
 
@@ -400,10 +473,14 @@ describe('pantalla de la lliga: rajoles i colors', () => {
         return ctx;
     }
 
-    test('capçalera: quatre rajoles (jornada, rellotge, divisió, rendiment) i la franja del rival', () => {
+    test('capçalera: quatre rajoles (jornada, rellotge, nivell, rendiment), l\'escalada i la franja del rival', () => {
         const a = html.indexOf('<div class="league-meta lg-meta">');
         const meta = html.slice(a, html.indexOf('<div class="league-table-wrap">', a));
-        ['JORNADA', 'RELLOTGE', 'DIVISIÓ', 'RENDIMENT'].forEach(t => expect(meta).toContain(`<small>${t}</small>`));
+        ['JORNADA', 'RELLOTGE', 'RENDIMENT'].forEach(t => expect(meta).toContain(`<small>${t}</small>`));
+        // La tercera rajola és el nivell de l'escala (o la divisió, a les lligues velles).
+        expect(meta).toContain('<small id="league-division-label">NIVELL</small>');
+        expect(meta).toContain('id="league-ladder-steps"');
+        expect(meta).toContain('id="btn-league-home"');
         expect(meta).toContain('id="league-tc-select"');   // el selector és dins la rajola del rellotge
         expect(meta).toContain('id="league-strip"');
         // Ja no hi ha el «Rellotge» repetit ni la línia de punts.
@@ -414,6 +491,8 @@ describe('pantalla de la lliga: rajoles i colors', () => {
     test('colors: posició (podi i descens), estils i punts', () => {
         const ctx = helpers();
         expect([1, 2, 3, 5, 8, 10].map(r => ctx.leagueRankClass(r, 10))).toEqual(['lgc-gold', 'lgc-silver', 'lgc-bronze', '', 'lgc-red', 'lgc-red']);
+        // Al municipal no es baixa: la cua no va de vermell.
+        expect([8, 10].map(r => ctx.leagueRankClass(r, 10, false))).toEqual(['', '']);
         expect(ctx.leagueStyleLook('attacker').cls).toBe('lgc-red');
         expect(ctx.leagueStyleLook('wall').cls).toBe('lgc-blue');
         expect(ctx.leagueStyleLook('hunter').cls).toBe('lgc-orange');
@@ -524,7 +603,7 @@ describe('pantalla entre partides: poc text i les dues posicions marcades', () =
         vm.runInContext(fnSource('formatPts'), ctx);
         vm.runInContext(fnSource('formatEloChange'), ctx);
         ['leagueInterludeWanted', 'stopLeagueInterludeTimer', 'renderLeagueInterludeCount', 'leagueSort', 'leagueOrdinal',
-            'leaguePointsLabel', 'leagueStyleLook', 'getLeagueRoundColor', 'leagueShortResult', 'showLeagueInterlude', 'tickLeagueInterlude']
+            'leaguePointsLabel', 'leagueIcon', 'leagueStyleLook', 'getLeagueRoundColor', 'leagueShortResult', 'showLeagueInterlude', 'tickLeagueInterlude']
             .forEach(n => vm.runInContext(fnSource(n), ctx));
         vm.runInContext(source.slice(source.indexOf('const LEAGUE_STYLE_LOOK = {'), source.indexOf('};', source.indexOf('const LEAGUE_STYLE_LOOK = {')) + 2), ctx);
         return { ctx, els, overlay };
@@ -549,7 +628,7 @@ describe('pantalla entre partides: poc text i les dues posicions marcades', () =
         // Tu ets el primer (9 punts); el rival bot4, el cinquè (5 punts).
         expect(els['#li-me-pos'].text).toBe('1r');
         expect(els['#li-me-sub'].html).toBe('<span class="li-nw">9 punts</span> · <span class="li-nw">negres</span>');
-        expect(els['#li-opp-pos'].html).toBe('5è<span class="li-pos-ic" aria-hidden="true">🧱</span>');
+        expect(els['#li-opp-pos'].html).toBe('5è<span class="li-pos-ic"><svg class="btn-ic" aria-hidden="true"><use href="#ic-wall"/></svg></span>');
         expect(els['#li-opp-pos'].attrs.class).toBe('li-pos lgc-blue');   // el Mur: blau
         expect(els['#li-opp-name'].text).toBe('Rival4');
         expect(els['#li-opp-sub'].html).toBe('<span class="li-nw">5 punts</span> · <span class="li-nw">ROC 1004</span>');
@@ -575,10 +654,14 @@ describe('pantalla entre partides: poc text i les dues posicions marcades', () =
 });
 
 describe('final de la lliga: la posició, gran, a la revisió de la darrera jornada', () => {
-    function finalCtx() {
-        const ctx = vm.createContext({ ElTaulerCore: Core });
+    function finalCtx(career = null) {
+        const store = career ? { chess_leagueCareer: JSON.stringify(career) } : {};
+        const ctx = vm.createContext({ ElTaulerCore: Core, JSON, Math, Number, Array, Object,
+            LEAGUE_CAREER_KEY: 'chess_leagueCareer',
+            localStorage: { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } } });
         vm.runInContext(fnSource('formatPts'), ctx);
-        ['escapeHtml', 'leagueOrdinal', 'leaguePointsLabel', 'leagueRankClass', 'leagueFinalReviewHtml']
+        ['escapeHtml', 'leagueOrdinal', 'leaguePointsLabel', 'leagueRankClass', 'loadLeagueCareer', 'leagueHome',
+            'leagueIcon', 'leagueFinalMove', 'leagueFinalReviewHtml']
             .forEach(n => vm.runInContext(fnSource(n), ctx));
         return ctx;
     }
@@ -599,13 +682,31 @@ describe('final de la lliga: la posició, gran, a la revisió de la darrera jorn
         const ctx = finalCtx();
         const champ = ctx.leagueFinalReviewHtml({ ...base, rank: 1, nextDivision: 3, movement: 'up', champion: 'Tu' });
         expect(champ).toContain('rlf-champion');
-        expect(champ).toContain('🏆 CAMPIÓ DE LA LLIGA');
+        expect(champ).toContain('<use href="#ic-trophy"/></svg>CAMPIÓ DE LA LLIGA');
         expect(champ).toContain('<span class="rlf-pos lgc-gold">1r</span>');
         expect(champ).not.toContain('Campió:');
         expect(ctx.leagueFinalReviewHtml({ ...base, rank: 9, nextDivision: 1, movement: 'down' }))
             .toMatch(/<span class="rlf-pos lgc-red">9è<\/span>[\s\S]*↓ Baixes a Tercera Divisió/);
         expect(ctx.leagueFinalReviewHtml({ ...base, rank: 5, nextDivision: 2, movement: 'stay' }))
             .toMatch(/<span class="rlf-pos lgc-teal">5è<\/span>[\s\S]*Continues a Segona Divisió/);
+    });
+
+    test('escala de nivells: es puja, es baixa o es continua a la lliga del lloc del jugador', () => {
+        const home = { territory: 'cat', municipi: 'Vic', comarca: 'Osona', provincia: 'Barcelona' };
+        const ctx = finalCtx({ level: 1, home, seasons: [] });
+        const lad = { players: 10, pts: 7, performance: 1100, champion: 'Gambit', name: 'Lliga de Vic · Grup B' };
+        expect(ctx.leagueFinalReviewHtml({ ...lad, rank: 2, level: 0, nextLevel: 1, movement: 'up' }))
+            .toContain('↑ Puges a la Lliga Comarcal d&#39;Osona');
+        expect(ctx.leagueFinalReviewHtml({ ...lad, rank: 9, level: 2, nextLevel: 1, movement: 'down' }))
+            .toMatch(/<span class="rlf-pos lgc-red">9è<\/span>[\s\S]*↓ Baixes a la Lliga Comarcal d&#39;Osona/);
+        // Al municipal la cua no és zona de descens.
+        expect(ctx.leagueFinalReviewHtml({ ...lad, rank: 9, level: 0, nextLevel: 0, movement: 'stay' }))
+            .toMatch(/<span class="rlf-pos lgc-teal">9è<\/span>[\s\S]*Continues a la Lliga de Vic/);
+        const world = ctx.leagueFinalReviewHtml({ ...lad, rank: 1, level: 6, nextLevel: 6, movement: 'stay', champion: 'Tu' });
+        expect(world).toContain('<use href="#ic-globe"/></svg>CAMPIÓ DEL MÓN');
+        expect(world).toContain('Continues a la Lliga Mundial');
+        expect(ctx.leagueFinalReviewHtml({ ...lad, rank: 4, division: 2, nextLevel: 0, movement: 'start' }))
+            .toContain('L&#39;escalada comença a la Lliga de Vic');
     });
 
     test('fora de la darrera jornada no surt res', () => {
