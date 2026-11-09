@@ -5793,6 +5793,8 @@
             border-radius: 50%; background: inherit; color: inherit; border: 2px solid var(--bg-card); }
         .li-pos-ic .btn-ic { width: 14px; height: 14px; }
         .li-side-name { margin-top: 6px; font-size: 0.95rem; font-weight: 800; color: var(--text-primary); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        /* Els rivals tenen nom i cognom (nomslliga.js): fins a dues línies abans de tallar-lo. */
+        .li-side-name.li-opp-name { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.2; }
         .li-side small { font-size: 0.74rem; font-weight: 700; color: var(--text-secondary); text-align: center; line-height: 1.3; max-width: 100%; }
         .li-nw { white-space: nowrap; }
         .li-vs-x { font-weight: 900; color: var(--accent-gold); font-size: 0.95rem; }
@@ -10656,7 +10658,8 @@
     <!-- obertures.js i jeroglifics-reserva.js es carreguen quan el navegador
          queda lliure (app.js: loadDeferredData), no amb la pàgina. -->
     <script src="core.js?v=1.0.50"></script>
-    <script src="localitats.js?v=1.0.1"></script>
+    <script src="localitats.js?v=1.0.2"></script>
+    <script src="nomslliga.js?v=1.0.0"></script>
     <script src="antidoteprogress.js?v=1.0.0"></script>
     <script src="hieroclosure.js?v=1.2.0"></script>
     <script src="reviewsacrifices.js?v=1.0.0"></script>
@@ -10694,7 +10697,7 @@
     <script src="boardexperience.js?v=1.0.7"></script>
     <script src="bulletbank.js?v=1.0.0"></script>
     <script src="bulletpractice.js?v=1.2.6"></script>
-    <script src="app.js?v=1.0.165"></script>
+    <script src="app.js?v=1.0.166"></script>
     <!-- Pas a Remigi lliscant el dit pel mig de la portada (mòbil) -->
     <script src="canviapp.js?v=1.0.0"></script>
 

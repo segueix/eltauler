@@ -5105,20 +5105,16 @@ function shuffleArray(arr) {
     return arr;
 }
 
-// Àlies dels rivals de la lliga: catalans als nivells de casa (del municipal
-// als Països Catalans) i internacionals a la Lliga Europea i la Mundial.
-const LEAGUE_LOCAL_NAMES = [
+// Àlies de reserva dels rivals de la lliga, si no hi ha el mòdul de noms
+// (nomslliga.js), que dona noms de persona segons el nivell (LLIGA.md §6).
+const LEAGUE_FALLBACK_NAMES = [
     'RocaNegra', 'AlfilFosc', 'CavallViu', 'DamaRàpida', 'ReiCalm', 'PeóFerm',
     'TorreVella', 'Gambit', 'Finalista', 'TrampaDolça', 'VellaGuàrdia', 'LíniaSòlida',
-    'EscacIAnem', 'Fletxa', 'Diagonal', 'CasellaClara', 'CasellaFosca', 'XecMate',
-    'Enroc', 'PeóPassat', 'ColumnaOberta', 'GranDiagonal', 'TorreSetena', 'CavallDeFusta'
+    'EscacIAnem', 'Fletxa', 'Diagonal', 'CasellaClara', 'CasellaFosca', 'XecMate'
 ];
-const LEAGUE_INTL_NAMES = [
-    'SilentBishop', 'NordicRook', 'PawnStorm', 'EndgameOwl', 'Zugzwang', 'LongDiagonal',
-    'TempoThief', 'RookLift', 'OpenFile', 'BackRank', 'DoubleCheck', 'ForkMaster',
-    'Outpost', 'Isolani', 'Prophylaxis', 'Kibitzer', 'BlitzWolf', 'QuietMove',
-    'Luftloch', 'Zwischenzug', 'SeventhRank', 'Bishopair', 'KingWalk', 'Overprotect'
-];
+// Quants noms de rivals recorda la trajectòria perquè no tornin a sortir a les
+// temporades següents (unes sis temporades de nou rivals).
+const LEAGUE_RECENT_NAMES_MAX = 54;
 
 function buildRoundRobinSchedule(playerIds) {
     const ids = playerIds.slice();
@@ -5198,14 +5194,27 @@ function createNewLeague(force = false, options = {}) {
     const home = career.home;
     const group = ElTaulerCore.leagueLevelGroup(level.level, baseRating + level.shift);
 
-    // Àlies: catalans fins als Països Catalans; internacionals a Europa i al món.
-    const baseNames = level.level >= 5 ? LEAGUE_INTL_NAMES.slice() : LEAGUE_LOCAL_NAMES.slice();
-    shuffleArray(baseNames);
     // D'on és cada rival: el poble, la comarca, la província... (localitats.js).
     let origins = [];
     try {
         if (window.ElTaulerLocalitats) origins = window.ElTaulerLocalitats.rivalOrigins(level.level, home || {}, 9);
     } catch (e) { origins = []; }
+    // Noms de persona que s'escauen a la lliga i a l'origen de cada rival, cada
+    // cop més internacionals a mesura que es puja (nomslliga.js), i que no
+    // repeteixen els de les darreres temporades.
+    let baseNames = [];
+    try {
+        if (window.ElTaulerNomsLliga) {
+            const L = window.ElTaulerLocalitats;
+            baseNames = window.ElTaulerNomsLliga.rivalNames(level.level, home || {}, origins, {
+                count: 9, exclude: career.recentNames,
+                territoryOf: L && typeof L.ppccCityTerritory === 'function' ? L.ppccCityTerritory : null
+            });
+        }
+    } catch (e) { baseNames = []; }
+    if (baseNames.length < 9) baseNames = shuffleArray(LEAGUE_FALLBACK_NAMES.slice());
+    career.recentNames = (career.recentNames || []).concat(baseNames.slice(0, 9)).slice(-LEAGUE_RECENT_NAMES_MAX);
+    saveLeagueCareer(career);
 
     // Rivals repartits entre 200 punts per sota i 200 per sobre de la
     // referència (core.js: leagueOpponentOffsets, LLIGA.md §3), dins del rang
@@ -5267,7 +5276,7 @@ function createNewLeague(force = false, options = {}) {
    level: nivell de l'escala (0 municipal ... 6 mundial) on es juga la
    temporada següent; bestLevel: el més alt on s'ha jugat; home: on juga el
    jugador (territori, municipi, comarca, província, país), que dona nom a les
-   lligues. division: la de l'antic sistema de divisions, només per llegir-la.
+   lligues; recentNames: els noms dels rivals de les darreres temporades. division: la de l'antic sistema de divisions, només per llegir-la.
    Es desa a chess_leagueCareer, que se sincronitza amb la resta de dades. */
 const LEAGUE_CAREER_KEY = 'chess_leagueCareer';
 const LEAGUE_CAREER_MAX_SEASONS = 30;
@@ -5281,7 +5290,10 @@ function loadLeagueCareer() {
         : ElTaulerCore.LEAGUE_START_LEVEL;
     const bestLevel = Math.max(level, (data && Number.isFinite(data.bestLevel)) ? ElTaulerCore.leagueLevel(data.bestLevel).level : 0);
     const home = (data && data.home && typeof data.home === 'object' && data.home.municipi) ? data.home : null;
-    const out = { division, seasons, level, bestLevel, home };
+    // Noms dels rivals de les darreres temporades (no es repeteixen).
+    const recentNames = (data && Array.isArray(data.recentNames))
+        ? data.recentNames.filter(n => typeof n === 'string').slice(-LEAGUE_RECENT_NAMES_MAX) : [];
+    const out = { division, seasons, level, bestLevel, home, recentNames };
     if (data && data.homeSkippedAt) out.homeSkippedAt = data.homeSkippedAt;
     return out;
 }

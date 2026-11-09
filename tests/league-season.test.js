@@ -573,6 +573,8 @@ describe('rellotge final: hi cap també amb la lletra gran del mòbil', () => {
     });
     test('al compte enrere, la icona i el nom del rival no se separen', () => {
         expect(html).toMatch(/\.li-side-name \{[^}]*white-space: nowrap;/);
+        // El nom del rival (nom i cognom) pot ocupar dues línies abans de tallar-se.
+        expect(html).toMatch(/\.li-side-name\.li-opp-name \{[^}]*-webkit-line-clamp: 2;/);
     });
 });
 

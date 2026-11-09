@@ -207,15 +207,24 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   `normalizeHome` i l'origen dels rivals per nivell (comarca, província,
   territori, ciutats dels Països Catalans, Europa i món). A l'app:
   `createNewLeague` amb nivell, grup per ELO, noms del lloc, rivals de la
-  comarca i àlies internacionals a Europa; el grup que es recalcula si canvia
+  comarca i noms del país d'origen a Europa; els noms que no es repeteixen en
+  sis temporades (`recentNames`) i els àlies de reserva sense el mòdul de noms;
+  el grup que es recalcula si canvia
   la referència; desar la localitat torna a sortejar la lliga no començada; les
   lligues de divisions no començades passen a l'escala i les començades
   s'acaben igual; la trajectòria (nivell, millor nivell, localitat). A la
-  pàgina: `localitats.js` entre `core.js` i `app.js`, la finestra «On jugues?»
+  pàgina: `localitats.js` i `nomslliga.js` entre `core.js` i `app.js`, la
+  finestra «On jugues?»
   i que obrir la lliga la demana. Icones: cap emoji a la pantalla de la lliga,
   la finestra, el compte enrere, el bàner de l'inici ni a les funcions que les
   pinten; els nivells, els estils dels rivals i cada `leagueIcon(...)` són
-  símbols que existeixen al joc d'icones de l'app.
+  símbols que existeixen al joc d'icones de l'app. Noms (`nomslliga.js`): cada
+  cultura completa i cada país i ciutat d'origen amb la seva, cap cognom de
+  grans jugadors d'escacs ni cap persona coneguda, nou noms diferents i cap dels
+  exclosos, menys noms locals a cada nivell (tots al municipal, cap a Europa ni
+  al món), el nom amb la ciutat als Països Catalans i amb el país a Europa i al
+  món, els noms del territori del jugador (Illes, País Valencià, fora) i les
+  cultures amb el cognom davant o de dona i d'home.
 - **`league-rival.test.js`** — el rival de la lliga (`LLIGA.md` §2). Quan juga
   Stockfish 19 (`sf19RivalWanted`, `timedRivalActive`): lliga amb i sense
   rellotge i partida lliure amb rellotge sí; partida lliure sense rellotge,
