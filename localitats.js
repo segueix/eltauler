@@ -88,15 +88,24 @@
         alguer: [["l'Alguer", "l'Alguer"]]
     };
 
-    // Rivals dels nivells de dalt: ciutats dels Països Catalans, països
+    // Rivals dels nivells de dalt: ciutats dels Països Catalans (amb el
+    // territori, que tria els noms dels rivals: nomslliga.js), països
     // d'Europa i països del món.
-    const PPCC_CITIES = [
-        'Barcelona', 'Girona', 'Lleida', 'Tarragona', 'Reus', 'Manresa', 'Vic', 'Sabadell', 'Terrassa', 'Mataró',
-        'Tortosa', 'Figueres', 'Olot', 'Igualada', 'la Seu d\'Urgell', 'Granollers',
-        'València', 'Alacant', 'Castelló de la Plana', 'Elx', 'Gandia', 'Alcoi', 'Xàtiva', 'Vila-real', 'Sagunt', 'Ontinyent', 'Dénia',
-        'Palma', 'Maó', 'Ciutadella', 'Eivissa', 'Manacor', 'Inca', 'Sóller',
-        'Andorra la Vella', 'Escaldes-Engordany', 'Perpinyà', 'Prada', 'Ceret', 'Fraga', 'Tamarit de Llitera', 'Vall-de-roures', "l'Alguer"
-    ];
+    const PPCC_CITIES_BY_TERRITORY = {
+        cat: ['Barcelona', 'Girona', 'Lleida', 'Tarragona', 'Reus', 'Manresa', 'Vic', 'Sabadell', 'Terrassa', 'Mataró',
+            'Tortosa', 'Figueres', 'Olot', 'Igualada', "la Seu d'Urgell", 'Granollers'],
+        val: ['València', 'Alacant', 'Castelló de la Plana', 'Elx', 'Gandia', 'Alcoi', 'Xàtiva', 'Vila-real', 'Sagunt', 'Ontinyent', 'Dénia'],
+        bal: ['Palma', 'Maó', 'Ciutadella', 'Eivissa', 'Manacor', 'Inca', 'Sóller'],
+        and: ['Andorra la Vella', 'Escaldes-Engordany'],
+        nord: ['Perpinyà', 'Prada', 'Ceret'],
+        franja: ['Fraga', 'Tamarit de Llitera', 'Vall-de-roures'],
+        alguer: ["l'Alguer"]
+    };
+    const PPCC_CITIES = [];
+    const PPCC_CITY_TERRITORY = {};
+    Object.keys(PPCC_CITIES_BY_TERRITORY).forEach(function (t) {
+        PPCC_CITIES_BY_TERRITORY[t].forEach(function (c) { PPCC_CITIES.push(c); PPCC_CITY_TERRITORY[c] = t; });
+    });
     const EUROPE = [
         'França', 'Itàlia', 'Alemanya', 'Països Baixos', 'Noruega', 'Polònia', 'Ucraïna', 'Hongria', 'Portugal',
         'Grècia', 'Suècia', 'Àustria', 'Irlanda', 'Txèquia', 'Romania', 'Croàcia', 'Dinamarca', 'Bèlgica', 'Suïssa',
@@ -285,6 +294,8 @@
         searchMunicipalities: searchMunicipalities,
         findMunicipality: findMunicipality,
         normalizeHome: normalizeHome,
-        rivalOrigins: rivalOrigins
+        rivalOrigins: rivalOrigins,
+        // Territori d'una ciutat de la Lliga dels Països Catalans (o null).
+        ppccCityTerritory: function (city) { return PPCC_CITY_TERRITORY[city] || null; }
     };
 });

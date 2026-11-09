@@ -7,7 +7,8 @@ alternats, desempats, puntuació, rendiment, l'escala de lligues del municipi
 al món, personalitat dels rivals i partides consecutives a 30s i 1+0. Codi a
 `app.js` (`createNewLeague`, `applyLeagueAfterGame`, `getAIDepth`,
 `makeEngineMove`, `showLeagueInterlude`), `core.js` (secció «Lliga») i
-`localitats.js` (municipis i comarques); proves a `tests/league.test.js`,
+`localitats.js` (municipis i comarques) i `nomslliga.js` (noms dels rivals);
+proves a `tests/league.test.js`,
 `tests/league-rival.test.js`, `tests/league-season.test.js` i
 `tests/league-ladder.test.js`; scripts i dades a `scripts/lliga-lichess/`.
 
@@ -260,9 +261,38 @@ puntuació nova, `refreshLeagueLadderGroup`). El nom de la lliga el porta
 poble (no es diu); a la comarcal, de municipis de la comarca; a la
 provincial, de comarques de la província; a la del territori, de municipis de
 Catalunya (o comarques del territori); a la dels Països Catalans, de ciutats de
-tots els territoris; a l'europea i la mundial, de països, i
-amb àlies internacionals en lloc dels catalans. Es veu a sota del nom a la
-classificació, a la franja del proper rival i a la secció dels rivals.
+tots els territoris; a l'europea i la mundial, de països. Es veu a sota del
+nom a la classificació, a la franja del proper rival i a la secció dels rivals.
+
+**Com es diuen els rivals** (`nomslliga.js`, `rivalNames`): noms de persona,
+nom i cognom, que s'escauen a la lliga i es fan més internacionals a mesura
+que es puja. Es combinen noms i cognoms comuns de cada lloc (dones i homes
+gairebé a parts iguals); cap no és d'una persona coneguda ni porta el cognom
+d'un gran jugador d'escacs.
+
+| nivell | d'on són els noms | exemple (jugador de Vic) | noms catalans |
+|---|---|---|---|
+| municipal | del territori del jugador | Mireia Roig, Pol Guix | 100% |
+| comarcal | del territori, alguns d'altres orígens | Eudald Bonet, Rubén Sánchez | 88% |
+| provincial | encara més d'altres orígens | Ona Oliveras, Elena Popescu | 76% |
+| territori | la gent que hi viu (espanyols, llatinoamericans, marroquins, romanesos, xinesos, pakistanesos) | Aina Grau, Khadija Haddad | 60% |
+| Països Catalans | del territori de la ciutat d'origen: un de Palma, mallorquí; un de Perpinyà, rossellonès | Miquel Florit (Palma), Pepa Tormo (Alacant) | 30% (81% dels Països Catalans) |
+| Europa | del país d'origen | Zofia Kowalska (Polònia), Thomas Mercier (França) | 0% |
+| món | del país d'origen | Sakura Yamamoto (Japó), Hayk Harutyunyan (Armènia) | 0% |
+
+Cada territori té els seus noms (catalans, valencians, de les Illes, de la
+Catalunya Nord, andorrans, de la Franja i de l'Alguer) i la seva barreja
+d'altres orígens (a Andorra, molts portuguesos; a les Illes, alemanys; a la
+Catalunya Nord, francesos). Fora dels Països Catalans, els noms són del país
+que s'ha escrit. Hi ha 69 repertoris: on el cognom canvia amb el gènere hi va
+de dona i d'home (Kowalska, Kowalski; Jónsdóttir, Jónsson), i a la Xina, Corea
+i el Vietnam el cognom va davant (Yoon Jae-won, Trần Thị Hương).
+
+**Els noms van canviant**: dins d'una lliga no es repeteix cap nom ni, si es
+pot, cap nom de pila ni cognom, i la trajectòria recorda els noms de les sis
+darreres temporades (`chess_leagueCareer.recentNames`, 54 noms) perquè no
+tornin a sortir. Sense el mòdul, la lliga fa servir els àlies d'abans
+(`LEAGUE_FALLBACK_NAMES`).
 
 **Simulat** (`simulate_ladder.js`, 20.000 temporades per cel·la, 3+2,
 referència 1200; carreres de 40 temporades des del municipal):

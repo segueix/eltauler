@@ -2,6 +2,7 @@
 // del municipi al món, amb dos o tres grups per ELO a cada nivell.
 const Core = require('../core');
 const Loc = require('../localitats');
+const Noms = require('../nomslliga');
 const fs = require('fs');
 const vm = require('vm');
 const source = fs.readFileSync(require.resolve('../app.js'), 'utf8');
@@ -111,11 +112,11 @@ describe('localitats: altres territoris i localitat neta', () => {
 });
 
 describe('a l\'app: la lliga a l\'escala', () => {
-    function appCtx({ career = null, base = 1000, league = null, underway = false } = {}) {
+    function appCtx({ career = null, base = 1000, league = null, underway = false, noms = true } = {}) {
         const store = career ? { chess_leagueCareer: JSON.stringify(career) } : {};
         const ctx = vm.createContext({
             ElTaulerCore: Core, JSON, Math, Date, Number, Array, Object, Set,
-            window: { ElTaulerLocalitats: Loc },
+            window: { ElTaulerLocalitats: Loc, ElTaulerNomsLliga: noms ? Noms : undefined },
             localStorage: { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } },
             ELO_MIN: 200, ELO_MAX: 2000, LEAGUE_CAREER_KEY: 'chess_leagueCareer', LEAGUE_CAREER_MAX_SEASONS: 30,
             TIME_CONTROLS: [{ id: 'none' }, { id: '3+2' }],
@@ -124,8 +125,8 @@ describe('a l\'app: la lliga a l\'escala', () => {
             leagueRoundUnderway: () => underway, saveStorage() {},
             currentLeague: league, leagueActiveMatch: null
         });
-        vm.runInContext(constSource('LEAGUE_LOCAL_NAMES'), ctx);
-        vm.runInContext(constSource('LEAGUE_INTL_NAMES'), ctx);
+        vm.runInContext(constSource('LEAGUE_FALLBACK_NAMES'), ctx);
+        vm.runInContext('const LEAGUE_RECENT_NAMES_MAX = 54;', ctx);
         ['shuffleArray', 'buildRoundRobinSchedule', 'loadLeagueCareer', 'saveLeagueCareer', 'createNewLeague',
             'isLeagueTimeControlLocked', 'leagueNotStartedYet', 'upgradeLegacyLeague', 'refreshLeagueLadderGroup', 'saveLeagueHome']
             .forEach(n => vm.runInContext(fnSource(n), ctx));
@@ -148,23 +149,45 @@ describe('a l\'app: la lliga a l\'escala', () => {
         expect(Math.abs(avg - 880)).toBeLessThan(15);
     });
 
-    test('amb la localitat: noms del lloc, rivals de la comarca i àlies internacionals a Europa', () => {
+    test('amb la localitat: noms del lloc, rivals de la comarca i noms del país d\'origen a Europa', () => {
         const { ctx } = appCtx({ career: { level: 1, home: vic, seasons: [] }, base: 1150 });
         const L = ctx.createNewLeague(true);
         expect(L.ladder).toEqual({ level: 1, group: 'A' });   // 1150 − 80 = 1070
         expect(L.name).toBe("Lliga Comarcal d'Osona · Grup A");
         expect(L.players.find(p => p.id === 'me').from).toBe('Vic');
         L.players.filter(p => p.id !== 'me').forEach(p => expect(Loc.findMunicipality(p.from).comarca).toBe('Osona'));
-        const local = new Set(vm.runInContext('LEAGUE_LOCAL_NAMES', ctx));
-        L.players.filter(p => p.id !== 'me').forEach(p => expect(local.has(p.name)).toBe(true));
+        // Noms de persona (nom i cognom), tots diferents.
+        const names = L.players.filter(p => p.id !== 'me').map(p => p.name);
+        expect(new Set(names).size).toBe(9);
+        names.forEach(n => expect(n).toMatch(/^\S+ \S/));
 
         const eu = appCtx({ career: { level: 5, home: vic, seasons: [] }, base: 1500 }).ctx.createNewLeague(true);
         expect(eu.name).toBe('Lliga Europea · Grup A');
-        const intl = new Set(vm.runInContext('LEAGUE_INTL_NAMES', ctx));
         eu.players.filter(p => p.id !== 'me').forEach(p => {
-            expect(intl.has(p.name)).toBe(true);
             expect(Loc.EUROPE).toContain(p.from);
+            // El nom és del país d'origen del rival.
+            const c = Noms.CULTURES[Noms.countryCulture(p.from)];
+            const parts = c.order === 'family' ? p.name.split(' ').reverse() : p.name.split(' ');
+            expect(c.f.concat(c.m)).toContain(parts[0]);
         });
+    });
+
+    test('els noms canvien de temporada en temporada: cap de les sis darreres es repeteix', () => {
+        const { ctx, store } = appCtx({ career: { level: 0, home: vic, seasons: [] } });
+        const seen = [];
+        for (let k = 0; k < 6; k++) {
+            const names = ctx.createNewLeague(true).players.filter(p => p.id !== 'me').map(p => p.name);
+            names.forEach(n => expect(seen).not.toContain(n));
+            seen.push(...names);
+        }
+        const recent = JSON.parse(store.chess_leagueCareer).recentNames;
+        expect(recent).toHaveLength(54);
+        expect(recent).toEqual(seen.slice(-54));
+    });
+
+    test('sense el mòdul de noms, els àlies de reserva', () => {
+        const L = appCtx({ noms: false }).ctx.createNewLeague(true);
+        L.players.filter(p => p.id !== 'me').forEach(p => expect(p.name).toMatch(/^[A-ZÀ-Ú][\wàèéíòóúç·]+$/i));
     });
 
     test('el grup es recalcula si la referència canvia abans de començar', () => {
@@ -216,6 +239,100 @@ describe('a l\'app: la lliga a l\'escala', () => {
     });
 });
 
+describe('noms dels rivals (nomslliga.js): cada cop més internacionals', () => {
+    const vic = Loc.normalizeHome({ municipi: 'Vic' });
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const opts = { random: rnd, territoryOf: Loc.ppccCityTerritory };
+    // El nom i el cognom són tots dos d'aquella cultura.
+    const inCulture = (name, code) => {
+        const c = Noms.CULTURES[code];
+        const parts = name.split(' ');
+        const given = c.order === 'family' ? parts[parts.length - 1] : parts[0];
+        const surname = c.order === 'family' ? parts[0] : parts.slice(1).join(' ');
+        return c.f.concat(c.m).includes(given) && (c.s || []).concat(c.sf || [], c.sm || []).includes(surname);
+    };
+
+    test('cada cultura té noms de dona, d\'home i cognoms; cada país i ciutat d\'origen en té', () => {
+        Object.entries(Noms.CULTURES).forEach(([code, c]) => {
+            expect(c.f.length).toBeGreaterThanOrEqual(6);
+            expect(c.m.length).toBeGreaterThanOrEqual(6);
+            expect((c.s || c.sf).length).toBeGreaterThanOrEqual(5);
+            if (c.sf) expect(c.sm.length).toBe(c.sf.length);
+        });
+        Loc.EUROPE.concat(Loc.WORLD).forEach(country => expect(Noms.CULTURES[Noms.countryCulture(country)]).toBeDefined());
+        Loc.PPCC_CITIES.forEach(city => expect(Noms.TERRITORY_CULTURE[Loc.ppccCityTerritory(city)]).toBeDefined());
+        Object.values(Noms.DIVERSE).forEach(list => list.forEach(([code]) => expect(Noms.CULTURES[code]).toBeDefined()));
+    });
+
+    test('cap cognom de grans jugadors d\'escacs ni cap persona coneguda', () => {
+        const chess = ['Carlsen', 'Kasparov', 'Karpov', 'Anand', 'Nakamura', 'Caruana', 'Ding', 'Firouzja', 'Giri', 'Aronian',
+            'Polgar', 'Polgár', 'Fischer', 'Tal', 'Botvinnik', 'Kramnik', 'Topalov', 'Nepomniachtchi', 'Radjabov', 'Mamedyarov',
+            'So', 'Rapport', 'Duda', 'Vachier-Lagrave', 'Grischuk', 'Svidler', 'Ivanchuk', 'Hou', 'Ju', 'Gukesh', 'Erigaisi',
+            'Abdusattorov', 'Keymer', 'Niemann', 'Shirov', 'Leko', 'Navara', 'Sindarov', 'Gujrathi', 'Petrosian', 'Spassky',
+            'Capablanca', 'Alekhine', 'Lasker', 'Morphy', 'Kosteniuk', 'Muzychuk', 'Koneru', 'Dzagnidze', 'Abdumalik', 'Sargsyan'];
+        Object.values(Noms.CULTURES).forEach(c => (c.s || []).concat(c.sf || [], c.sm || []).forEach(sur => expect(chess).not.toContain(sur)));
+        expect(Noms.CULTURES.cn.m).not.toEqual(expect.arrayContaining(['Hao']));
+        for (let k = 0; k < 200; k++) {
+            for (let lv = 0; lv < 7; lv++) {
+                Noms.rivalNames(lv, vic, Loc.rivalOrigins(lv, vic, 9, rnd), opts).forEach(n => expect(Noms.FAMOUS.has(Noms.fold(n))).toBe(false));
+            }
+        }
+    });
+
+    test('nou noms diferents, cap dels exclosos', () => {
+        for (let k = 0; k < 100; k++) {
+            const first = Noms.rivalNames(0, vic, [], Object.assign({ count: 9 }, opts));
+            expect(new Set(first).size).toBe(9);
+            const second = Noms.rivalNames(0, vic, [], Object.assign({ count: 9, exclude: first }, opts));
+            second.forEach(n => expect(first).not.toContain(n));
+        }
+    });
+
+    test('dels noms del poble als del món: a cada nivell, menys noms locals', () => {
+        const share = lv => {
+            let local = 0, total = 0;
+            for (let k = 0; k < 300; k++) {
+                Noms.rivalNames(lv, vic, Loc.rivalOrigins(lv, vic, 9, rnd), opts).forEach(n => { total++; if (inCulture(n, 'cat')) local++; });
+            }
+            return local / total;
+        };
+        const s = [0, 1, 2, 3, 4, 5, 6].map(share);
+        expect(s[0]).toBe(1);                              // municipal: tots del país
+        for (let lv = 1; lv <= 3; lv++) expect(s[lv]).toBeLessThan(s[lv - 1]);
+        expect(s[3]).toBeGreaterThan(0.5);                 // la Catalana encara és majoritàriament catalana
+        expect(s[4]).toBeLessThan(s[3]);                   // Països Catalans: valencians, mallorquins...
+        expect(s[5]).toBe(0);                              // Europa i món: ni un nom català
+        expect(s[6]).toBe(0);
+    });
+
+    test('als Països Catalans el nom va amb la ciutat; a Europa i al món, amb el país', () => {
+        for (let k = 0; k < 50; k++) {
+            const pp = Loc.rivalOrigins(4, vic, 9, rnd);
+            const names = Noms.rivalNames(4, vic, pp, Object.assign({}, opts, { random: () => 0.99 }));   // sense diversitat
+            names.forEach((n, i) => expect(inCulture(n, Noms.TERRITORY_CULTURE[Loc.ppccCityTerritory(pp[i])])).toBe(true));
+            for (const lv of [5, 6]) {
+                const o = Loc.rivalOrigins(lv, vic, 9, rnd);
+                Noms.rivalNames(lv, vic, o, opts).forEach((n, i) => expect(inCulture(n, Noms.countryCulture(o[i]))).toBe(true));
+            }
+        }
+    });
+
+    test('territoris i fora dels Països Catalans: els noms del lloc del jugador', () => {
+        const palma = Loc.normalizeHome({ territory: 'bal', municipi: 'Palma', comarca: 'Mallorca' });
+        Noms.rivalNames(0, palma, [], Object.assign({ count: 9 }, opts)).forEach(n => expect(inCulture(n, 'bal')).toBe(true));
+        const gandia = Loc.normalizeHome({ territory: 'val', municipi: 'Gandia', comarca: 'la Safor' });
+        Noms.rivalNames(0, gandia, [], Object.assign({ count: 9 }, opts)).forEach(n => expect(inCulture(n, 'val')).toBe(true));
+        const lio = { territory: 'fora', municipi: 'Lió', pais: 'França' };
+        Noms.rivalNames(2, lio, [], Object.assign({ count: 9 }, opts)).forEach(n => expect(inCulture(n, 'fr')).toBe(true));
+        // Cultures amb el cognom davant, amb segon nom i amb cognoms de dona i d'home.
+        expect(Noms.makeName('kr', () => 0.9).name).toBe('Yoon Jae-won');
+        expect(Noms.makeName('vn', () => 0.2).name).toBe('Trần Thị Hương');
+        expect(Noms.makeName('pl', () => 0.2).name).toBe('Zofia Kowalska');
+        expect(Noms.makeName('pl', () => 0.7).name).toBe('Michał Kamiński');
+    });
+});
+
 describe('icones de la lliga: les de l\'app, cap emoji', () => {
     const EMOJI = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{25A0}-\u{25FF}\u{FE0F}]/u;
     const symbols = new Set([...html.matchAll(/<symbol id="(ic-[a-z0-9-]+)"/g)].map(m => m[1]));
@@ -256,11 +373,14 @@ describe('icones de la lliga: les de l\'app, cap emoji', () => {
 });
 
 describe('a la pàgina', () => {
-    test('localitats.js es carrega entre core.js i app.js', () => {
+    test('localitats.js i nomslliga.js es carreguen entre core.js i app.js', () => {
         const core = html.indexOf('src="core.js?v=');
         const loc = html.indexOf('src="localitats.js?v=');
+        const noms = html.indexOf('src="nomslliga.js?v=');
         expect(loc).toBeGreaterThan(core);
+        expect(noms).toBeGreaterThan(core);
         expect(loc).toBeLessThan(html.indexOf('src="app.js?v='));
+        expect(noms).toBeLessThan(html.indexOf('src="app.js?v='));
     });
 
     test('la finestra «On jugues?» té territori, municipi amb suggeriments, comarca, província i país', () => {
