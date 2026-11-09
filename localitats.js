@@ -89,7 +89,7 @@
     };
 
     // Rivals dels nivells de dalt: ciutats dels Països Catalans, països
-    // d'Europa i països del món (amb la bandera).
+    // d'Europa i països del món.
     const PPCC_CITIES = [
         'Barcelona', 'Girona', 'Lleida', 'Tarragona', 'Reus', 'Manresa', 'Vic', 'Sabadell', 'Terrassa', 'Mataró',
         'Tortosa', 'Figueres', 'Olot', 'Igualada', 'la Seu d\'Urgell', 'Granollers',
@@ -98,26 +98,21 @@
         'Andorra la Vella', 'Escaldes-Engordany', 'Perpinyà', 'Prada', 'Ceret', 'Fraga', 'Tamarit de Llitera', 'Vall-de-roures', "l'Alguer"
     ];
     const EUROPE = [
-        ['🇫🇷', 'França'], ['🇮🇹', 'Itàlia'], ['🇩🇪', 'Alemanya'], ['🇳🇱', 'Països Baixos'], ['🇳🇴', 'Noruega'],
-        ['🇵🇱', 'Polònia'], ['🇺🇦', 'Ucraïna'], ['🇭🇺', 'Hongria'], ['🇵🇹', 'Portugal'], ['🇬🇷', 'Grècia'],
-        ['🇸🇪', 'Suècia'], ['🇦🇹', 'Àustria'], ['🇮🇪', 'Irlanda'], ['🇨🇿', 'Txèquia'], ['🇷🇴', 'Romania'],
-        ['🇭🇷', 'Croàcia'], ['🇩🇰', 'Dinamarca'], ['🇧🇪', 'Bèlgica'], ['🇨🇭', 'Suïssa'], ['🇫🇮', 'Finlàndia'],
-        ['🇸🇮', 'Eslovènia'], ['🇱🇹', 'Lituània'], ['🇪🇪', 'Estònia'], ['🇮🇸', 'Islàndia'], ['🇷🇸', 'Sèrbia'],
-        ['🇬🇪', 'Geòrgia'], ['🇦🇲', 'Armènia'], ['🇧🇬', 'Bulgària'], ['🇸🇰', 'Eslovàquia'], ['🇱🇻', 'Letònia']
+        'França', 'Itàlia', 'Alemanya', 'Països Baixos', 'Noruega', 'Polònia', 'Ucraïna', 'Hongria', 'Portugal',
+        'Grècia', 'Suècia', 'Àustria', 'Irlanda', 'Txèquia', 'Romania', 'Croàcia', 'Dinamarca', 'Bèlgica', 'Suïssa',
+        'Finlàndia', 'Eslovènia', 'Lituània', 'Estònia', 'Islàndia', 'Sèrbia', 'Geòrgia', 'Armènia', 'Bulgària',
+        'Eslovàquia', 'Letònia'
     ];
     const WORLD = [
-        ['🇮🇳', 'Índia'], ['🇨🇳', 'Xina'], ['🇺🇸', 'Estats Units'], ['🇧🇷', 'Brasil'], ['🇦🇷', 'Argentina'],
-        ['🇯🇵', 'Japó'], ['🇲🇽', 'Mèxic'], ['🇵🇪', 'Perú'], ['🇪🇬', 'Egipte'], ['🇮🇷', 'Iran'],
-        ['🇺🇿', 'Uzbekistan'], ['🇰🇿', 'Kazakhstan'], ['🇦🇺', 'Austràlia'], ['🇨🇦', 'Canadà'], ['🇿🇦', 'Sud-àfrica'],
-        ['🇵🇭', 'Filipines'], ['🇻🇳', 'Vietnam'], ['🇮🇩', 'Indonèsia'], ['🇨🇺', 'Cuba'], ['🇨🇴', 'Colòmbia'],
-        ['🇲🇳', 'Mongòlia'], ['🇳🇬', 'Nigèria'], ['🇲🇦', 'Marroc'], ['🇨🇱', 'Xile'], ['🇹🇷', 'Turquia'],
-        ['🇰🇷', 'Corea del Sud'], ['🇳🇿', 'Nova Zelanda'], ['🇺🇾', 'Uruguai'], ['🇳🇴', 'Noruega'], ['🇫🇷', 'França'],
-        ['🇳🇱', 'Països Baixos'], ['🇺🇦', 'Ucraïna'], ['🇩🇪', 'Alemanya'], ['🇬🇪', 'Geòrgia'], ['🇦🇲', 'Armènia']
+        'Índia', 'Xina', 'Estats Units', 'Brasil', 'Argentina', 'Japó', 'Mèxic', 'Perú', 'Egipte', 'Iran',
+        'Uzbekistan', 'Kazakhstan', 'Austràlia', 'Canadà', 'Sud-àfrica', 'Filipines', 'Vietnam', 'Indonèsia', 'Cuba',
+        'Colòmbia', 'Mongòlia', 'Nigèria', 'Marroc', 'Xile', 'Turquia', 'Corea del Sud', 'Nova Zelanda', 'Uruguai',
+        'Noruega', 'França', 'Països Baixos', 'Ucraïna', 'Alemanya', 'Geòrgia', 'Armènia'
     ];
 
     // Comparació sense accents ni majúscules ni l'apòstrof tipogràfic.
     function fold(s) {
-        return String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '')
+        return String(s == null ? '' : s).normalize('NFD').replace(/[\u0300-\u036f]/g, '')
             .replace(/[’`´]/g, "'").replace(/·/g, '.').replace(/\s+/g, ' ').trim().toLowerCase();
     }
     // Sense l'article del davant, per ordenar i buscar («el Masnou» → «Masnou»).
@@ -238,13 +233,12 @@
     // D'on és cada rival segons el nivell (0 municipal ... 6 mundial):
     // municipal, en blanc (tots són del poble); comarcal, municipis de la comarca;
     // provincial, comarques de la província; territori, municipis (Catalunya)
-    // o comarques; Països Catalans, ciutats; Europa i món, països amb bandera.
+    // o comarques; Països Catalans, ciutats; Europa i món, països.
     // Retorna count textos (buits si no se'n sap res).
     function rivalOrigins(level, home, count, random) {
         const h = home || {};
         const n = Number.isFinite(count) ? count : 9;
         const blank = function () { const a = []; for (let i = 0; i < n; i++) a.push(''); return a; };
-        const flag = function (c) { return c[0] + ' ' + c[1]; };
         const t = h.territory || 'cat';
         if (level === 0) return blank();
         if (level === 1) {
@@ -269,8 +263,8 @@
             return picked.length ? picked : blank();
         }
         if (level === 4) return pickDistinct(PPCC_CITIES, n, random, [h.municipi]);
-        if (level === 5) return pickDistinct(EUROPE.map(flag), n, random);
-        return pickDistinct(WORLD.map(flag), n, random);
+        if (level === 5) return pickDistinct(EUROPE, n, random);
+        return pickDistinct(WORLD, n, random);
     }
 
     return {

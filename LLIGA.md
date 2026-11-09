@@ -210,26 +210,35 @@ partides com la Cerdanya o la Selva. Als altres territoris la comarca (o
 l'illa) es tria d'una llista que dona la província, i el municipi s'escriu.
 Fora dels Països Catalans tot s'escriu, i també el país. La finestra ensenya
 les set lligues que tocaran. Amb «Ara no» no torna a sortir en una setmana; el
-botó 📍 de la capçalera la torna a obrir. La localitat es desa a la
+botó de la localitat de la capçalera la torna a obrir. La localitat es desa a la
 trajectòria (`chess_leagueCareer.home`) i se sincronitza; si la lliga encara
 no ha començat, es torna a sortejar amb els noms i els rivals del lloc nou.
 
 **Set nivells** (`LEAGUE_LEVELS`), amb el nom del lloc del jugador
 (`leagueLevelName`, contraccions amb `catalanDe`):
 
-| nivell | lliga (exemple: Vic) | graella | grups per ELO mitjà |
-|---|---|---|---|
-| 🏘️ municipal | Lliga de Vic | −120 | C fins a 599 · B 600–899 · A 900 o més |
-| ⛰️ comarcal | Lliga Comarcal d'Osona | −80 | C fins a 699 · B 700–999 · A 1000 o més |
-| 🏛️ provincial | Lliga Provincial de Barcelona | −40 | C fins a 799 · B 800–1099 · A 1100 o més |
-| 🏰 territori | Lliga Catalana (Valenciana, Balear, Andorrana...) | 0 | C fins a 899 · B 900–1199 · A 1200 o més |
-| 🗺️ Països Catalans | Lliga dels Països Catalans | +40 | B fins a 1199 · A 1200 o més |
-| 🇪🇺 Europa | Lliga Europea | +80 | B fins a 1349 · A 1350 o més |
-| 🌍 món | Lliga Mundial | +120 | B fins a 1499 · A 1500 o més |
+| nivell | icona | lliga (exemple: Vic) | graella | grups per ELO mitjà |
+|---|---|---|---|---|
+| municipal | `ic-village` (cases) | Lliga de Vic | −120 | C fins a 599 · B 600–899 · A 900 o més |
+| comarcal | `ic-mountain` (muntanyes) | Lliga Comarcal d'Osona | −80 | C fins a 699 · B 700–999 · A 1000 o més |
+| provincial | `ic-columns` (edifici de columnes) | Lliga Provincial de Barcelona | −40 | C fins a 799 · B 800–1099 · A 1100 o més |
+| territori | `ic-castle` (castell) | Lliga Catalana (Valenciana, Balear, Andorrana...) | 0 | C fins a 899 · B 900–1199 · A 1200 o més |
+| Països Catalans | `ic-map` (mapa) | Lliga dels Països Catalans | +40 | B fins a 1199 · A 1200 o més |
+| Europa | `ic-europe` (cercle de punts) | Lliga Europea | +80 | B fins a 1349 · A 1350 o més |
+| món | `ic-globe` (globus) | Lliga Mundial | +120 | B fins a 1499 · A 1500 o més |
+
+**Icones.** Totes les de la lliga són del joc d'icones de l'app (`<symbol
+id="ic-...">` d'index.html: line-icons monocromes que hereten el color del
+text i funcionen en mode fosc, dia i paper electrònic), mai emojis: els
+nivells, la localitat (`ic-pin`), l'escalada (`ic-ladder`), el cadenat del
+rellotge (`ic-lock`), el trofeu, les seccions plegables (calendari, tauler,
+peó, trofeu) i els estils dels rivals (l'Atacant `ic-swords`, el Mur
+`ic-wall`, el Caçador `ic-target`, l'Estratega `ic-compass`). Les pinta
+`leagueIcon` (app.js); els països dels rivals van sense bandera.
 
 Es comença al municipal. En acabar la temporada, el podi puja un nivell i els
 tres últims en baixen un (`leagueNextLevel`); del municipal no es baixa i del
-mundial no es puja (al mundial, el primer és «🌍 Campió del món»).
+mundial no es puja (al mundial, el primer és «Campió del món», amb el globus).
 
 **Els rivals continuen essent del nivell del jugador.** La graella es
 reparteix com sempre (±200, §3) al voltant de la referència del jugador més el
@@ -251,7 +260,7 @@ puntuació nova, `refreshLeagueLadderGroup`). El nom de la lliga el porta
 poble (no es diu); a la comarcal, de municipis de la comarca; a la
 provincial, de comarques de la província; a la del territori, de municipis de
 Catalunya (o comarques del territori); a la dels Països Catalans, de ciutats de
-tots els territoris; a l'europea i la mundial, de països (amb la bandera), i
+tots els territoris; a l'europea i la mundial, de països, i
 amb àlies internacionals en lloc dels catalans. Es veu a sota del nom a la
 classificació, a la franja del proper rival i a la secció dels rivals.
 
@@ -278,7 +287,7 @@ millora de debò puja a l'escala i, amb la puntuació, també als grups.
 
 **Pantalla.** A la capçalera, sota el nom, els set graons de l'escalada
 (acabats en verd, l'actual en taronja, el millor nivell amb vora daurada) i el
-botó 📍 amb el municipi i la comarca. La rajola **NIVELL** diu el nivell, el
+botó de la localitat amb el municipi i la comarca. La rajola **NIVELL** diu el nivell, el
 grup i les zones (al municipal només «↑ podi»; al mundial, «↓ 3 últims»), i la
 taula i la llegenda només marquen les zones que hi ha (al municipal la cua no
 va de vermell). La secció plegable «L'escalada: del municipi al món» ensenya
@@ -303,7 +312,7 @@ La finestra de revisió que surt en acabar la darrera jornada porta a dalt la
 **posició final, gran** («2n» de 10, `leagueFinalReviewHtml`), del color del
 podi (or, plata, bronze), del descens (vermell) o verd aigua a mitja taula, amb
 els punts, el rendiment, si es puja o es baixa de nivell i el campió; si n'ets
-tu, «🏆 Campió de la lliga». A la pantalla de la lliga, la franja del resum
+tu, «Campió de la lliga» amb el trofeu. A la pantalla de la lliga, la franja del resum
 també posa la posició gran a la capsa del costat.
 
 ## 7. Personalitat dels rivals
@@ -431,8 +440,9 @@ La capçalera és un mosaic de quatre rajoles de colors —**jornada** (amb les
 victòries, empats i derrotes), **rellotge** (el selector mentre la lliga no ha
 començat; després, el ritme amb cadenat i l'ELO amb què es va sortejar la
 graella), **nivell** (§6; la divisió a les lligues velles) i **rendiment**— i una franja amb el **proper rival**,
-del color i la icona del seu estil (l'Atacant vermell ⚔️, el Mur blau 🧱, el
-Caçador taronja 🎯, l'Estratega lila 🧠). Amb la temporada acabada, la franja
+del color i la icona del seu estil (l'Atacant vermell amb les espases, el
+Mur blau amb els maons, el Caçador taronja amb la diana, l'Estratega lila amb
+la brúixola; icones de línia de l'app, §6). Amb la temporada acabada, la franja
 és el resum (verda si es puja, vermella si es baixa). S'han tret el
 «Rellotge» repetit, la frase de la divisió i la línia de punts per resultat
 (ara és a la llegenda de sota la taula).

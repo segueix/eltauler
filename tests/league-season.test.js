@@ -603,7 +603,7 @@ describe('pantalla entre partides: poc text i les dues posicions marcades', () =
         vm.runInContext(fnSource('formatPts'), ctx);
         vm.runInContext(fnSource('formatEloChange'), ctx);
         ['leagueInterludeWanted', 'stopLeagueInterludeTimer', 'renderLeagueInterludeCount', 'leagueSort', 'leagueOrdinal',
-            'leaguePointsLabel', 'leagueStyleLook', 'getLeagueRoundColor', 'leagueShortResult', 'showLeagueInterlude', 'tickLeagueInterlude']
+            'leaguePointsLabel', 'leagueIcon', 'leagueStyleLook', 'getLeagueRoundColor', 'leagueShortResult', 'showLeagueInterlude', 'tickLeagueInterlude']
             .forEach(n => vm.runInContext(fnSource(n), ctx));
         vm.runInContext(source.slice(source.indexOf('const LEAGUE_STYLE_LOOK = {'), source.indexOf('};', source.indexOf('const LEAGUE_STYLE_LOOK = {')) + 2), ctx);
         return { ctx, els, overlay };
@@ -628,7 +628,7 @@ describe('pantalla entre partides: poc text i les dues posicions marcades', () =
         // Tu ets el primer (9 punts); el rival bot4, el cinquè (5 punts).
         expect(els['#li-me-pos'].text).toBe('1r');
         expect(els['#li-me-sub'].html).toBe('<span class="li-nw">9 punts</span> · <span class="li-nw">negres</span>');
-        expect(els['#li-opp-pos'].html).toBe('5è<span class="li-pos-ic" aria-hidden="true">🧱</span>');
+        expect(els['#li-opp-pos'].html).toBe('5è<span class="li-pos-ic"><svg class="btn-ic" aria-hidden="true"><use href="#ic-wall"/></svg></span>');
         expect(els['#li-opp-pos'].attrs.class).toBe('li-pos lgc-blue');   // el Mur: blau
         expect(els['#li-opp-name'].text).toBe('Rival4');
         expect(els['#li-opp-sub'].html).toBe('<span class="li-nw">5 punts</span> · <span class="li-nw">ROC 1004</span>');
@@ -661,7 +661,7 @@ describe('final de la lliga: la posició, gran, a la revisió de la darrera jorn
             localStorage: { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } } });
         vm.runInContext(fnSource('formatPts'), ctx);
         ['escapeHtml', 'leagueOrdinal', 'leaguePointsLabel', 'leagueRankClass', 'loadLeagueCareer', 'leagueHome',
-            'leagueFinalMove', 'leagueFinalReviewHtml']
+            'leagueIcon', 'leagueFinalMove', 'leagueFinalReviewHtml']
             .forEach(n => vm.runInContext(fnSource(n), ctx));
         return ctx;
     }
@@ -682,7 +682,7 @@ describe('final de la lliga: la posició, gran, a la revisió de la darrera jorn
         const ctx = finalCtx();
         const champ = ctx.leagueFinalReviewHtml({ ...base, rank: 1, nextDivision: 3, movement: 'up', champion: 'Tu' });
         expect(champ).toContain('rlf-champion');
-        expect(champ).toContain('🏆 CAMPIÓ DE LA LLIGA');
+        expect(champ).toContain('<use href="#ic-trophy"/></svg>CAMPIÓ DE LA LLIGA');
         expect(champ).toContain('<span class="rlf-pos lgc-gold">1r</span>');
         expect(champ).not.toContain('Campió:');
         expect(ctx.leagueFinalReviewHtml({ ...base, rank: 9, nextDivision: 1, movement: 'down' }))
@@ -703,7 +703,7 @@ describe('final de la lliga: la posició, gran, a la revisió de la darrera jorn
         expect(ctx.leagueFinalReviewHtml({ ...lad, rank: 9, level: 0, nextLevel: 0, movement: 'stay' }))
             .toMatch(/<span class="rlf-pos lgc-teal">9è<\/span>[\s\S]*Continues a la Lliga de Vic/);
         const world = ctx.leagueFinalReviewHtml({ ...lad, rank: 1, level: 6, nextLevel: 6, movement: 'stay', champion: 'Tu' });
-        expect(world).toContain('🌍 CAMPIÓ DEL MÓN');
+        expect(world).toContain('<use href="#ic-globe"/></svg>CAMPIÓ DEL MÓN');
         expect(world).toContain('Continues a la Lliga Mundial');
         expect(ctx.leagueFinalReviewHtml({ ...lad, rank: 4, division: 2, nextLevel: 0, movement: 'start' }))
             .toContain('L&#39;escalada comença a la Lliga de Vic');

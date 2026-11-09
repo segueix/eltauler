@@ -99,8 +99,8 @@ describe('localitats: altres territoris i localitat neta', () => {
         provincial.forEach(c => { expect(comarquesBcn).toContain(c); expect(c).not.toBe('Osona'); });
         Loc.rivalOrigins(3, vic, 9, rnd).forEach(n => expect(Loc.findMunicipality(n)).not.toBe(null));
         Loc.rivalOrigins(4, vic, 9, rnd).forEach(n => expect(Loc.PPCC_CITIES).toContain(n));
-        Loc.rivalOrigins(5, vic, 9, rnd).forEach(n => expect(Loc.EUROPE.map(c => c[0] + ' ' + c[1])).toContain(n));
-        Loc.rivalOrigins(6, vic, 9, rnd).forEach(n => expect(Loc.WORLD.map(c => c[0] + ' ' + c[1])).toContain(n));
+        Loc.rivalOrigins(5, vic, 9, rnd).forEach(n => expect(Loc.EUROPE).toContain(n));
+        Loc.rivalOrigins(6, vic, 9, rnd).forEach(n => expect(Loc.WORLD).toContain(n));
         // Sense dades (fora dels Països Catalans), en blanc als nivells de casa.
         expect(Loc.rivalOrigins(1, { territory: 'fora', municipi: 'Lió', comarca: 'Roine' }, 9)).toEqual(Array(9).fill(''));
         // Una comarca amb menys municipis que rivals els repeteix.
@@ -163,7 +163,7 @@ describe('a l\'app: la lliga a l\'escala', () => {
         const intl = new Set(vm.runInContext('LEAGUE_INTL_NAMES', ctx));
         eu.players.filter(p => p.id !== 'me').forEach(p => {
             expect(intl.has(p.name)).toBe(true);
-            expect(p.from).toMatch(/^\S+ \S/);
+            expect(Loc.EUROPE).toContain(p.from);
         });
     });
 
@@ -213,6 +213,45 @@ describe('a l\'app: la lliga a l\'escala', () => {
         expect(ctx.loadLeagueCareer()).toMatchObject({ division: 3, level: 0, bestLevel: 0, home: null });
         const c2 = appCtx({ career: { level: 9, bestLevel: 2, home: { municipi: '' }, seasons: [] } }).ctx.loadLeagueCareer();
         expect(c2).toMatchObject({ level: 6, bestLevel: 6, home: null });
+    });
+});
+
+describe('icones de la lliga: les de l\'app, cap emoji', () => {
+    const EMOJI = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{25A0}-\u{25FF}\u{FE0F}]/u;
+    const symbols = new Set([...html.matchAll(/<symbol id="(ic-[a-z0-9-]+)"/g)].map(m => m[1]));
+    const between = (a, b) => html.slice(html.indexOf(a), html.indexOf(b, html.indexOf(a)));
+
+    test('pantalla de la lliga, finestra «On jugues?», compte enrere i bàner de l\'inici sense emojis', () => {
+        [between('<div id="league-screen"', 'id="opening-screen"'),
+            between('id="league-home-modal"', 'id="username-modal"'),
+            between('id="league-interlude"', 'id="promotion-modal"'),
+            between('id="league-hero"', 'id="league-hero-play-label"')]
+            .forEach(part => { expect(part.length).toBeGreaterThan(100); expect(part).not.toMatch(EMOJI); });
+    });
+
+    test('nivells, estils i dades dels rivals: símbols que existeixen al joc d\'icones', () => {
+        Core.LEAGUE_LEVELS.forEach(L => expect(symbols.has(L.icon)).toBe(true));
+        const ctx = vm.createContext({});
+        vm.runInContext(fnSource('leagueStyleLook'), ctx);
+        vm.runInContext(source.slice(source.indexOf('const LEAGUE_STYLE_LOOK = {'), source.indexOf('};', source.indexOf('const LEAGUE_STYLE_LOOK = {')) + 2), ctx);
+        ['attacker', 'wall', 'hunter', 'strategist', undefined].forEach(st => expect(symbols.has(vm.runInContext(`leagueStyleLook(${JSON.stringify(st)}).icon`, ctx))).toBe(true));
+        Loc.EUROPE.concat(Loc.WORLD, Loc.PPCC_CITIES).forEach(n => expect(n).not.toMatch(EMOJI));
+    });
+
+    test('cada leagueIcon(...) del codi apunta a un símbol que existeix', () => {
+        const ids = [...source.matchAll(/leagueIcon\('(ic-[a-z0-9-]+)'/g)].map(m => m[1]);
+        expect(ids.length).toBeGreaterThan(5);
+        ids.forEach(id => expect(symbols.has(id)).toBe(true));
+        const ctx = vm.createContext({});
+        vm.runInContext(fnSource('leagueIcon'), ctx);
+        expect(ctx.leagueIcon('ic-pin')).toBe('<svg class="btn-ic" aria-hidden="true"><use href="#ic-pin"/></svg>');
+    });
+
+    test('les funcions que pinten la lliga no hi posen cap emoji', () => {
+        ['renderLeague', 'renderLeagueStrip', 'renderLeagueRivals', 'renderLeagueLadder', 'renderLeagueLadderSteps',
+            'renderLeagueHomePreview', 'leagueFinalReviewHtml', 'leagueFinalMove', 'renderLeagueTimeControl',
+            'submitLeagueHomeModal', 'showLeagueInterlude', 'renderLeagueHero']
+            .forEach(n => expect(fnSource(n)).not.toMatch(EMOJI));
     });
 });
 

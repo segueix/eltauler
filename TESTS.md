@@ -212,7 +212,10 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   lligues de divisions no començades passen a l'escala i les començades
   s'acaben igual; la trajectòria (nivell, millor nivell, localitat). A la
   pàgina: `localitats.js` entre `core.js` i `app.js`, la finestra «On jugues?»
-  i que obrir la lliga la demana.
+  i que obrir la lliga la demana. Icones: cap emoji a la pantalla de la lliga,
+  la finestra, el compte enrere, el bàner de l'inici ni a les funcions que les
+  pinten; els nivells, els estils dels rivals i cada `leagueIcon(...)` són
+  símbols que existeixen al joc d'icones de l'app.
 - **`league-rival.test.js`** — el rival de la lliga (`LLIGA.md` §2). Quan juga
   Stockfish 19 (`sf19RivalWanted`, `timedRivalActive`): lliga amb i sense
   rellotge i partida lliure amb rellotge sí; partida lliure sense rellotge,

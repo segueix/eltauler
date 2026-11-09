@@ -4501,14 +4501,15 @@
     //   nivell). El grup surt de l'ELO mitjà de la graella (referència +
     //   desplaçament): C per sota del primer llindar, B entre tots dos, A per
     //   sobre del darrer. Als nivells de dalt només hi ha B i A.
+    // - icon: símbol del joc d'icones de l'app (index.html, <symbol id="ic-...">).
     const LEAGUE_LEVELS = [
-        { id: 'municipal', label: 'Municipal', icon: '🏘️', shift: -120, groups: [600, 900] },
-        { id: 'comarcal', label: 'Comarcal', icon: '⛰️', shift: -80, groups: [700, 1000] },
-        { id: 'provincial', label: 'Provincial', icon: '🏛️', shift: -40, groups: [800, 1100] },
-        { id: 'territorial', label: 'Catalana', icon: '🏰', shift: 0, groups: [900, 1200] },
-        { id: 'ppcc', label: 'Països Catalans', icon: '🗺️', shift: 40, groups: [1200] },
-        { id: 'europa', label: 'Europea', icon: '🇪🇺', shift: 80, groups: [1350] },
-        { id: 'mundial', label: 'Mundial', icon: '🌍', shift: 120, groups: [1500] }
+        { id: 'municipal', label: 'Municipal', icon: 'ic-village', shift: -120, groups: [600, 900] },
+        { id: 'comarcal', label: 'Comarcal', icon: 'ic-mountain', shift: -80, groups: [700, 1000] },
+        { id: 'provincial', label: 'Provincial', icon: 'ic-columns', shift: -40, groups: [800, 1100] },
+        { id: 'territorial', label: 'Catalana', icon: 'ic-castle', shift: 0, groups: [900, 1200] },
+        { id: 'ppcc', label: 'Països Catalans', icon: 'ic-map', shift: 40, groups: [1200] },
+        { id: 'europa', label: 'Europea', icon: 'ic-europe', shift: 80, groups: [1350] },
+        { id: 'mundial', label: 'Mundial', icon: 'ic-globe', shift: 120, groups: [1500] }
     ];
     const LEAGUE_START_LEVEL = 0;
     function leagueLevel(level) {

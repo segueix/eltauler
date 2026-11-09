@@ -5671,7 +5671,7 @@ function renderLeagueHomePreview() {
     const home = L.normalizeHome(leagueHomeFormValues());
     if (!home) { box.innerHTML = ''; return; }
     box.innerHTML = ElTaulerCore.LEAGUE_LEVELS.map((lv, i) =>
-        `<li>${lv.icon} ${i === 0 ? '<b>' : ''}${escapeHtml(ElTaulerCore.leagueLevelName(i, home))}${i === 0 ? '</b> ← hi comences' : ''}</li>`
+        `<li>${leagueIcon(lv.icon)}${i === 0 ? '<b>' : ''}${escapeHtml(ElTaulerCore.leagueLevelName(i, home))}${i === 0 ? '</b> ← hi comences' : ''}</li>`
     ).join('');
 }
 
@@ -5758,8 +5758,8 @@ function submitLeagueHomeModal() {
     saveLeagueHome(home);
     closeLeagueHomeModal();
     showToast(loadLeagueCareer().level === 0
-        ? `📍 ${ElTaulerCore.leagueLevelName(0, home)}: l'escalada comença al teu municipi`
-        : `📍 ${home.municipi}: les lligues de l'escalada porten el nom del teu lloc`, 'info', 3500);
+        ? `${ElTaulerCore.leagueLevelName(0, home)}: l'escalada comença al teu municipi`
+        : `${home.municipi}: les lligues de l'escalada porten el nom del teu lloc`, 'info', 3500);
 }
 
 function skipLeagueHomeModal() {
@@ -5842,7 +5842,7 @@ function renderLeagueTimeControl() {
     // Rajola del rellotge: el ritme (amb cadenat un cop començada) o, abans de
     // la primera jornada, el selector per triar-lo.
     const short = id === 'none' ? 'Sense' : id;
-    $('#league-tc-value').text(locked ? `${short} 🔒` : '').toggle(locked);
+    $('#league-tc-value').html(locked ? `${escapeHtml(short)}${leagueIcon('ic-lock', 'lg-lock-ic')}` : '').toggle(locked);
     // D'on surt el nivell de la graella: mentre el ritme es pugui canviar, el
     // text canvia amb ell (la lliga es reajusta al ROC/ELO del rellotge triat).
     const noteEl = $('#league-tc-note');
@@ -5855,15 +5855,20 @@ function renderLeagueTimeControl() {
     }
 }
 
+// Icona de la lliga: un símbol del joc d'icones de l'app (line-icons que
+// hereten el color del text), mai un emoji.
+function leagueIcon(id, extra = '') {
+    return `<svg class="btn-ic${extra ? ' ' + extra : ''}" aria-hidden="true"><use href="#${id}"/></svg>`;
+}
 // Aspecte de cada estil de rival (perfils de la TV): icona i color.
 const LEAGUE_STYLE_LOOK = {
-    attacker: { icon: '⚔️', cls: 'lgc-red', color: 'var(--lg-red)' },
-    wall: { icon: '🧱', cls: 'lgc-blue', color: 'var(--lg-blue)' },
-    hunter: { icon: '🎯', cls: 'lgc-orange', color: 'var(--lg-orange)' },
-    strategist: { icon: '🧠', cls: 'lgc-purple', color: 'var(--lg-purple)' }
+    attacker: { icon: 'ic-swords', cls: 'lgc-red', color: 'var(--lg-red)' },
+    wall: { icon: 'ic-wall', cls: 'lgc-blue', color: 'var(--lg-blue)' },
+    hunter: { icon: 'ic-target', cls: 'lgc-orange', color: 'var(--lg-orange)' },
+    strategist: { icon: 'ic-compass', cls: 'lgc-purple', color: 'var(--lg-purple)' }
 };
 function leagueStyleLook(style) {
-    return LEAGUE_STYLE_LOOK[style] || { icon: '♟', cls: 'lgc-silver', color: 'var(--lg-silver)' };
+    return LEAGUE_STYLE_LOOK[style] || { icon: 'ic-pawn', cls: 'lgc-silver', color: 'var(--lg-silver)' };
 }
 function leagueStyleLabel(style) {
     const TV = window.ElTaulerStockfishTV;
@@ -5912,12 +5917,11 @@ function renderLeagueLevelTile() {
     const rules = [z.up ? '↑ podi' : null, z.down ? '↓ 3 últims' : null].filter(Boolean).join(' · ');
     $('#league-division-sub').text(`Grup ${lad.group}${rules ? ' · ' + rules : ''}`);
 }
-// Moviment de final de temporada: { cls, icon, text } («Puges a la Lliga
+// Moviment de final de temporada: { cls, text } («Puges a la Lliga
 // Comarcal d'Osona»). Les temporades de divisions diuen la divisió.
 function leagueFinalMove(f) {
     if (!f) return null;
     const cls = f.movement === 'up' ? 'lgc-green' : (f.movement === 'down' ? 'lgc-red' : 'lgc-blue');
-    const icon = f.movement === 'up' ? '⬆️' : (f.movement === 'down' ? '⬇️' : '➡️');
     let text;
     if (Number.isFinite(f.nextLevel)) {
         const name = ElTaulerCore.leagueLevelName(f.nextLevel, leagueHome());
@@ -5927,7 +5931,7 @@ function leagueFinalMove(f) {
         const next = ElTaulerCore.leagueDivision(f.nextDivision).name;
         text = f.movement === 'up' ? `Puges a ${next}` : (f.movement === 'down' ? `Baixes a ${next}` : `Continues a ${next}`);
     }
-    return { cls, icon, text };
+    return { cls, text };
 }
 // Els set graons de l'escalada a la capçalera, i el botó de la localitat.
 function renderLeagueLadderSteps() {
@@ -5940,7 +5944,7 @@ function renderLeagueLadderSteps() {
         box.innerHTML = ElTaulerCore.LEAGUE_LEVELS.map((L, i) => {
             const cls = ['lg-step', i === cur ? 'is-current' : (cur !== null && i < cur ? 'is-done' : ''), i === career.bestLevel ? 'is-best' : '']
                 .filter(Boolean).join(' ');
-            return `<span class="${cls}" title="${escapeHtml(ElTaulerCore.leagueLevelName(i, career.home))}">${L.icon}</span>`;
+            return `<span class="${cls}" title="${escapeHtml(ElTaulerCore.leagueLevelName(i, career.home))}">${leagueIcon(L.icon)}</span>`;
         }).join('');
     }
     const h = career.home;
@@ -5962,7 +5966,7 @@ function renderLeagueLadder() {
         const marks = [i === cur ? '<span class="lg-chip lgc-orange">Ets aquí</span>' : '',
             i === career.bestLevel && i !== cur ? '<span class="lg-chip lgc-gold">Millor nivell</span>' : ''].join('');
         const cls = i === cur ? ' is-current' : (i < cur ? ' is-done' : '');
-        return `<div class="league-ladder-level${cls}"><span class="lll-ic" aria-hidden="true">${L.icon}</span><div>`
+        return `<div class="league-ladder-level${cls}"><span class="lll-ic">${leagueIcon(L.icon)}</span><div>`
             + `<div class="lll-name">${escapeHtml(ElTaulerCore.leagueLevelName(i, career.home))}${marks}</div>`
             + `<div class="lll-groups">${groups}</div></div></div>`;
     }).reverse().join('');
@@ -6103,7 +6107,7 @@ function leagueFinalReviewHtml(final) {
     const details = [leaguePointsLabel(f.pts), f.performance !== null && f.performance !== undefined ? `rendiment ${f.performance}` : null]
         .filter(Boolean).join(' · ');
     return `<div class="review-league-final${champion ? ' rlf-champion' : ''}" role="group" aria-label="Posició final a la lliga">
-        <div class="rlf-kicker">${worldChampion ? '🌍 CAMPIÓ DEL MÓN' : (champion ? '🏆 CAMPIÓ DE LA LLIGA' : 'LLIGA ACABADA')}</div>
+        <div class="rlf-kicker">${worldChampion ? `${leagueIcon('ic-globe')}CAMPIÓ DEL MÓN` : (champion ? `${leagueIcon('ic-trophy')}CAMPIÓ DE LA LLIGA` : 'LLIGA ACABADA')}</div>
         ${f.name ? `<div class="rlf-name">${escapeHtml(f.name)}</div>` : ''}
         <div class="rlf-main">
             <span class="rlf-pos ${leagueRankClass(f.rank, f.players, down) || 'lgc-teal'}">${leagueOrdinal(f.rank)}</span>
@@ -6125,7 +6129,7 @@ function renderLeagueStrip() {
         const side = leagueFinalMove(f);
         const down = !(Number.isFinite(f.level) && f.level === 0);
         // La posició final, gran, a la capsa del costat (color del podi o del descens).
-        box.innerHTML = `<div class="lg-strip-side lg-strip-pos ${leagueRankClass(f.rank, f.players, down) || 'lgc-teal'}">${f.rank === 1 ? '🏆<br>' : ''}${leagueOrdinal(f.rank)}</div>
+        box.innerHTML = `<div class="lg-strip-side lg-strip-pos ${leagueRankClass(f.rank, f.players, down) || 'lgc-teal'}">${f.rank === 1 ? leagueIcon('ic-trophy') : ''}${leagueOrdinal(f.rank)}</div>
             <div class="lg-strip-txt"><div class="lg-strip-kicker">TEMPORADA ACABADA</div>
             <div class="lg-strip-name">${leagueOrdinal(f.rank)} de ${f.players}<span class="lg-chip ${leagueRankClass(f.rank, f.players, down) || 'lgc-silver'}">${leaguePointsLabel(f.pts)}</span></div>
             <div class="lg-strip-sub">${escapeHtml(side.text)}${f.performance !== null ? ` · rendiment ${f.performance}` : ''}${f.champion && f.rank !== 1 ? ` · campió: ${escapeHtml(f.champion)}` : ''}</div></div>`;
@@ -6136,7 +6140,7 @@ function renderLeagueStrip() {
     const opp = oppId ? getLeaguePlayer(oppId) : null;
     if (!opp) { box.innerHTML = ''; return; }
     const look = leagueStyleLook(opp.style);
-    box.innerHTML = `<div class="lg-strip-side ${look.cls}" aria-hidden="true">${look.icon}</div>
+    box.innerHTML = `<div class="lg-strip-side ${look.cls}">${leagueIcon(look.icon)}</div>
         <div class="lg-strip-txt"><div class="lg-strip-kicker">PROPER RIVAL</div>
         <div class="lg-strip-name">${escapeHtml(opp.name)}<span class="lg-chip ${look.cls}">ROC ${opp.elo}</span></div>
         <div class="lg-strip-sub">${escapeHtml(describeLeagueOpponent(opp, getLeagueRoundColor(round), { roc: false }))}</div></div>`;
@@ -6205,8 +6209,8 @@ function renderLeagueRivals() {
             (rep.blackE4 || rep.blackD4) ? `Amb negres: ${[rep.blackE4 ? `${rep.blackE4} (1.e4)` : null, rep.blackD4 ? `${rep.blackD4} (1.d4)` : null].filter(Boolean).join(', ')}` : null
         ].filter(Boolean).map(escapeHtml).join('<br>');
         return `<div class="league-rival-row" style="border-left-color:${look.color}"><div class="league-rival-name">${escapeHtml(p.name)}`
-            + `<span class="lg-chip lgc-silver">ROC ${p.elo}</span>${style ? `<span class="lg-chip ${look.cls}">${look.icon} ${escapeHtml(style.label)}</span>` : ''}`
-            + `${p.from ? `<span class="lg-chip lgc-teal">📍 ${escapeHtml(p.from)}</span>` : ''}</div>`
+            + `<span class="lg-chip lgc-silver">ROC ${p.elo}</span>${style ? `<span class="lg-chip ${look.cls}">${leagueIcon(look.icon)}${escapeHtml(style.label)}</span>` : ''}`
+            + `${p.from ? `<span class="lg-chip lgc-teal">${leagueIcon('ic-pin')}${escapeHtml(p.from)}</span>` : ''}</div>`
             + `<div class="league-rival-meta">${lines}</div></div>`;
     });
     box.innerHTML = rows.join('') + '<div class="league-note">Els rivals juguen el seu repertori mentre la partida el segueix (més jugades com més ROC). L\'estil només decideix entre jugades que el motor valora gairebé igual (a 12 centèsimes de peó o menys), de manera que pràcticament no en canvia la força.</div>';
@@ -6430,7 +6434,7 @@ function showLeagueInterlude(resultText, outcome, info) {
     // Cada tros sencer: si no hi cap, es parteix entre trossos, no dins.
     const bits = parts => parts.filter(Boolean).map(x => `<span class="li-nw">${escapeHtml(x)}</span>`).join(' · ');
     $('#li-me-sub').html(bits([leaguePointsLabel(me ? me.pts : 0), color ? (color === 'w' ? 'blanques' : 'negres') : null]));
-    $('#li-opp-pos').html(`${leagueOrdinal(oppRank)}<span class="li-pos-ic" aria-hidden="true">${look.icon}</span>`)
+    $('#li-opp-pos').html(`${leagueOrdinal(oppRank)}<span class="li-pos-ic">${leagueIcon(look.icon)}</span>`)
         .attr('class', `li-pos ${look.cls}`);
     $('#li-opp-name').text(opp.name);
     $('#li-opp-sub').html(bits([leaguePointsLabel(oppRow ? oppRow.pts : 0), `ROC ${opp.elo}`]));
@@ -32967,7 +32971,7 @@ blunderMode = isBundle;
         currentOpponent = { id: leagueActiveMatch.opponentId, name: leagueActiveMatch.opponentName || (opp ? opp.name : 'Rival'), elo: opponentRoc };
         const label = `${currentOpponent.name} · ROC ${opponentRoc}`;
         $('#engine-elo').text(label);
-        $('#game-mode-title').text(`🏆 Lliga · Jornada ${leagueActiveMatch.round}/9`);
+        $('#game-mode-title').html(`${leagueIcon('ic-trophy')} Lliga · Jornada ${leagueActiveMatch.round}/9`);
         if (engineReady) applyEngineEloStrength(opponentRoc);
     } else if (antidoteRequest) {
         // Rival Antídot: Stockfish juga jugades FORTES (força màxima al seu
@@ -36818,7 +36822,7 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
     const sectionBtn = $('#btn-review-section');
     if (sectionBtn.length) {
         const wasLeague = currentGameMode === 'league';
-        sectionBtn.html(wasLeague ? '🏆 Lliga' : `${HISTORY_ICON_SVG} Historial`);
+        sectionBtn.html(wasLeague ? `${leagueIcon('ic-trophy')} Lliga` : `${HISTORY_ICON_SVG} Historial`);
         sectionBtn.off('click').on('click', () => {
             if (reviewAutoCloseTimer) {
                 clearTimeout(reviewAutoCloseTimer);
