@@ -7,6 +7,344 @@
 // >>> RESERVA (generat) >>>
 const RESERVE = [
  {
+  "id": "hgr_4r1k11b3Rp12q52P3pQ2P53r46PP5RK1w",
+  "createdAt": 0,
+  "updatedAt": 0,
+  "source": "reserve",
+  "fen": "4r1k1/1b3Rp1/2q5/2P3pQ/2P5/3r4/6PP/5RK1 w - - 1 38",
+  "sideToMove": "w",
+  "line": [
+   "f7g7",
+   "g8g7",
+   "f1f7",
+   "g7g8",
+   "h5h7"
+  ],
+  "sanLine": [
+   "Rxg7+",
+   "Kxg7",
+   "Rf7+",
+   "Kg8",
+   "Qh7#"
+  ],
+  "finalType": "mate",
+  "difficulty": 65,
+  "status": "new",
+  "attempts": 0,
+  "startedAt": null,
+  "solvedAt": null,
+  "deviceCreated": null,
+  "bestMove": "f7g7",
+  "bestMoveSan": "Rxg7+",
+  "solutionMoves": [
+   "f7g7",
+   "f1f7",
+   "h5h7"
+  ],
+  "replyMoves": [
+   "g8g7",
+   "g7g8"
+  ],
+  "theme": "mate",
+  "tacticKind": "escac i mat",
+  "playerMove": null,
+  "conclusion": {
+   "version": 1,
+   "fen": "4r1k1/1b3Rp1/2q5/2P3pQ/2P5/3r4/6PP/5RK1 w - - 1 38",
+   "line": [
+    "f7g7",
+    "g8g7",
+    "f1f7",
+    "g7g8",
+    "h5h7"
+   ],
+   "finalFen": "4r1k1/1b3R1Q/2q5/2P3p1/2P5/3r4/6PP/6K1 b - - 3 40",
+   "kind": "mate",
+   "finalSan": "Qh7#",
+   "gain": null,
+   "checkedReplies": 0,
+   "checkedAlternatives": 30,
+   "explanation": "Qh7# és escac i mat: el rei està amenaçat i el rival no té cap resposta legal.",
+   "uniqueness": "S’han comprovat les altres 30 jugades legals: cap no fa mat en aquesta posició.",
+   "alternativeSan": "Rf8+",
+   "alternativeLine": [
+    "Rf8+",
+    "Kxf8",
+    "Qh8+",
+    "Kf7"
+   ],
+   "alternativeEval": {
+    "type": "cp",
+    "value": -746
+   },
+   "minDepth": 14,
+   "requestedDepth": 16,
+   "sacrifices": [
+    {
+     "step": 1,
+     "offered": "r",
+     "offerUci": "f7g7",
+     "replyUci": "g8g7",
+     "square": "g7",
+     "loss": 4,
+     "kingInCheck": false,
+     "checkedDefenses": 1,
+     "compensationKind": "mate",
+     "continuationType": "mate",
+     "continuationEval": 2
+    }
+   ]
+  },
+  "finalMotif": "mate",
+  "finalMotifs": [
+   "mate",
+   "fork",
+   "check"
+  ],
+  "finalMotifLabel": "escac i mat",
+  "finalMotifReason": "La seqüència acaba en escac i mat.",
+  "origin": "engine_selfplay",
+  "sourceGameId": null,
+  "sourceFen": "4r1k1/1b3Rp1/2q5/2P3pQ/2P5/3r4/6PP/5RK1 w - - 1 38",
+  "sourceMoveNumber": null,
+  "adaptationNote": null,
+  "difficultyPercent": 65,
+  "ratingEstimate": null,
+  "pv": [
+   "f7g7",
+   "g8g7",
+   "f1f7",
+   "g7g8",
+   "h5h7"
+  ],
+  "evalBefore": 9970,
+  "publishedAt": 1794323122086
+ },
+ {
+  "id": "hgr_4rqk16p1pp5R8P1PQ2p12P4P2b3P16NKw",
+  "createdAt": 0,
+  "updatedAt": 0,
+  "source": "reserve",
+  "fen": "4rqk1/6p1/pp5R/8/P1PQ2p1/2P4P/2b3P1/6NK w - - 4 37",
+  "sideToMove": "w",
+  "line": [
+   "d4d5",
+   "f8f7",
+   "h6h8",
+   "g8h8",
+   "d5f7"
+  ],
+  "sanLine": [
+   "Qd5+",
+   "Qf7",
+   "Rh8+",
+   "Kxh8",
+   "Qxf7"
+  ],
+  "finalType": "major_win",
+  "difficulty": 57,
+  "status": "new",
+  "attempts": 0,
+  "startedAt": null,
+  "solvedAt": null,
+  "deviceCreated": null,
+  "bestMove": "d4d5",
+  "bestMoveSan": "Qd5+",
+  "solutionMoves": [
+   "d4d5",
+   "h6h8",
+   "d5f7"
+  ],
+  "replyMoves": [
+   "f8f7",
+   "g8h8"
+  ],
+  "theme": "major_win",
+  "tacticKind": "guany de dama o torre",
+  "playerMove": null,
+  "conclusion": {
+   "version": 1,
+   "fen": "4rqk1/6p1/pp5R/8/P1PQ2p1/2P4P/2b3P1/6NK w - - 4 37",
+   "line": [
+    "d4d5",
+    "f8f7",
+    "h6h8",
+    "g8h8",
+    "d5f7"
+   ],
+   "finalFen": "4r2k/5Qp1/pp6/8/P1P3p1/2P4P/2b3P1/6NK b - - 0 39",
+   "kind": "material",
+   "finalSan": "Qxf7",
+   "gain": 3,
+   "checkedReplies": 29,
+   "checkedAlternatives": 28,
+   "explanation": "Qxf7 culmina la combinació: el guany material ja s’ha produït i es conserven almenys 3 punts nets després de qualsevol resposta immediata legal. Stockfish confirma que la millor defensa no iguala la posició.",
+   "uniqueness": "Cap altra jugada legal culmina aquest guany material ara. Stockfish també descarta una altra continuació amb avantatge decisiu.",
+   "alternativeSan": "Qg5",
+   "alternativeLine": [
+    "Qg5",
+    "Qe6",
+    "Qh5+",
+    "Kg8"
+   ],
+   "alternativeEval": {
+    "type": "cp",
+    "value": -579
+   },
+   "minDepth": 14,
+   "requestedDepth": 16,
+   "sacrifices": [
+    {
+     "step": 2,
+     "offered": "r",
+     "offerUci": "h6h8",
+     "replyUci": "g8h8",
+     "square": "h8",
+     "loss": 5,
+     "kingInCheck": false,
+     "checkedDefenses": 1,
+     "compensationKind": "material",
+     "continuationType": "cp",
+     "continuationEval": 731
+    }
+   ]
+  },
+  "finalMotif": "major_win",
+  "finalMotifs": [
+   "major_win"
+  ],
+  "finalMotifLabel": "guany de dama o torre",
+  "finalMotifReason": "La línia captura una peça major i acaba amb 4 punts nets de material a favor.",
+  "origin": "engine_selfplay",
+  "sourceGameId": null,
+  "sourceFen": "4rqk1/6p1/pp5R/8/P1PQ2p1/2P4P/2b3P1/6NK w - - 4 37",
+  "sourceMoveNumber": null,
+  "adaptationNote": null,
+  "difficultyPercent": 57,
+  "ratingEstimate": null,
+  "pv": [
+   "d4d5",
+   "f8f7",
+   "h6h8",
+   "g8h8",
+   "d5f7"
+  ],
+  "evalBefore": 580,
+  "publishedAt": 1794322749617
+ },
+ {
+  "id": "hgr_4rrk12q2p22p3p1p1P2n1p4Q1PP5N2P4P23RR1K1",
+  "createdAt": 0,
+  "updatedAt": 0,
+  "source": "reserve",
+  "fen": "4rrk1/2q2p2/2p3p1/p1P2n1p/4Q1PP/5N2/P4P2/3RR1K1 w - - 1 28",
+  "sideToMove": "w",
+  "line": [
+   "e4e8",
+   "f8e8",
+   "e1e8",
+   "g8g7",
+   "g4f5"
+  ],
+  "sanLine": [
+   "Qxe8",
+   "Rxe8",
+   "Rxe8+",
+   "Kg7",
+   "gxf5"
+  ],
+  "finalType": "major_win",
+  "difficulty": 58,
+  "status": "new",
+  "attempts": 0,
+  "startedAt": null,
+  "solvedAt": null,
+  "deviceCreated": null,
+  "bestMove": "e4e8",
+  "bestMoveSan": "Qxe8",
+  "solutionMoves": [
+   "e4e8",
+   "e1e8",
+   "g4f5"
+  ],
+  "replyMoves": [
+   "f8e8",
+   "g8g7"
+  ],
+  "theme": "major_win",
+  "tacticKind": "guany de dama o torre",
+  "playerMove": null,
+  "conclusion": {
+   "version": 1,
+   "fen": "4rrk1/2q2p2/2p3p1/p1P2n1p/4Q1PP/5N2/P4P2/3RR1K1 w - - 1 28",
+   "line": [
+    "e4e8",
+    "f8e8",
+    "e1e8",
+    "g8g7",
+    "g4f5"
+   ],
+   "finalFen": "4R3/2q2pk1/2p3p1/p1P2P1p/7P/5N2/P4P2/3R2K1 b - - 0 30",
+   "kind": "material",
+   "finalSan": "gxf5",
+   "gain": 3,
+   "checkedReplies": 20,
+   "checkedAlternatives": 39,
+   "explanation": "gxf5 culmina la combinació: el guany material ja s’ha produït i es conserven almenys 3 punts nets després de qualsevol resposta immediata legal. Stockfish confirma que la millor defensa no iguala la posició.",
+   "uniqueness": "Cap altra jugada legal culmina aquest guany material ara. Stockfish també descarta una altra continuació amb avantatge decisiu.",
+   "alternativeSan": "Ne5",
+   "alternativeLine": [
+    "Ne5",
+    "Ne7",
+    "Rd6",
+    "hxg4"
+   ],
+   "alternativeEval": {
+    "type": "cp",
+    "value": 79
+   },
+   "minDepth": 14,
+   "requestedDepth": 16,
+   "sacrifices": [
+    {
+     "step": 1,
+     "offered": "q",
+     "offerUci": "e4e8",
+     "replyUci": "f8e8",
+     "square": "e8",
+     "loss": 4,
+     "kingInCheck": false,
+     "checkedDefenses": 2,
+     "compensationKind": "material",
+     "continuationType": "cp",
+     "continuationEval": 494
+    }
+   ]
+  },
+  "finalMotif": "major_win",
+  "finalMotifs": [
+   "major_win"
+  ],
+  "finalMotifLabel": "guany de dama o torre",
+  "finalMotifReason": "La línia captura una peça major i acaba amb 4 punts nets de material a favor.",
+  "origin": "engine_selfplay",
+  "sourceGameId": null,
+  "sourceFen": "4rrk1/2q2p2/2p3p1/p1P2n1p/4Q1PP/5N2/P4P2/3RR1K1 w - - 1 28",
+  "sourceMoveNumber": null,
+  "adaptationNote": null,
+  "difficultyPercent": 58,
+  "ratingEstimate": null,
+  "pv": [
+   "e4e8",
+   "f8e8",
+   "e1e8",
+   "g8g7",
+   "g4f5"
+  ],
+  "evalBefore": 480,
+  "publishedAt": 1794322741214
+ },
+ {
   "id": "hgr_k1bR482r3p12P1Qp21p4p11Pq1P1P1P4PK18w",
   "createdAt": 0,
   "updatedAt": 0,
