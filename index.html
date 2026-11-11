@@ -5813,6 +5813,10 @@
         .rlf-side { display: flex; flex-direction: column; align-items: flex-start; text-align: left; min-width: 0; }
         .rlf-side b { font-size: 1.3rem; font-weight: 900; color: var(--text-primary); }
         .rlf-side span { font-size: 0.82rem; font-weight: 700; color: var(--text-secondary); }
+        /* El moviment («Continues a la Lliga Comarcal del Vallès Oriental») no
+           cap en una línia al mòbil: dins del marc, en dues línies si cal. */
+        .review-league-final .rlf-move { max-width: 100%; white-space: normal; justify-content: center; text-align: center;
+            overflow-wrap: break-word; line-height: 1.3; padding: 4px 12px; border-radius: 14px; }
         .rlf-champ { font-size: 0.8rem; color: var(--text-secondary); margin-top: 6px; }
         .lg-strip-side.lg-strip-pos { font-size: 1.35rem; font-weight: 900; line-height: 1.05; text-align: center; }
         /* Rellotge final amb el resultat (revisió, compte enrere i jornades) */

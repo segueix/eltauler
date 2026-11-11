@@ -6112,7 +6112,7 @@ function leagueFinalReviewHtml(final) {
     if (!f || !Number.isFinite(f.rank)) return '';
     const mv = leagueFinalMove(f);
     const arrow = f.movement === 'up' ? '↑ ' : (f.movement === 'down' ? '↓ ' : '');
-    const move = `<span class="lg-chip ${mv.cls}">${arrow}${escapeHtml(mv.text)}</span>`;
+    const move = `<span class="lg-chip rlf-move ${mv.cls}">${arrow}${escapeHtml(mv.text)}</span>`;
     const champion = f.rank === 1;
     const worldChampion = champion && Number.isFinite(f.level) && f.level === ElTaulerCore.LEAGUE_LEVELS.length - 1;
     const down = !(Number.isFinite(f.level) && f.level === 0);
