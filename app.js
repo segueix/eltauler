@@ -5186,13 +5186,16 @@ function createNewLeague(force = false, options = {}) {
     // rellotge: una lliga a 3+2 es juga al nivell que el jugador té a 3+2.
     const baseRating = getLeagueBaseRating(timeControlId);
 
-    // Nivell de la temporada (LLIGA.md §6): el de la trajectòria del jugador,
-    // del municipal al mundial. Desplaça tota la graella de rivals, i l'ELO
-    // mitjà que en surt diu en quin grup (C, B o A) del nivell es juga.
+    // Graó de la temporada (LLIGA.md §6): el de la trajectòria del jugador, de
+    // Municipal C a Mundial A. Dona el nivell (municipal ... mundial), el grup
+    // (C, B o A: es puja de la C a la B, de la B a la A i de la A a la C del
+    // nivell següent) i el desplaçament de tota la graella de rivals.
     const career = loadLeagueCareer();
-    const level = ElTaulerCore.leagueLevel(career.level);
+    const tier = ElTaulerCore.leagueTier(career.tier);
+    const level = ElTaulerCore.leagueLevel(ElTaulerCore.leagueTierLevel(tier));
     const home = career.home;
-    const group = ElTaulerCore.leagueLevelGroup(level.level, baseRating + level.shift);
+    const group = { id: ElTaulerCore.leagueTierGroup(tier) };
+    const shift = ElTaulerCore.leagueTierShift(tier);
 
     // D'on és cada rival: el poble, la comarca, la província... (localitats.js).
     let origins = [];
@@ -5227,7 +5230,7 @@ function createNewLeague(force = false, options = {}) {
     for (let i = 0; i < 9; i++) {
         const name = baseNames[i] || `Rival${i + 1}`;
         const offset = offsets[i];
-        const elo = ElTaulerCore.leagueOpponentRating(baseRating + level.shift, offset, ELO_MIN, ELO_MAX);
+        const elo = ElTaulerCore.leagueOpponentRating(baseRating + shift, offset, ELO_MIN, ELO_MAX);
         bots.push({ id: `bot${i + 1}`, name: name, elo: elo, offset: offset, style: styles[i],
             ...(origins[i] ? { from: origins[i] } : {}),
             repertoire: newLeagueBotRepertoire(), pj: 0, pg: 0, pp: 0, pe: 0, pts: 0 });
@@ -5256,10 +5259,10 @@ function createNewLeague(force = false, options = {}) {
         // Puntuació sobre la qual s'ha sortejat la graella (la del rellotge de
         // la temporada). Serveix per reajustar-la si el ritme encara canvia.
         baseRating: baseRating,
-        // Nivell de l'escala i grup per ELO (§6). divisionShift és el
-        // desplaçament de la graella (el nom ve de les antigues divisions).
-        ladder: { level: level.level, group: group.id },
-        divisionShift: level.shift,
+        // Graó de l'escala: nivell, grup i número de graó (§6). divisionShift és
+        // el desplaçament de la graella (el nom ve de les antigues divisions).
+        ladder: { level: level.level, group: group.id, tier },
+        divisionShift: shift,
         // Color del jugador a cada jornada: alternats, 5 i 4 (§5).
         colors: ElTaulerCore.leaguePlayerColors(),
         // Tots els resultats de la temporada, també els dels rivals entre ells:
@@ -5272,9 +5275,10 @@ function createNewLeague(force = false, options = {}) {
     return currentLeague;
 }
 
-/* ---- Trajectòria a la lliga: nivell, localitat i temporades acabades (LLIGA.md §6) ----
-   level: nivell de l'escala (0 municipal ... 6 mundial) on es juga la
-   temporada següent; bestLevel: el més alt on s'ha jugat; home: on juga el
+/* ---- Trajectòria a la lliga: graó, localitat i temporades acabades (LLIGA.md §6) ----
+   tier: graó de l'escala (0 Municipal C ... 20 Mundial A) on es juga la
+   temporada següent; level: el seu nivell (0 municipal ... 6 mundial);
+   bestTier i bestLevel: el més alt on s'ha jugat; home: on juga el
    jugador (territori, municipi, comarca, província, país), que dona nom a les
    lligues; recentNames: els noms dels rivals de les darreres temporades. division: la de l'antic sistema de divisions, només per llegir-la.
    Es desa a chess_leagueCareer, que se sincronitza amb la resta de dades. */
@@ -5286,14 +5290,22 @@ function loadLeagueCareer() {
     const division = (data && Number.isFinite(data.division)) ? ElTaulerCore.leagueDivision(data.division).level
         : ElTaulerCore.LEAGUE_START_DIVISION;
     const seasons = (data && Array.isArray(data.seasons)) ? data.seasons.filter(x => x && typeof x === 'object') : [];
-    const level = (data && Number.isFinite(data.level)) ? ElTaulerCore.leagueLevel(data.level).level
+    const savedLevel = (data && Number.isFinite(data.level)) ? ElTaulerCore.leagueLevel(data.level).level
         : ElTaulerCore.LEAGUE_START_LEVEL;
-    const bestLevel = Math.max(level, (data && Number.isFinite(data.bestLevel)) ? ElTaulerCore.leagueLevel(data.bestLevel).level : 0);
+    // Les trajectòries d'abans dels graons només tenien el nivell: comencen a
+    // la C del nivell que s'havien guanyat.
+    const tier = (data && Number.isFinite(data.tier)) ? ElTaulerCore.leagueTier(data.tier)
+        : ElTaulerCore.leagueTierOf(savedLevel, 'C');
+    const level = ElTaulerCore.leagueTierLevel(tier);
+    const bestTier = Math.max(tier, (data && Number.isFinite(data.bestTier)) ? ElTaulerCore.leagueTier(data.bestTier)
+        : ((data && Number.isFinite(data.bestLevel)) ? ElTaulerCore.leagueTierOf(data.bestLevel, 'C') : 0));
+    const bestLevel = Math.max(level, ElTaulerCore.leagueTierLevel(bestTier),
+        (data && Number.isFinite(data.bestLevel)) ? ElTaulerCore.leagueLevel(data.bestLevel).level : 0);
     const home = (data && data.home && typeof data.home === 'object' && data.home.municipi) ? data.home : null;
     // Noms dels rivals de les darreres temporades (no es repeteixen).
     const recentNames = (data && Array.isArray(data.recentNames))
         ? data.recentNames.filter(n => typeof n === 'string').slice(-LEAGUE_RECENT_NAMES_MAX) : [];
-    const out = { division, seasons, level, bestLevel, home, recentNames };
+    const out = { division, seasons, tier, level, bestTier, bestLevel, home, recentNames };
     if (data && data.homeSkippedAt) out.homeSkippedAt = data.homeSkippedAt;
     return out;
 }
@@ -5358,11 +5370,13 @@ function upgradeLegacyLeague() {
     createNewLeague(true, { timeControlId: getLeagueTimeControlId() });
     return true;
 }
-// El grup (C, B o A) surt de l'ELO mitjà de la graella: si la referència
-// canvia abans de començar (rellotge nou o puntuació nova), el grup i el nom
-// de la lliga es tornen a calcular.
+// A les lligues d'abans dels graons, el grup (C, B o A) sortia de l'ELO mitjà
+// de la graella: si la referència canviava abans de començar, el grup i el
+// nom es tornaven a calcular. Ara el grup és el graó de l'escala i no depèn
+// de l'ELO: no es toca.
 function refreshLeagueLadderGroup() {
     if (!currentLeague || !currentLeague.ladder || typeof currentLeague.baseRating !== 'number') return;
+    if (Number.isFinite(currentLeague.ladder.tier)) return;
     const lv = currentLeague.ladder.level;
     const group = ElTaulerCore.leagueLevelGroup(lv, currentLeague.baseRating + (currentLeague.divisionShift || 0));
     if (group.id === currentLeague.ladder.group) return;
@@ -5905,8 +5919,22 @@ function leagueDivisionShort(name) {
 function leagueZones(league = currentLeague) {
     const lad = league && league.ladder;
     if (!lad) return { up: true, down: true };
+    if (Number.isFinite(lad.tier)) {
+        const t = ElTaulerCore.leagueTier(lad.tier);
+        return { up: t < ElTaulerCore.LEAGUE_TIER_COUNT - 1, down: t > 0 };
+    }
     const lv = ElTaulerCore.leagueLevel(lad.level).level;
     return { up: lv < ElTaulerCore.LEAGUE_LEVELS.length - 1, down: lv > 0 };
+}
+// Final de temporada: es podia baixar (no era el primer graó) i era el cim de
+// l'escala (Mundial A; a les temporades d'abans dels graons, el mundial).
+function leagueFinalCanDrop(f) {
+    if (Number.isFinite(f.tier)) return f.tier > 0;
+    return !(Number.isFinite(f.level) && f.level === 0);
+}
+function leagueFinalAtTop(f) {
+    if (Number.isFinite(f.tier)) return f.tier === ElTaulerCore.LEAGUE_TIER_COUNT - 1;
+    return Number.isFinite(f.level) && f.level === ElTaulerCore.LEAGUE_LEVELS.length - 1;
 }
 // La localitat del jugador (o null), per als noms de les lligues.
 function leagueHome() {
@@ -5935,7 +5963,11 @@ function leagueFinalMove(f) {
     if (!f) return null;
     const cls = f.movement === 'up' ? 'lgc-green' : (f.movement === 'down' ? 'lgc-red' : 'lgc-blue');
     let text;
-    if (Number.isFinite(f.nextLevel)) {
+    if (Number.isFinite(f.nextTier) && Number.isFinite(f.tier)) {
+        text = ElTaulerCore.leagueTierMoveText(f.tier, f.nextTier, leagueHome());
+    } else if (Number.isFinite(f.nextTier) && f.movement === 'start') {
+        text = `L'escalada comença a la ${ElTaulerCore.leagueFullName(ElTaulerCore.leagueTierLevel(f.nextTier), ElTaulerCore.leagueTierGroup(f.nextTier), leagueHome())}`;
+    } else if (Number.isFinite(f.nextLevel)) {
         const name = ElTaulerCore.leagueLevelName(f.nextLevel, leagueHome());
         text = f.movement === 'up' ? `Puges a la ${name}` : f.movement === 'down' ? `Baixes a la ${name}`
             : f.movement === 'start' ? `L'escalada comença a la ${name}` : `Continues a la ${name}`;
@@ -5956,35 +5988,41 @@ function renderLeagueLadderSteps() {
         box.innerHTML = ElTaulerCore.LEAGUE_LEVELS.map((L, i) => {
             const cls = ['lg-step', i === cur ? 'is-current' : (cur !== null && i < cur ? 'is-done' : ''), i === career.bestLevel ? 'is-best' : '']
                 .filter(Boolean).join(' ');
-            return `<span class="${cls}" title="${escapeHtml(ElTaulerCore.leagueLevelName(i, career.home))}">${leagueIcon(L.icon)}</span>`;
+            const title = ElTaulerCore.leagueLevelName(i, career.home) + (i === cur && lad.group ? ' · Grup ' + lad.group : '');
+            return `<span class="${cls}" title="${escapeHtml(title)}">${leagueIcon(L.icon)}</span>`;
         }).join('');
     }
     const h = career.home;
     $('#league-home-label').text(h ? [h.municipi, h.comarca].filter(Boolean).join(' · ') : 'Tria on jugues');
 }
-// Detall de l'escalada: els set nivells de dalt a baix, amb els grups per ELO
-// de cadascun, on es juga aquesta temporada i el millor nivell assolit.
+// Detall de l'escalada: els set nivells de dalt a baix (el mundial a dalt),
+// cadascun amb els seus tres grups en l'ordre en què es juguen, C → B → A:
+// els graons fets, on es juga aquesta temporada i el millor graó assolit.
 function renderLeagueLadder() {
     const box = document.getElementById('league-ladder');
     if (!box) return;
     const career = loadLeagueCareer();
     const lad = currentLeague && currentLeague.ladder;
-    const cur = lad ? ElTaulerCore.leagueLevel(lad.level).level : career.level;
+    const curTier = lad ? (Number.isFinite(lad.tier) ? ElTaulerCore.leagueTier(lad.tier)
+        : ElTaulerCore.leagueTierOf(lad.level, lad.group)) : career.tier;
+    const cur = ElTaulerCore.leagueTierLevel(curTier);
     const levels = ElTaulerCore.LEAGUE_LEVELS.map((L, i) => {
-        const groups = ElTaulerCore.leagueLevelGroups(i).slice().reverse().map(g => {
-            const mine = lad && i === cur && g.id === lad.group;
-            return `<span class="lg-chip ${mine ? 'lgc-orange is-mine' : 'lgc-silver'}">${escapeHtml(g.label)} · ${escapeHtml(ElTaulerCore.leagueGroupRangeText(g))}</span>`;
-        }).join('');
-        const marks = [i === cur ? '<span class="lg-chip lgc-orange">Ets aquí</span>' : '',
-            i === career.bestLevel && i !== cur ? '<span class="lg-chip lgc-gold">Millor nivell</span>' : ''].join('');
+        const groups = ElTaulerCore.LEAGUE_GROUP_IDS.map(id => {
+            const t = ElTaulerCore.leagueTierOf(i, id);
+            const cls = t === curTier ? 'lgc-orange is-mine' : (t < curTier ? 'lgc-green' : (t === career.bestTier ? 'lgc-gold' : 'lgc-silver'));
+            return `<span class="lg-chip ${cls}">Grup ${id}</span>`;
+        }).join('<span class="lll-arrow" aria-hidden="true">→</span>');
+        const marks = [i === cur ? `<span class="lg-chip lgc-orange">Ets aquí: Grup ${escapeHtml(ElTaulerCore.leagueTierGroup(curTier))}</span>` : '',
+            i === ElTaulerCore.leagueTierLevel(career.bestTier) && career.bestTier > curTier ? '<span class="lg-chip lgc-gold">Millor graó</span>' : ''].join('');
         const cls = i === cur ? ' is-current' : (i < cur ? ' is-done' : '');
         return `<div class="league-ladder-level${cls}"><span class="lll-ic">${leagueIcon(L.icon)}</span><div>`
             + `<div class="lll-name">${escapeHtml(ElTaulerCore.leagueLevelName(i, career.home))}${marks}</div>`
             + `<div class="lll-groups">${groups}</div></div></div>`;
     }).reverse().join('');
-    box.innerHTML = levels + '<div class="league-note">El podi puja de nivell i els tres últims en baixen (del municipal no se\'n baixa). '
-        + 'Cada nivell fa els rivals 40 punts més forts que l\'anterior: al municipal ets favorit i al mundial cal jugar molt per sobre de la teva puntuació. '
-        + 'Els rivals sempre són del teu nivell (±200): el grup (C, B o A) surt de l\'ELO mitjà de la graella.</div>';
+    box.innerHTML = levels + '<div class="league-note">Es puja d\'un graó en un: de la C a la B, de la B a la A i de la A a la C del nivell següent. '
+        + 'El podi puja un graó i els tres últims en baixen un (del Grup C del municipal no se\'n baixa). '
+        + 'Cada graó fa els rivals 12 punts més forts que l\'anterior: a la Lliga Local C ets favorit i a la Mundial A cal jugar molt per sobre de la teva puntuació. '
+        + 'Els rivals sempre són del teu nivell (±200).</div>';
 }
 // «1 victòria · 1 derrota» a partir de les jornades jugades.
 function leagueRecordText(hist) {
@@ -6114,8 +6152,8 @@ function leagueFinalReviewHtml(final) {
     const arrow = f.movement === 'up' ? '↑ ' : (f.movement === 'down' ? '↓ ' : '');
     const move = `<span class="lg-chip rlf-move ${mv.cls}">${arrow}${escapeHtml(mv.text)}</span>`;
     const champion = f.rank === 1;
-    const worldChampion = champion && Number.isFinite(f.level) && f.level === ElTaulerCore.LEAGUE_LEVELS.length - 1;
-    const down = !(Number.isFinite(f.level) && f.level === 0);
+    const worldChampion = champion && leagueFinalAtTop(f);
+    const down = leagueFinalCanDrop(f);
     const details = [leaguePointsLabel(f.pts), f.performance !== null && f.performance !== undefined ? `rendiment ${f.performance}` : null]
         .filter(Boolean).join(' · ');
     return `<div class="review-league-final${champion ? ' rlf-champion' : ''}" role="group" aria-label="Posició final a la lliga">
@@ -6139,7 +6177,7 @@ function renderLeagueStrip() {
         const f = currentLeague.final;
         if (!f) { box.innerHTML = ''; return; }
         const side = leagueFinalMove(f);
-        const down = !(Number.isFinite(f.level) && f.level === 0);
+        const down = leagueFinalCanDrop(f);
         // La posició final, gran, a la capsa del costat (color del podi o del descens).
         box.innerHTML = `<div class="lg-strip-side lg-strip-pos ${leagueRankClass(f.rank, f.players, down) || 'lgc-teal'}">${f.rank === 1 ? leagueIcon('ic-trophy') : ''}${leagueOrdinal(f.rank)}</div>
             <div class="lg-strip-txt"><div class="lg-strip-kicker">TEMPORADA ACABADA</div>
@@ -6241,11 +6279,12 @@ function renderLeagueCareer() {
         const div = ladder ? `${ElTaulerCore.leagueLevelShort(x.level, career.home)}${x.group ? ' ' + x.group : ''}`
             : leagueDivisionShort(ElTaulerCore.leagueDivision(x.division).name);
         const tc = getTimeControlLabel(x.timeControl || 'none');
-        const from = ladder ? x.level : x.division;
-        const to = ladder ? x.nextLevel : x.nextDivision;
+        const steps = ladder && Number.isFinite(x.tier) && Number.isFinite(x.nextTier);
+        const from = steps ? x.tier : (ladder ? x.level : x.division);
+        const to = steps ? x.nextTier : (ladder ? x.nextLevel : x.nextDivision);
         const move = to > from ? '<span class="lg-chip lgc-green">↑ puja</span>'
             : (to < from ? '<span class="lg-chip lgc-red">↓ baixa</span>' : '');
-        const down = !(ladder && x.level === 0);
+        const down = !(ladder && (steps ? x.tier === 0 : x.level === 0));
         return `<div class="league-career-row"><span class="league-career-main"><span class="lg-pos-chip ${leagueRankClass(x.rank, 10, down) || ''}">${leagueOrdinal(x.rank)}</span>`
             + `${escapeHtml(x.name || 'Temporada')} · ${leaguePointsLabel(x.pts || 0)} ${move}</span>`
             + `<span>${escapeHtml(div)} · ${escapeHtml(tc)}${x.performance ? ` · ${x.performance}` : ''}</span></div>`;
@@ -6673,15 +6712,23 @@ function finalizeLeagueSeason() {
     };
     let season;
     if (currentLeague.ladder) {
-        // Escala de nivells: el podi puja, els tres últims baixen.
+        // Escala de graons: el podi puja un graó i els tres últims en baixen
+        // un (C → B → A → C del nivell següent). Les lligues d'abans dels
+        // graons (sense `tier`) parteixen del graó del seu nivell i grup.
         const level = ElTaulerCore.leagueLevel(currentLeague.ladder.level).level;
         const group = currentLeague.ladder.group || null;
-        const next = ElTaulerCore.leagueNextLevel(level, rank, standings.length);
-        currentLeague.final = Object.assign(base, { level, group, nextLevel: next,
-            movement: next > level ? 'up' : (next < level ? 'down' : 'stay') });
+        const tier = Number.isFinite(currentLeague.ladder.tier) ? ElTaulerCore.leagueTier(currentLeague.ladder.tier)
+            : ElTaulerCore.leagueTierOf(level, group);
+        const nextTier = ElTaulerCore.leagueNextTier(tier, rank, standings.length);
+        const next = ElTaulerCore.leagueTierLevel(nextTier);
+        currentLeague.final = Object.assign(base, { level, group, tier, nextLevel: next, nextTier,
+            nextGroup: ElTaulerCore.leagueTierGroup(nextTier),
+            movement: nextTier > tier ? 'up' : (nextTier < tier ? 'down' : 'stay') });
+        career.tier = nextTier;
         career.level = next;
+        career.bestTier = Math.max(career.bestTier || 0, tier, nextTier);
         career.bestLevel = Math.max(career.bestLevel || 0, level, next);
-        season = { level, group, nextLevel: next };
+        season = { level, group, tier, nextLevel: next, nextTier };
     } else {
         // Lliga de l'antic sistema de divisions: es tanca amb la seva divisió i
         // l'escalada comença (o continua) al nivell que diu la trajectòria.

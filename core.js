@@ -4548,6 +4548,61 @@
         return cur;
     }
 
+    // Escala de graons (LLIGA.md §6): cada nivell té tres grups i es puja d'un
+    // en un, com a Remigi: de la C a la B, de la B a la A i de la A a la C del
+    // nivell següent. 21 graons: 0 és Municipal C i 20, Mundial A. El podi
+    // puja un graó i els tres últims en baixen un (leagueNextTier). Abans el
+    // grup sortia de l'ELO mitjà de la graella (leagueLevelGroup), i en pujar
+    // de nivell es quedava a la mateixa lletra; ara el grup és el graó.
+    //
+    // La graella continua essent del nivell del jugador (±200, §3); el
+    // desplaçament va de −120 (Municipal C) a +120 (Mundial A), 12 punts per
+    // graó: el mateix recorregut que els set nivells d'abans (de −120 a +120,
+    // 40 per nivell), repartit entre els tres grups.
+    const LEAGUE_GROUP_IDS = ['C', 'B', 'A'];
+    const LEAGUE_TIER_COUNT = LEAGUE_LEVELS.length * LEAGUE_GROUP_IDS.length;
+    const LEAGUE_START_TIER = 0;
+    function leagueTier(tier) {
+        return Number.isFinite(tier) ? Math.max(0, Math.min(LEAGUE_TIER_COUNT - 1, Math.round(tier))) : LEAGUE_START_TIER;
+    }
+    // Nivell (0 municipal ... 6 mundial) i grup (C, B o A) d'un graó.
+    function leagueTierLevel(tier) {
+        return Math.floor(leagueTier(tier) / LEAGUE_GROUP_IDS.length);
+    }
+    function leagueTierGroup(tier) {
+        return LEAGUE_GROUP_IDS[leagueTier(tier) % LEAGUE_GROUP_IDS.length];
+    }
+    // Graó d'un nivell i un grup (les lligues d'abans, amb el grup per ELO).
+    function leagueTierOf(level, groupId) {
+        const g = LEAGUE_GROUP_IDS.indexOf(groupId);
+        return leagueTier(leagueLevel(level).level * LEAGUE_GROUP_IDS.length + (g >= 0 ? g : 0));
+    }
+    function leagueTierShift(tier) {
+        const first = LEAGUE_LEVELS[0].shift, last = LEAGUE_LEVELS[LEAGUE_LEVELS.length - 1].shift;
+        return Math.round(first + (last - first) * leagueTier(tier) / (LEAGUE_TIER_COUNT - 1));
+    }
+    // Graó de la temporada següent: el podi (1r-3r) puja un graó i els tres
+    // últims en baixen un; del primer no es baixa ni del darrer es puja.
+    function leagueNextTier(tier, rank, players) {
+        const cur = leagueTier(tier);
+        const n = Number.isFinite(players) ? players : 10;
+        if (rank >= 1 && rank <= 3) return Math.min(LEAGUE_TIER_COUNT - 1, cur + 1);
+        if (rank > n - 3 && rank <= n) return Math.max(0, cur - 1);
+        return cur;
+    }
+    // On es jugarà la temporada següent, en paraules: «Puges al Grup B de la
+    // Lliga de Vic», «Puges a la Lliga Comarcal d'Osona · Grup C»...
+    function leagueTierMoveText(from, to, home) {
+        const a = leagueTier(from), b = leagueTier(to);
+        const sameLevel = leagueTierLevel(a) === leagueTierLevel(b);
+        const where = sameLevel
+            ? 'al Grup ' + leagueTierGroup(b) + ' de la ' + leagueLevelName(leagueTierLevel(b), home)
+            : 'a la ' + leagueFullName(leagueTierLevel(b), leagueTierGroup(b), home);
+        if (b > a) return 'Puges ' + where;
+        if (b < a) return 'Baixes ' + where;
+        return 'Continues ' + where;
+    }
+
     // «de Vic», «d'Osona», «del Bages», «dels Ports», «de la Selva», «de l'Anoia».
     function catalanDe(name) {
         const s = String(name == null ? '' : name).replace(/\s+/g, ' ').trim();
@@ -10594,6 +10649,16 @@
         leagueLevelGroup,
         leagueGroupRangeText,
         leagueNextLevel,
+        LEAGUE_GROUP_IDS,
+        LEAGUE_TIER_COUNT,
+        LEAGUE_START_TIER,
+        leagueTier,
+        leagueTierLevel,
+        leagueTierGroup,
+        leagueTierOf,
+        leagueTierShift,
+        leagueNextTier,
+        leagueTierMoveText,
         catalanDe,
         leagueLevelName,
         leagueLevelShort,

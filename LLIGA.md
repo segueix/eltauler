@@ -218,15 +218,15 @@ no ha començat, es torna a sortejar amb els noms i els rivals del lloc nou.
 **Set nivells** (`LEAGUE_LEVELS`), amb el nom del lloc del jugador
 (`leagueLevelName`, contraccions amb `catalanDe`):
 
-| nivell | icona | lliga (exemple: Vic) | graella | grups per ELO mitjà |
-|---|---|---|---|---|
-| municipal | `ic-village` (cases) | Lliga de Vic | −120 | C fins a 599 · B 600–899 · A 900 o més |
-| comarcal | `ic-mountain` (muntanyes) | Lliga Comarcal d'Osona | −80 | C fins a 699 · B 700–999 · A 1000 o més |
-| provincial | `ic-columns` (edifici de columnes) | Lliga Provincial de Barcelona | −40 | C fins a 799 · B 800–1099 · A 1100 o més |
-| territori | `ic-castle` (castell) | Lliga Catalana (Valenciana, Balear, Andorrana...) | 0 | C fins a 899 · B 900–1199 · A 1200 o més |
-| Països Catalans | `ic-map` (mapa) | Lliga dels Països Catalans | +40 | B fins a 1199 · A 1200 o més |
-| Europa | `ic-europe` (cercle de punts) | Lliga Europea | +80 | B fins a 1349 · A 1350 o més |
-| món | `ic-globe` (globus) | Lliga Mundial | +120 | B fins a 1499 · A 1500 o més |
+| nivell | icona | lliga (exemple: Vic) | graella del Grup C · B · A |
+|---|---|---|---|
+| municipal | `ic-village` (cases) | Lliga de Vic | −120 · −108 · −96 |
+| comarcal | `ic-mountain` (muntanyes) | Lliga Comarcal d'Osona | −84 · −72 · −60 |
+| provincial | `ic-columns` (edifici de columnes) | Lliga Provincial de Barcelona | −48 · −36 · −24 |
+| territori | `ic-castle` (castell) | Lliga Catalana (Valenciana, Balear, Andorrana...) | −12 · 0 · +12 |
+| Països Catalans | `ic-map` (mapa) | Lliga dels Països Catalans | +24 · +36 · +48 |
+| Europa | `ic-europe` (cercle de punts) | Lliga Europea | +60 · +72 · +84 |
+| món | `ic-globe` (globus) | Lliga Mundial | +96 · +108 · +120 |
 
 **Icones.** Totes les de la lliga són del joc d'icones de l'app (`<symbol
 id="ic-...">` d'index.html: line-icons monocromes que hereten el color del
@@ -237,25 +237,33 @@ peó, trofeu) i els estils dels rivals (l'Atacant `ic-swords`, el Mur
 `ic-wall`, el Caçador `ic-target`, l'Estratega `ic-compass`). Les pinta
 `leagueIcon` (app.js); els països dels rivals van sense bandera.
 
-Es comença al municipal. En acabar la temporada, el podi puja un nivell i els
-tres últims en baixen un (`leagueNextLevel`); del municipal no es baixa i del
-mundial no es puja (al mundial, el primer és «Campió del món», amb el globus).
+**Una escala de 21 graons: C → B → A → C del nivell següent.** Cada nivell té
+tres lligues, la C, la B i la A, i es puja d'un graó en un: de la C a la B, de
+la B a la A, i de la A a la C del nivell següent (com a Remigi). Es comença a
+la Lliga Local C (Municipal C). En acabar la temporada, el podi puja un graó i
+els tres últims en baixen un (`leagueNextTier`); de Municipal C no es baixa i
+de Mundial A no es puja (allà, el primer és «Campió del món», amb el globus).
+El graó viu a la trajectòria (`tier`, de 0 a 20) i a la lliga
+(`ladder.tier`); el nom de la lliga porta el grup («Lliga Comarcal d'Osona ·
+Grup B»).
+
+*Abans*, el grup sortia de l'ELO mitjà de la graella (`leagueLevelGroup`, amb
+llindars per nivell) i el podi pujava un nivell sencer: amb el mateix ELO, en
+pujar es queda a la mateixa lletra del nivell següent (de Vic B a Comarcal B),
+i la C, la B i la A no eren cap escala. Les trajectòries d'abans (només amb el
+nivell) passen a la C d'aquell nivell; una lliga d'abans en joc es tanca des
+del graó del seu nivell i grup (`leagueTierOf`).
 
 **Els rivals continuen essent del nivell del jugador.** La graella es
 reparteix com sempre (±200, §3) al voltant de la referència del jugador més el
-desplaçament del nivell: cada nivell fa els rivals 40 punts més forts que
-l'anterior. No s'ha triat una escala d'ELO fixa per nivell perquè un jugador
-de 1600 hauria d'esperar temporades senceres de partides guanyades al seu
-poble, i un de 500 no podria fer res a la comarcal: així cada partida continua
-essent igualada i el que canvia és l'exigència per pujar.
-
-**Grups per ELO** (`leagueLevelGroups`, `leagueLevelGroup`): cada nivell té
-dues o tres lligues, la C, la B i la A, separades per l'ELO mitjà de la graella
-(referència + desplaçament). Els llindars pugen amb el nivell, de manera que a
-dalt costa més ser al grup A. El grup surt en crear la temporada i, mentre no
-ha començat, es torna a calcular si canvia la referència (rellotge o
-puntuació nova, `refreshLeagueLadderGroup`). El nom de la lliga el porta
-(«Lliga Comarcal d'Osona · Grup B»).
+desplaçament del graó (`leagueTierShift`): de −120 a Municipal C a +120 a
+Mundial A, 12 punts per graó. És el mateix recorregut que tenien els set
+nivells (40 punts per nivell), repartit entre els tres grups. No s'ha triat
+una escala d'ELO fixa per graó perquè un jugador de 1600 hauria d'esperar
+temporades senceres de partides guanyades al seu poble, i un de 500 no podria
+fer res a la comarcal: així cada partida continua essent igualada i el que
+canvia és l'exigència per pujar. El grup ja no depèn de l'ELO: canviar el
+rellotge abans de començar mou la graella però no el grup.
 
 **D'on són els rivals** (`rivalOrigins` de `localitats.js`): al municipal, del
 poble (no es diu); a la comarcal, de municipis de la comarca; a la
@@ -294,42 +302,49 @@ darreres temporades (`chess_leagueCareer.recentNames`, 54 noms) perquè no
 tornin a sortir. Sense el mòdul, la lliga fa servir els àlies d'abans
 (`LEAGUE_FALLBACK_NAMES`).
 
-**Simulat** (`simulate_ladder.js`, 20.000 temporades per cel·la, 3+2,
-referència 1200; carreres de 40 temporades des del municipal):
+**Simulat** (`simulate_ladder.js`, 4.000 temporades per graó, 3+2,
+referència 1200; carreres de 60 temporades des de Municipal C):
 
-| nivell | podi jugant al nivell | baixa jugant al nivell | podi amb +100 |
+| graó | podi jugant al nivell | baixa jugant al nivell | podi amb +100 |
 |---|---|---|---|
-| municipal | 56% | — | 81% |
-| comarcal | 40% | 5% | 69% |
-| provincial | 27% | 10% | 56% |
-| territori | 17% | 17% | 43% |
-| Països Catalans | 10% | 27% | 31% |
-| Europa | 5% | 41% | 20% |
-| món | 3%* | 56% | 13%* |
+| Municipal C · B · A | 55% · 51% · 47% | — · 4% · 4% | 81% · 79% · 75% |
+| Comarcal C · B · A | 42% · 39% · 36% | 6% · 6% · 7% | 69% · 68% · 63% |
+| Provincial C · B · A | 30% · 26% · 23% | 8% · 11% · 13% | 59% · 54% · 51% |
+| Catalana C · B · A | 20% · 16% · 14% | 15% · 17% · 20% | 47% · 43% · 40% |
+| Països Catalans C · B · A | 12% · 11% · 9% | 23% · 25% · 29% | 34% · 31% · 29% |
+| Europea C · B · A | 7% · 6% · 4% | 34% · 38% · 43% | 24% · 22% · 20% |
+| Mundial C · B · A | 4% · 3% · 3%* | 47% · 52% · 56% | 18% · 14% · 12%* |
 
-(*a la mundial el podi no puja: és la probabilitat d'acabar-hi entre els tres
-primers.) Un jugador que sempre juga a la seva puntuació arriba a la Lliga
-Catalana a la temporada 9 de mitjana i hi passa la major part del temps; el
-90% arriba a la dels Països Catalans, el 46% a l'europea i el 8% a la mundial.
-Amb +50 de rendiment (qui millora més de pressa que la puntuació), el 55%
-arriba a la mundial; amb +100, el 96%. Les partides de lliga puntuen (§5): qui
-millora de debò puja a l'escala i, amb la puntuació, també als grups.
+(*a Mundial A el podi no puja: és la probabilitat d'acabar-hi entre els tres
+primers.) Amb tres graons per nivell, l'escala és més llarga que la d'abans:
+un jugador que sempre juga a la seva puntuació arriba a la comarcal a la
+temporada 6, a la provincial a la 15 i a la Lliga Catalana a la 32 de mitjana
+(el 96% hi arriba en 60 temporades), i el 36% arriba a la dels Països
+Catalans. Amb +50 de rendiment (qui millora més de pressa que la puntuació),
+el 99% arriba als Països Catalans i el 46% a l'europea; amb +100, el 100% a
+l'europea (temporada 33) i el 60% a la mundial (temporada 45). Les partides de
+lliga puntuen (§5): qui millora de debò puja a l'escala.
 
-**Pantalla.** A la capçalera, sota el nom, els set graons de l'escalada
+**Pantalla.** A la capçalera, sota el nom, els set nivells de l'escalada
 (acabats en verd, l'actual en taronja, el millor nivell amb vora daurada) i el
 botó de la localitat amb el municipi i la comarca. La rajola **NIVELL** diu el nivell, el
-grup i les zones (al municipal només «↑ podi»; al mundial, «↓ 3 últims»), i la
-taula i la llegenda només marquen les zones que hi ha (al municipal la cua no
+grup i les zones (a Municipal C només «↑ podi»; a Mundial A, «↓ 3 últims»), i la
+taula i la llegenda només marquen les zones que hi ha (a Municipal C la cua no
 va de vermell). La secció plegable «L'escalada: del municipi al món» ensenya
-els set nivells amb els grups i els seus ELO, on s'és ara i el millor nivell.
+els set nivells (el mundial a dalt) amb els seus grups en ordre, Grup C → Grup B
+→ Grup A: els graons fets en verd, el d'ara en taronja («Ets aquí: Grup B») i el
+millor graó en daurat.
 Els graons de la capçalera l'obren. Al bàner de l'inici, el títol és la lliga
 («Lliga de Vic»); sense localitat, convida a triar-la.
 
-En acabar, la revisió i la franja diuen «Puges a la Lliga Comarcal d'Osona»,
-«Baixes a...» o «Continues a...». La trajectòria (`chess_leagueCareer`) desa
-el nivell, el millor nivell, la localitat i fins a 30 temporades (nom, ritme,
-posició, punts, rendiment, nivell, grup i nivell següent); el palmarès en
-mostra les 10 darreres.
+En acabar, la revisió i la franja diuen on es jugarà la temporada següent
+(`leagueTierMoveText`): «Puges al Grup B de la Lliga de Vic», «Puges al Grup A
+de la Lliga de Vic», «Puges a la Lliga Comarcal d'Osona · Grup C», «Baixes a
+la Lliga de Vic · Grup A» o «Continues al Grup B...». La trajectòria
+(`chess_leagueCareer`) desa el graó (`tier`) i el nivell, el millor graó i el
+millor nivell, la localitat i fins a 30 temporades (nom, ritme, posició,
+punts, rendiment, nivell, grup, graó i graó següent); el palmarès en mostra
+les 10 darreres.
 
 **Les divisions d'abans.** Abans hi havia cinc divisions (Quarta a d'Honor,
 −100 a +100). Una lliga de divisions que encara no ha començat passa a
@@ -517,8 +532,8 @@ tothom) i el Sonneborn-Berger (que és al quadre i a la llegenda).
 - Les partides de lliga puntuen, però la graella no segueix la puntuació un cop
   començada la temporada: si el jugador puja molt durant la temporada, la
   lliga se li fa més fàcil fins a la següent.
-- Els desplaçaments de l'escala (40 punts per nivell) s'han triat amb
-  simulacions de rendiment fix (§6), no amb dades de persones reals.
+- Els desplaçaments de l'escala (12 punts per graó, 40 per nivell) s'han
+  triat amb simulacions de rendiment fix (§6), no amb dades de persones reals.
 - Fora de Catalunya no hi ha llista de municipis (s'escriuen) i els rivals de
   la comarcal no tenen poble d'origen. Els noms de les comarques i dels
   municipis són els d'Idescat (novembre de 2026).
@@ -544,6 +559,12 @@ tothom) i el Sonneborn-Berger (que és al quadre i a la llegenda).
   d'Elo exacta amb 40.000 partides simulades.
 - `sf19rival.test.js`: la decisió de preparar Stockfish 19 passa per
   `sf19RivalWanted`.
+- Escala de graons (§6): 21 graons en l'ordre C, B, A per nivell, desplaçament
+  de 12 punts per graó, el podi puja un graó i els tres últims en baixen un,
+  els textos «Puges al Grup B…» / «… · Grup C», temporades senceres que pugen
+  de la C a la B, de la B a la A i de la A a la C del nivell següent, campió del
+  món només a Mundial A, i trajectòries i lligues d'abans dels graons
+  (`league-season.test.js`, `league-ladder.test.js`).
 - `league-season.test.js` (§5-8): colors alternats i el color de la jornada a
   `startGame`; desempats (punts, directe només si tots s'han enfrontat,
   victòries, Sonneborn-Berger, lligues velles); rendiment (esperança igual a la
