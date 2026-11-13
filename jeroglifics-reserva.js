@@ -7,6 +7,99 @@
 // >>> RESERVA (generat) >>>
 const RESERVE = [
  {
+  "fen": "5k2/7p/1r2p3/7B/p5PP/4P3/p7/3K4 b - - 1 45",
+  "solutionMoves": [
+   "b6b2",
+   "h7g6",
+   "a2a1q"
+  ],
+  "replyMoves": [
+   "h5g6",
+   "g4g5"
+  ],
+  "stepAlternatives": [],
+  "stepEvals": [],
+  "stepPvs": [],
+  "conclusion": {
+   "version": 1,
+   "fen": "5k2/7p/1r2p3/7B/p5PP/4P3/p7/3K4 b - - 1 45",
+   "line": [
+    "b6b2",
+    "h5g6",
+    "h7g6",
+    "g4g5",
+    "a2a1q"
+   ],
+   "finalFen": "5k2/8/4p1p1/6P1/p6P/4P3/1r6/q2K4 w - - 0 48",
+   "kind": "mate",
+   "finalSan": "a1=Q#",
+   "gain": null,
+   "checkedReplies": 0,
+   "checkedAlternatives": 19,
+   "explanation": "a1=Q# culmina un mat forçat en tres jugades, demostrat comprovant totes les defenses legals.",
+   "uniqueness": "Una única primera jugada força mat en tres; s’han comprovat exhaustivament les defenses possibles.",
+   "alternativeSan": null,
+   "alternativeLine": [],
+   "alternativeEval": null,
+   "minDepth": 0,
+   "requestedDepth": 0,
+   "sacrifices": [],
+   "proofMethod": "exhaustive_mate_tree",
+   "proofNodes": 8474
+  },
+  "id": "hgr_5k27p1r2p37Bp5PP4P3p73K4b",
+  "source": "reserve",
+  "sideToMove": "b",
+  "line": [
+   "b6b2",
+   "h5g6",
+   "h7g6",
+   "g4g5",
+   "a2a1q"
+  ],
+  "sanLine": [
+   "Rb2",
+   "Bg6",
+   "hxg6",
+   "g5",
+   "a1=Q#"
+  ],
+  "bestMove": "b6b2",
+  "bestMoveSan": "Rb2",
+  "finalType": "mate",
+  "finalMotif": "mate",
+  "finalMotifs": [
+   "mate"
+  ],
+  "theme": "mate",
+  "tacticKind": "escac i mat",
+  "difficulty": 75,
+  "difficultyPercent": 75,
+  "status": "new",
+  "attempts": 0,
+  "startedAt": null,
+  "solvedAt": null,
+  "deviceCreated": null,
+  "playerMove": null,
+  "origin": "stockfish19_lozza3_mate3",
+  "sourceGameId": null,
+  "sourceFen": "5k2/7p/1r2p3/7B/p5PP/4P3/p7/3K4 b - - 1 45",
+  "sourceMoveNumber": 45,
+  "adaptationNote": null,
+  "pv": [
+   "b6b2",
+   "h5g6",
+   "h7g6",
+   "g4g5",
+   "a2a1q"
+  ],
+  "evalBefore": null,
+  "ratingEstimate": null,
+  "createdAt": 0,
+  "updatedAt": 0,
+  "publishedAt": 1794599713998
+ },
+ {
   "id": "hgr_8p2k4P71p5p2pp1prR82P2PQ17Kb",
   "createdAt": 0,
   "updatedAt": 0,
