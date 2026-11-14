@@ -81,24 +81,28 @@ describe('inici: proposta a dalt i la resta a un toc', () => {
     const start = html.indexOf('<section class="home-sec home-sec--entrena"');
     const sec = html.slice(start, html.indexOf('</section>', start));
 
-    test('la proposta va primer i la llista és plegable', () => {
-        expect(sec.indexOf('id="btn-entrena-today"')).toBeLessThan(sec.indexOf('<details class="entrena-more" id="entrena-more">'));
+    test('la proposta va primer i la llista és plegable (oberta per defecte: té secció pròpia)', () => {
+        expect(sec.indexOf('id="btn-entrena-today"')).toBeLessThan(sec.indexOf('<details class="entrena-more" id="entrena-more" open>'));
         expect(sec).toContain('Què toca avui?');
         expect(sec).toContain('Més entrenaments');
         expect(sec).not.toContain('home-tiles');
     });
-    test('la llista conserva tots els botons, en ordre', () => {
+    test('la llista conserva tots els botons, en ordre; Revisa errors i el tauler d’anàlisi són a «Revisar»', () => {
         const ids = ['btn-hieroglyphic-banner', 'btn-srs-review', 'btn-tria-banner', 'btn-tactics',
-            'btn-bundle-menu', 'btn-bullet-practice', 'btn-opening', 'btn-explorer'];
+            'btn-bullet-practice', 'btn-opening'];
         const list = sec.slice(sec.indexOf('<details'));
         const at = ids.map(id => list.indexOf(`id="${id}"`));
         at.forEach(i => expect(i).toBeGreaterThan(-1));
         expect(at.slice().sort((a, b) => a - b)).toEqual(at);
-        ['srs-info', 'tria-banner-meta', 'tactics-info', 'bundle-info', 'hg-banner-status', 'btn-hieroglyphic-generate', 'btn-hieroglyphic-history']
+        ['srs-info', 'tria-banner-meta', 'tactics-info', 'hg-banner-status', 'btn-hieroglyphic-generate', 'btn-hieroglyphic-history']
             .forEach(id => expect(list).toContain(`id="${id}"`));
+        expect(sec).toContain('<span class="entrena-more-hint">6 opcions</span>');
+        const r = html.indexOf('<section class="home-sec home-sec--revisar"');
+        const revisar = html.slice(r, html.indexOf('</section>', r));
+        ['btn-bundle-menu', 'bundle-info', 'btn-explorer'].forEach(id => expect(revisar).toContain(`id="${id}"`));
     });
     test('la proposta clica el botó de la llista i el registre és a la secció', () => {
-        const init = app.slice(app.indexOf('function initEntrenaToday() {'), app.indexOf('function initEntrenaToday() {') + 1600);
+        const init = app.slice(app.indexOf('function initEntrenaToday() {'), app.indexOf('function initEntrenaToday() {') + 2600);
         expect(init).toContain("ElTaulerCore.entrenaKindForTarget(btn.id)");
         expect(init).toContain('target.click()');
         expect(init).toContain('ENTRENA_MORE_OPEN_KEY');

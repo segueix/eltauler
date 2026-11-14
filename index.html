@@ -6411,12 +6411,32 @@
         #start-screen .home-sections { display: flex; flex-direction: column; gap: 6px; }
         #start-screen .home-col { display: contents; }
         #start-screen .home-sec--juga { order: 1; }
-        #start-screen .home-sec--avui { order: 2; }
-        #start-screen .home-sec--entrena { order: 3; }
-        #start-screen .home-sec--comunitat { order: 4; }
-        #start-screen .home-sec--apren { order: 5; }
-        #start-screen .home-sec--final { order: 6; }
+        #start-screen .home-sec--comunitat { order: 2; }
+        #start-screen .home-sec--hub { order: 3; }
         #start-screen .home-sec { display: flex; flex-direction: column; gap: 10px; min-width: 0; animation: fadeInUp 0.34s ease both; }
+        /* Inici en dos nivells: la portada (Juga, partides col·lectives i «Més»)
+           i les seccions de segon nivell (data-view), tancades fins que una
+           rajola de «Més» les obre (app.js: setHomeView). Oberta una secció, la
+           portada s'amaga; les xifres (ELO, ratxa i estrelles) hi queden. */
+        #start-screen .home-sec[data-view]:not(.is-open) { display: none !important; }
+        #start-screen[data-home-view] .home-col { display: none !important; }
+        #start-screen .home-sec[data-view] .home-sec-head { margin-top: 2px; }
+        #start-screen .home-sec[data-view] .home-sec-title { font-size: 0.86rem; outline: none; }
+        #start-screen .home-sec-back {
+            display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; min-height: 36px; margin-right: 4px;
+            padding: 6px 12px 6px 8px; border-radius: 999px; cursor: pointer;
+            font-family: var(--hd-font); font-size: 0.82rem; font-weight: 700; color: var(--hd-text);
+            background: var(--hd-card); border: 1px solid var(--hd-line);
+        }
+        #start-screen .home-sec-back svg { width: 16px; height: 16px; transform: rotate(180deg); fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+        #start-screen .home-sec-back:hover { border-color: var(--sec); }
+        #start-screen .home-sec-back:focus-visible { outline: 2px solid var(--sec); outline-offset: 2px; }
+        /* «Més»: sis rajoles, dues per fila */
+        #start-screen .home-hub .hb-tile { min-height: 88px; }
+        /* La ratxa i les estrelles (dels reptes diaris) obren «Tasques i entrenador». */
+        #start-screen .stats-row [data-home-open] { cursor: pointer; border-radius: 10px; }
+        #start-screen .stats-row [data-home-open]:hover .stat-label { text-decoration: underline; }
+        #start-screen .stats-row [data-home-open]:focus-visible { outline: 2px solid var(--hd-text-2); outline-offset: 2px; }
         #start-screen .home-sec:nth-child(2) { animation-delay: 0.04s; }
         #start-screen .home-sec:nth-child(3) { animation-delay: 0.08s; }
         #start-screen .home-sec-head { display: flex; align-items: center; gap: 8px; min-height: 40px; margin-top: 6px; }
@@ -6432,6 +6452,9 @@
         .home-sec--comunitat { --sec: #ef8a6b; }
         .home-sec--apren { --sec: #7fbfe6; }
         .home-sec--final { --sec: #a9bccb; }
+        .home-sec--hub { --sec: #c9cfd6; }
+        .home-sec--revisar { --sec: #f08ca0; }
+        .home-sec--modes { --sec: #8dbcf0; }
 
         /* ── Bàner (.hb) ─────────────────────────────────────────────────── */
         .hb--violet { --hb-a: #6a4bc2; --hb-b: #3f2d86; }
@@ -6571,6 +6594,7 @@
         .hb-tile--lilac { --tile: #b9a3f0; --tile-bg: rgba(185,163,240,0.10); }
         .hb-tile--sky { --tile: #8dbcf0; --tile-bg: rgba(141,188,240,0.10); }
         .hb-tile--slate { --tile: #a9bccb; --tile-bg: rgba(169,188,203,0.10); }
+        .hb-tile--gold { --tile: #e3b84a; --tile-bg: rgba(227,184,74,0.10); }
         #start-screen .home-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
         #start-screen .hb-tile {
             display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; gap: 6px;
@@ -6757,19 +6781,23 @@
         #start-screen .learn-hint { text-align: center; }
         #start-screen .sync-container { justify-content: center; text-align: center; margin-top: 18px; }
 
-        /* Ordinador: dues columnes independents. A l'esquerra (2/3), Juga, Entrena,
-           Comunitat i Aprèn; a la dreta (1/3), Avui (missions i pla, que acostuma
-           a ser llarg). Cada columna s'apila sola: abans eren files d'una
-           graella compartida i la columna llarga estirava les files de l'altra,
-           deixant grans forats. Progrés i ajustos tanca a tota l'amplada.
-           Només amb la finestra prou ampla: en una finestra estreta d'ordinador
-           les rajoles quedaven de 50 px amb el text partit lletra a lletra. */
+        /* Ordinador: a la portada, dues columnes independents: a l'esquerra (2/3),
+           Juga i les partides col·lectives; a la dreta (1/3), «Més». Cada secció
+           de segon nivell ocupa tota l'amplada, fins a 900 px. Només amb la
+           finestra prou ampla: en una finestra estreta d'ordinador les rajoles
+           quedaven de 50 px amb el text partit lletra a lletra. */
         @media (min-width: 1000px) {
             body.device-desktop #start-screen .home-sections {
                 display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 6px 22px; align-items: start;
             }
             body.device-desktop #start-screen .home-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-            body.device-desktop #start-screen .home-sec--final { grid-column: 1 / -1; }
+            body.device-desktop #start-screen .home-sec[data-view] { grid-column: 1 / -1; width: 100%; max-width: 900px; justify-self: center; }
+            body.device-desktop #start-screen .home-sec--revisar,
+            body.device-desktop #start-screen .home-sec--modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
+            body.device-desktop #start-screen .home-sec--revisar > .home-sec-head,
+            body.device-desktop #start-screen .home-sec--revisar > .home-tiles,
+            body.device-desktop #start-screen .home-sec--modes > .home-sec-head,
+            body.device-desktop #start-screen .home-sec--modes > .home-modes { grid-column: 1 / -1; }
             /* Aprèn a l'esquerra: la TV i el tutorial un al costat de l'altre. */
             body.device-desktop #start-screen .home-sec--apren { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
             body.device-desktop #start-screen .home-sec--apren > .home-sec-head { grid-column: 1 / -1; }
@@ -6779,10 +6807,10 @@
             body.device-desktop #start-screen .home-sec--comunitat { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
             body.device-desktop #start-screen .home-sec--comunitat > .home-sec-head,
             body.device-desktop #start-screen .home-sec--comunitat > #btn-catalans,
-            body.device-desktop #start-screen .home-sec--comunitat > #custom-banners { grid-column: 1 / -1; }
-            body.device-desktop #start-screen .home-sec--final { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px 12px; align-items: stretch; }
+            body.device-desktop #start-screen .home-sec--comunitat > #custom-banners,
+            body.device-desktop #start-screen .home-sec--comunitat > #btn-create-custom { grid-column: 1 / -1; }
+            body.device-desktop #start-screen .home-sec--final { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; align-items: stretch; }
             body.device-desktop #start-screen .home-sec--final > .home-sec-head { grid-column: 1 / -1; }
-            body.device-desktop #start-screen .home-sec--final > .home-tiles { grid-column: span 2; gap: 12px; }
             body.device-desktop #start-screen .hb-tile { min-height: 100px; }
         }
         /* Finestra d'ordinador mitjana: una sola columna, rajoles com a la tauleta. */
@@ -6799,6 +6827,10 @@
         body.day-mode .home-sec--entrena { --sec: #5b3fa8; }
         body.day-mode .home-sec--comunitat { --sec: #a03a26; }
         body.day-mode .home-sec--apren { --sec: #2f6aa8; }
+        body.day-mode .home-sec--hub { --sec: #4a4f57; }
+        body.day-mode .home-sec--revisar { --sec: #b0405a; }
+        body.day-mode .home-sec--modes { --sec: #2f6aa8; }
+        body.day-mode .hb-tile--gold { --tile: #8a6514; --tile-bg: rgba(138,101,20,0.08); }
         body.day-mode .home-sec--final { --sec: #3f5466; }
         body.day-mode .hb-tile--rose { --tile: #b0405a; --tile-bg: rgba(176,64,90,0.08); }
         body.day-mode .hb-tile--amber { --tile: #9a5c14; --tile-bg: rgba(154,92,20,0.08); }
@@ -6819,7 +6851,8 @@
         /* Paper electrònic: sense degradats ni colors, només contrast */
         body.epaper-mode #start-screen .home-sec { animation: none; }
         body.epaper-mode .home-sec--juga, body.epaper-mode .home-sec--avui, body.epaper-mode .home-sec--entrena,
-        body.epaper-mode .home-sec--comunitat, body.epaper-mode .home-sec--apren, body.epaper-mode .home-sec--final { --sec: #333; }
+        body.epaper-mode .home-sec--comunitat, body.epaper-mode .home-sec--apren, body.epaper-mode .home-sec--final,
+        body.epaper-mode .home-sec--hub, body.epaper-mode .home-sec--revisar, body.epaper-mode .home-sec--modes { --sec: #333; }
         body.epaper-mode #start-screen .hb,
         body.epaper-mode #start-screen .hb-card,
         body.epaper-mode #start-screen .hb-hero,
@@ -7267,21 +7300,29 @@
                     <div class="stat-label">ELO</div>
                     <div class="stat-value elo-value" id="current-elo">400</div>
                 </div>
-                <div class="stat-box" id="streak-box">
+                <div class="stat-box" id="streak-box" role="button" tabindex="0" data-home-open="tasques" title="Missions diàries i el pla de l'entrenador">
                     <div class="stat-label">Ratxa</div>
                     <div class="stat-value streak-value" id="current-streak">0</div>
                     <div class="streak-status" id="streak-status">Pendent</div>
                 </div>
-                <div class="stat-box">
+                <div class="stat-box" role="button" tabindex="0" data-home-open="tasques" title="Missions diàries i el pla de l'entrenador">
                     <div class="stat-label">Estrelles</div>
                     <div class="stat-value stars-value" id="current-stars">0</div>
                 </div>
             </div>
 
             <div class="home-sections">
-                <!-- Ordinador: dues columnes independents (cap fila compartida, cap
-                     forat). Al mòbil els contenidors no compten (display: contents) i
-                     l'ordre de les seccions el fixa la propietat order. -->
+                <!-- Inici net: a la portada només hi ha Juga (Nova partida i la lliga)
+                     i les partides col·lectives; la resta d'El Tauler és a «Més», en
+                     seccions de segon nivell (data-view) que s'obren des de les rajoles
+                     (data-home-open) i tornen a la portada amb «Inici» (data-home-back)
+                     o amb el botó enrere. app.js (setHomeView) posa data-home-view a
+                     #start-screen i .is-open a la secció. Els identificadors són els de
+                     sempre: tutorial.js, la guia i «Què toca avui?» els cliquen encara
+                     que la seva secció sigui tancada.
+                     Ordinador: dues columnes a la portada (Juga i les partides
+                     col·lectives a l'esquerra, «Més» a la dreta); cada secció de segon
+                     nivell ocupa tota l'amplada. -->
                 <div class="home-col home-col--main">
                 <!-- JUGA: l'acció principal de l'app, sempre a dalt de tot -->
                 <section class="home-sec home-sec--juga" aria-labelledby="home-sec-juga">
@@ -7337,11 +7378,6 @@
                             <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
                         </button>
                         <button type="button" class="league-hero-play" id="btn-league-hero-play" hidden><svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg><span id="league-hero-play-label">Juga la jornada</span></button>
-                    </div>
-                    <!-- Els altres modes contra el motor -->
-                    <div class="home-modes">
-                        <button type="button" class="hb-mode hb-mode--sky" id="btn-positional-game"><svg class="hb-mode-ic" aria-hidden="true"><use href="#ic-scope"/></svg><span>Joc vista</span></button>
-                        <button type="button" class="hb-mode hb-mode--lilac" id="btn-antidote-game"><svg class="hb-mode-ic" aria-hidden="true"><use href="#ic-dna"/></svg><span>Rival Antídot</span></button>
                     </div>
                     <!-- Per a qui encara ha de fer la partida de calibratge: si no sap
                          jugar, que aprengui primer. El mostra tutorial.js. -->
@@ -7399,10 +7435,129 @@
                     </div>
                 </section>
 
-                <!-- ENTRENA: jeroglífics al capdavant, després els tests i el repàs,
-                     i les eines d'entrenament en rajoles -->
-                <section class="home-sec home-sec--entrena" aria-labelledby="home-sec-entrena">
-                    <div class="home-sec-head"><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-entrena">Entrena</h2></div>
+                <!-- PARTIDES COL·LECTIVES: Catalans vs Stockfish, les pròpies i crear-ne -->
+                <section class="home-sec home-sec--comunitat" aria-labelledby="home-sec-comunitat">
+                    <div class="home-sec-head"><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-comunitat">Partides col·lectives</h2></div>
+                    <button class="hb hb--lg hb--terracotta" id="btn-catalans" aria-label="Catalans vs Stockfish">
+                        <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-swords"/></svg></span>
+                        <span class="hb-text">
+                            <span class="hb-live"><span class="cb-dot"></span> EN DIRECTE</span>
+                            <span class="hb-title">Catalans vs Stockfish</span>
+                            <span class="hb-sub">Partida col·lectiva · vota el moviment del nostre exèrcit</span>
+                            <span class="hb-meta catalans-banner-countdown" data-countdown-key="default">⏳ …</span>
+                        </span>
+                        <span class="hb-cta">Juga-hi ›</span>
+                    </button>
+                    <!-- Bàners de partides col·lectives pròpies (els genera catalans.js) -->
+                    <div id="custom-banners"></div>
+                    <button class="hb-add" id="btn-create-custom" aria-label="Crea la teva partida col·lectiva">
+                        <span class="hb-add-plus" aria-hidden="true">＋</span>
+                        <span class="hb-text">
+                            <span class="hb-title">Crea la teva partida col·lectiva</span>
+                            <span class="hb-sub">El teu equip contra Stockfish · convida qui vulguis</span>
+                        </span>
+                    </button>
+                </section>
+                </div>
+                <div class="home-col home-col--side">
+                <!-- MÉS: la resta d'El Tauler, agrupada. Cada rajola obre la seva
+                     secció (data-home-open; app.js: setHomeView). -->
+                <section class="home-sec home-sec--hub" aria-labelledby="home-sec-hub">
+                    <div class="home-sec-head"><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-hub">Més</h2></div>
+                    <nav class="home-tiles home-hub" aria-label="Seccions d'El Tauler">
+                        <button type="button" class="hb-tile hb-tile--amber hub-tile" data-home-open="tasques">
+                            <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-flag"/></svg>
+                            <span class="hb-tile-title">Tasques i entrenador</span>
+                            <span class="hb-tile-sub" id="hub-tasques-sub">Missions del dia i el pla</span>
+                        </button>
+                        <button type="button" class="hb-tile hb-tile--lilac hub-tile" data-home-open="tactiques">
+                            <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg>
+                            <span class="hb-tile-title">Tàctiques</span>
+                            <span class="hb-tile-sub">Jeroglífics, repàs i exercicis</span>
+                        </button>
+                        <button type="button" class="hb-tile hb-tile--rose hub-tile" data-home-open="revisar">
+                            <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-search"/></svg>
+                            <span class="hb-tile-title">Revisar</span>
+                            <span class="hb-tile-sub">Errors, historial i estadístiques</span>
+                        </button>
+                        <button type="button" class="hb-tile hb-tile--gold hub-tile" data-home-open="modes">
+                            <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-scope"/></svg>
+                            <span class="hb-tile-title">Més maneres de jugar</span>
+                            <span class="hb-tile-sub">Joc vista i Rival Antídot</span>
+                        </button>
+                        <button type="button" class="hb-tile hb-tile--sky hub-tile" data-home-open="apren">
+                            <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-cap"/></svg>
+                            <span class="hb-tile-title">Aprèn</span>
+                            <span class="hb-tile-sub">Lliçons, Stockfish TV i la guia</span>
+                        </button>
+                        <button type="button" class="hb-tile hb-tile--slate hub-tile" data-home-open="ajustos">
+                            <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-gear"/></svg>
+                            <span class="hb-tile-title">Rànquing i ajustos</span>
+                            <span class="hb-tile-sub">Qui mana i la configuració</span>
+                        </button>
+                    </nav>
+                </section>
+                </div>
+
+                <!-- TASQUES I ENTRENADOR: suggeriment del dia, missions diàries (els reptes
+                     que donen estrelles) i el diagnòstic i el pla de l'entrenador -->
+                <section class="home-sec home-sec--avui" data-view="tasques" aria-labelledby="home-sec-avui">
+                    <div class="home-sec-head"><button type="button" class="home-sec-back" data-home-back aria-label="Torna a l'inici"><svg aria-hidden="true"><use href="#ic-chevron"/></svg><span>Inici</span></button><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-avui" tabindex="-1">Tasques i entrenador</h2></div>
+                    <!-- Suggeriment contextual del dia (es mostra quan hi ha res a dir) -->
+                    <div class="engagement-banner" id="engagement-banner" style="display:none;">
+                        <span class="eng-icon">💡</span>
+                        <span class="eng-text"></span>
+                        <button class="btn eng-cta" data-eng-action="play"></button>
+                    </div>
+                    <div class="missions-panel">
+                        <div class="missions-header">
+                            <div class="missions-title"><svg class="missions-ic" aria-hidden="true"><use href="#ic-flag"/></svg>Missions diàries <span class="missions-count" id="missions-count">0/0</span></div>
+                            <button class="badges-btn" id="btn-badges"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Trofeus</button>
+                        </div>
+                        <div id="missions-list"></div>
+                    </div>
+                    <div class="coach-banner" id="home-coach-banner" style="display:none;">
+                        <button class="coach-banner-main" id="btn-home-coach" type="button" aria-label="Veure el diagnòstic de l'entrenador">
+                            <span class="coach-banner-ic" aria-hidden="true"><svg><use href="#ic-bulb"/></svg></span>
+                            <span class="coach-banner-text">
+                                <span class="coach-banner-title">Diagnòstic de l'entrenador</span>
+                                <span class="coach-banner-sub" id="home-coach-text">—</span>
+                            </span>
+                            <span class="coach-banner-cta">Veure ›</span>
+                        </button>
+                        <div class="coach-banner-foot">
+                            <label for="home-coach-style">Estil</label>
+                            <select id="home-coach-style" class="select-control">
+                                <option value="casual">Casual</option>
+                                <option value="balanced">Equilibrada</option>
+                                <option value="technical">Tècnica</option>
+                            </select>
+                            <button type="button" id="btn-home-coach-refresh" class="coach-refresh-btn" title="Regenera el diagnòstic d'avui" aria-label="Regenera el diagnòstic">↻</button>
+                        </div>
+                    </div>
+                    <div class="coach-panel" id="weekly-plan-panel" style="display:none;">
+                        <div class="coach-kicker">
+                            <span><svg class="coach-ic" aria-hidden="true"><use href="#ic-cap"/></svg>El pla de l'entrenador</span>
+                            <span class="coach-kicker-right">
+                                <span class="plan-streak" id="plan-streak" style="display:none;" title="Dies seguits completant el pla">🔥</span>
+                                <span class="plan-countdown" id="plan-countdown" title="Temps fins al nou pla d'entrenament">⏳ --:--:--</span>
+                            </span>
+                        </div>
+                        <div class="coach-plan-summary" id="weekly-plan-summary"></div>
+                        <button class="coach-plan-toggle" id="btn-plan-summary-toggle" type="button" aria-expanded="false">[Continuar llegint]</button>
+                        <div class="coach-plan-progress" id="weekly-plan-progress">
+                            <div class="coach-plan-progress-bar"><div class="coach-plan-progress-fill"></div></div>
+                            <span class="coach-plan-progress-label">0/0 passos</span>
+                        </div>
+                        <div id="weekly-plan-list"></div>
+                        <div class="coach-plan-done" id="weekly-plan-done" style="display:none;"></div>
+                    </div>
+                </section>
+
+                <!-- TÀCTIQUES I ENTRENAMENT: «Què toca avui?» al capdavant i la llista
+                     d'entrenaments (jeroglífics, repàs, tests, tàctiques, bullet, obertures) -->
+                <section class="home-sec home-sec--entrena" data-view="tactiques" aria-labelledby="home-sec-entrena">
+                    <div class="home-sec-head"><button type="button" class="home-sec-back" data-home-back aria-label="Torna a l'inici"><svg aria-hidden="true"><use href="#ic-chevron"/></svg><span>Inici</span></button><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-entrena" tabindex="-1">Tàctiques i entrenament</h2></div>
                     <!-- «Què toca avui?»: UNA proposta segons el progrés (repassos
                          pendents, errors nous, jeroglífics, la teva obertura…). La
                          tria és d'ElTaulerCore.entrenaPickToday i el botó reutilitza
@@ -7416,10 +7571,10 @@
                         </span>
                         <span class="hb-cta" id="entrena-today-cta">Comença ›</span>
                     </button>
-                    <details class="entrena-more" id="entrena-more">
+                    <details class="entrena-more" id="entrena-more" open>
                         <summary class="entrena-more-sum">
                             <span class="entrena-more-label">Més entrenaments</span>
-                            <span class="entrena-more-hint">8 opcions</span>
+                            <span class="entrena-more-hint">6 opcions</span>
                             <svg class="entrena-more-chev" aria-hidden="true"><use href="#ic-chevron"/></svg>
                         </summary>
                         <div class="entrena-list">
@@ -7480,11 +7635,6 @@
                             <span class="hb-text"><span class="hb-title">Tàctiques</span><span class="hb-sub" id="tactics-info">Combinacions noves</span></span>
                             <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
                         </button>
-                        <button class="hb hb--ochre" id="btn-bundle-menu" type="button">
-                            <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-search"/></svg></span>
-                            <span class="hb-text"><span class="hb-title">Revisa errors</span><span class="hb-sub" id="bundle-info">Biblioteca manual</span></span>
-                            <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
-                        </button>
                         <button class="hb hb--ocean" id="btn-bullet-practice" type="button">
                             <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-zap"/></svg></span>
                             <span class="hb-text"><span class="hb-title">Reflexos bullet</span><span class="hb-sub">Pla de 5 minuts · tauler, rellotge i contrarellotge</span></span>
@@ -7495,50 +7645,50 @@
                             <span class="hb-text"><span class="hb-title">Obertures</span><span class="hb-sub">Construeix la teva i practica-la</span></span>
                             <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
                         </button>
+                        </div>
+                    </details>
+                </section>
+
+                <!-- REVISAR: els errors de les teves partides, l'historial, les
+                     estadístiques i el tauler d'anàlisi -->
+                <section class="home-sec home-sec--revisar" data-view="revisar" aria-labelledby="home-sec-revisar">
+                    <div class="home-sec-head"><button type="button" class="home-sec-back" data-home-back aria-label="Torna a l'inici"><svg aria-hidden="true"><use href="#ic-chevron"/></svg><span>Inici</span></button><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-revisar" tabindex="-1">Revisar</h2></div>
+                        <button class="hb hb--ochre" id="btn-bundle-menu" type="button">
+                            <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-search"/></svg></span>
+                            <span class="hb-text"><span class="hb-title">Revisa errors</span><span class="hb-sub" id="bundle-info">Biblioteca manual</span></span>
+                            <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
+                        </button>
+                    <div class="home-tiles home-tiles--two">
+                        <button class="hb-tile hb-tile--slate" id="btn-history">
+                            <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-history"/></svg>
+                            <span class="hb-tile-title">Historial</span>
+                            <span class="hb-tile-sub">Les teves partides</span>
+                        </button>
+                        <button class="hb-tile hb-tile--slate" id="btn-stats">
+                            <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-stats"/></svg>
+                            <span class="hb-tile-title">Estadístiques</span>
+                            <span class="hb-tile-sub">Evolució i diagnòstic</span>
+                        </button>
+                    </div>
                         <button class="hb hb--azure" id="btn-explorer" type="button">
                             <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-analysis"/></svg></span>
                             <span class="hb-text"><span class="hb-title">Tauler d'anàlisi</span><span class="hb-sub">Qualsevol posició, amb motor</span></span>
                             <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
                         </button>
-                        </div>
-                    </details>
                 </section>
 
-                <!-- COMUNITAT: partides col·lectives i rànquing -->
-                <section class="home-sec home-sec--comunitat" aria-labelledby="home-sec-comunitat">
-                    <div class="home-sec-head"><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-comunitat">Comunitat</h2></div>
-                    <button class="hb hb--lg hb--terracotta" id="btn-catalans" aria-label="Catalans vs Stockfish">
-                        <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-swords"/></svg></span>
-                        <span class="hb-text">
-                            <span class="hb-live"><span class="cb-dot"></span> EN DIRECTE</span>
-                            <span class="hb-title">Catalans vs Stockfish</span>
-                            <span class="hb-sub">Partida col·lectiva · vota el moviment del nostre exèrcit</span>
-                            <span class="hb-meta catalans-banner-countdown" data-countdown-key="default">⏳ …</span>
-                        </span>
-                        <span class="hb-cta">Juga-hi ›</span>
-                    </button>
-                    <!-- Bàners de partides col·lectives pròpies (els genera catalans.js) -->
-                    <div id="custom-banners"></div>
-                    <button class="hb hb--copper" id="btn-ranking" aria-label="Rànquing">
-                        <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-bars"/></svg></span>
-                        <span class="hb-text">
-                            <span class="hb-title">Rànquing</span>
-                            <span class="hb-sub">Qui mana? ELO, estrelles, partides i jeroglífics</span>
-                        </span>
-                        <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
-                    </button>
-                    <button class="hb-add" id="btn-create-custom" aria-label="Crea la teva partida col·lectiva">
-                        <span class="hb-add-plus" aria-hidden="true">＋</span>
-                        <span class="hb-text">
-                            <span class="hb-title">Crea la teva partida col·lectiva</span>
-                            <span class="hb-sub">El teu equip contra Stockfish · convida qui vulguis</span>
-                        </span>
-                    </button>
+                <!-- MÉS MANERES DE JUGAR: els altres modes contra el motor -->
+                <section class="home-sec home-sec--modes" data-view="modes" aria-labelledby="home-sec-modes">
+                    <div class="home-sec-head"><button type="button" class="home-sec-back" data-home-back aria-label="Torna a l'inici"><svg aria-hidden="true"><use href="#ic-chevron"/></svg><span>Inici</span></button><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-modes" tabindex="-1">Més maneres de jugar</h2></div>
+                    <div class="home-modes">
+                        <button type="button" class="hb-mode hb-mode--sky" id="btn-positional-game"><svg class="hb-mode-ic" aria-hidden="true"><use href="#ic-scope"/></svg><span>Joc vista</span></button>
+                        <button type="button" class="hb-mode hb-mode--lilac" id="btn-antidote-game"><svg class="hb-mode-ic" aria-hidden="true"><use href="#ic-dna"/></svg><span>Rival Antídot</span></button>
+                    </div>
                 </section>
 
-                <!-- APRÈN: Stockfish TV i el tutorial d'escacs -->
-                <section class="home-sec home-sec--apren" aria-labelledby="home-sec-apren">
-                    <div class="home-sec-head"><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-apren">Aprèn</h2></div>
+                <!-- APRÈN: Stockfish TV, el tutorial d'escacs i la guia d'El Tauler -->
+                <section class="home-sec home-sec--apren" data-view="apren" aria-labelledby="home-sec-apren">
+                    <div class="home-sec-head"><button type="button" class="home-sec-back" data-home-back aria-label="Torna a l'inici"><svg aria-hidden="true"><use href="#ic-chevron"/></svg><span>Inici</span></button><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-apren" tabindex="-1">Aprèn</h2></div>
                     <!-- Stockfish vs Lozza TV (stockfishtv.js): partida entre
                          Stockfish GENERADA AL DISPOSITIU, amb comentaris breus. -->
                     <button class="hb hb--ocean" id="btn-sftv-banner" aria-label="Stockfish vs Lozza TV">
@@ -7557,96 +7707,32 @@
                         </span>
                         <span class="hb-cta" id="tutorial-banner-cta">Comença ›</span>
                     </button>
-                </section>
-
-                </div>
-                <div class="home-col home-col--side">
-
-                <!-- AVUI: suggeriment del dia, missions i entrenador -->
-                <section class="home-sec home-sec--avui" aria-labelledby="home-sec-avui">
-                    <div class="home-sec-head"><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-avui">Avui</h2></div>
-                    <!-- Suggeriment contextual del dia (es mostra quan hi ha res a dir) -->
-                    <div class="engagement-banner" id="engagement-banner" style="display:none;">
-                        <span class="eng-icon">💡</span>
-                        <span class="eng-text"></span>
-                        <button class="btn eng-cta" data-eng-action="play"></button>
-                    </div>
-                    <div class="missions-panel">
-                        <div class="missions-header">
-                            <div class="missions-title"><svg class="missions-ic" aria-hidden="true"><use href="#ic-flag"/></svg>Missions diàries <span class="missions-count" id="missions-count">0/0</span></div>
-                            <button class="badges-btn" id="btn-badges"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Trofeus</button>
-                        </div>
-                        <div id="missions-list"></div>
-                    </div>
-                    <div class="coach-banner" id="home-coach-banner" style="display:none;">
-                        <button class="coach-banner-main" id="btn-home-coach" type="button" aria-label="Veure el diagnòstic de l'entrenador">
-                            <span class="coach-banner-ic" aria-hidden="true"><svg><use href="#ic-bulb"/></svg></span>
-                            <span class="coach-banner-text">
-                                <span class="coach-banner-title">Diagnòstic de l'entrenador</span>
-                                <span class="coach-banner-sub" id="home-coach-text">—</span>
-                            </span>
-                            <span class="coach-banner-cta">Veure ›</span>
-                        </button>
-                        <div class="coach-banner-foot">
-                            <label for="home-coach-style">Estil</label>
-                            <select id="home-coach-style" class="select-control">
-                                <option value="casual">Casual</option>
-                                <option value="balanced">Equilibrada</option>
-                                <option value="technical">Tècnica</option>
-                            </select>
-                            <button type="button" id="btn-home-coach-refresh" class="coach-refresh-btn" title="Regenera el diagnòstic d'avui" aria-label="Regenera el diagnòstic">↻</button>
-                        </div>
-                    </div>
-                    <div class="coach-panel" id="weekly-plan-panel" style="display:none;">
-                        <div class="coach-kicker">
-                            <span><svg class="coach-ic" aria-hidden="true"><use href="#ic-cap"/></svg>El pla de l'entrenador</span>
-                            <span class="coach-kicker-right">
-                                <span class="plan-streak" id="plan-streak" style="display:none;" title="Dies seguits completant el pla">🔥</span>
-                                <span class="plan-countdown" id="plan-countdown" title="Temps fins al nou pla d'entrenament">⏳ --:--:--</span>
-                            </span>
-                        </div>
-                        <div class="coach-plan-summary" id="weekly-plan-summary"></div>
-                        <button class="coach-plan-toggle" id="btn-plan-summary-toggle" type="button" aria-expanded="false">[Continuar llegint]</button>
-                        <div class="coach-plan-progress" id="weekly-plan-progress">
-                            <div class="coach-plan-progress-bar"><div class="coach-plan-progress-fill"></div></div>
-                            <span class="coach-plan-progress-label">0/0 passos</span>
-                        </div>
-                        <div id="weekly-plan-list"></div>
-                        <div class="coach-plan-done" id="weekly-plan-done" style="display:none;"></div>
-                    </div>
-                </section>
-
-                </div>
-
-                <!-- PROGRÉS I AJUSTOS: historial i estadístiques; la configuració i
-                     la guia d'ús (el manual) tanquen la pàgina. -->
-                <section class="home-sec home-sec--final" aria-labelledby="home-sec-final">
-                    <div class="home-sec-head"><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-final">Progrés i ajustos</h2></div>
-                    <div class="home-tiles home-tiles--two">
-                        <button class="hb-tile hb-tile--slate" id="btn-history">
-                            <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-history"/></svg>
-                            <span class="hb-tile-title">Historial</span>
-                            <span class="hb-tile-sub">Les teves partides</span>
-                        </button>
-                        <button class="hb-tile hb-tile--slate" id="btn-stats">
-                            <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-stats"/></svg>
-                            <span class="hb-tile-title">Estadístiques</span>
-                            <span class="hb-tile-sub">Evolució i diagnòstic</span>
-                        </button>
-                    </div>
-                    <button class="hb hb--stone" id="btn-settings">
-                        <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-gear"/></svg></span>
-                        <span class="hb-text">
-                            <span class="hb-title">Configuració</span>
-                            <span class="hb-sub">Aparença, joc, veus i sincronització</span>
-                        </span>
-                        <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
-                    </button>
                     <button class="hb hb--graphite" id="btn-guide-banner" aria-label="Guia d'El Tauler">
                         <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-compass"/></svg></span>
                         <span class="hb-text">
                             <span class="hb-title">Guia d'El Tauler</span>
                             <span class="hb-sub">El manual: què fa cada modalitat i com treure'n profit</span>
+                        </span>
+                        <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
+                    </button>
+                </section>
+
+                <!-- RÀNQUING I AJUSTOS: el rànquing i la configuració -->
+                <section class="home-sec home-sec--final" data-view="ajustos" aria-labelledby="home-sec-final">
+                    <div class="home-sec-head"><button type="button" class="home-sec-back" data-home-back aria-label="Torna a l'inici"><svg aria-hidden="true"><use href="#ic-chevron"/></svg><span>Inici</span></button><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-final" tabindex="-1">Rànquing i ajustos</h2></div>
+                    <button class="hb hb--copper" id="btn-ranking" aria-label="Rànquing">
+                        <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-bars"/></svg></span>
+                        <span class="hb-text">
+                            <span class="hb-title">Rànquing</span>
+                            <span class="hb-sub">Qui mana? ELO, estrelles, partides i jeroglífics</span>
+                        </span>
+                        <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
+                    </button>
+                    <button class="hb hb--stone" id="btn-settings">
+                        <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-gear"/></svg></span>
+                        <span class="hb-text">
+                            <span class="hb-title">Configuració</span>
+                            <span class="hb-sub">Aparença, joc, veus i sincronització</span>
                         </span>
                         <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
                     </button>

@@ -13,16 +13,19 @@ describe('bàner de la lliga a l’inici', () => {
     const start = html.indexOf('<section class="home-sec home-sec--juga"');
     const sec = html.slice(start, html.indexOf('</section>', start));
 
-    test('va just després de «Nova partida» i abans dels altres modes', () => {
+    test('va just després de «Nova partida»; els altres modes són a «Més maneres de jugar»', () => {
         const hero = sec.indexOf('id="league-hero"');
         expect(hero).toBeGreaterThan(sec.indexOf('id="btn-new-game"'));
-        expect(hero).toBeLessThan(sec.indexOf('<div class="home-modes">'));
+        expect(sec).not.toContain('<div class="home-modes">');
         // El botó de sempre (#btn-league) és el bàner: el tutorial i ?mode=league el fan servir.
         expect(sec).toMatch(/<button type="button" class="hb hb--lg hb--bare league-hero-main" id="btn-league">/);
         expect(sec).toContain('id="btn-league-hero-play"');
-        const m = sec.indexOf('<div class="home-modes">');
-        const modes = sec.slice(m, sec.indexOf('</div>', m));
+        const ms = html.indexOf('<section class="home-sec home-sec--modes"');
+        const m = html.indexOf('<div class="home-modes">', ms);
+        expect(m).toBeGreaterThan(ms);
+        const modes = html.slice(m, html.indexOf('</div>', m));
         expect(modes).toContain('btn-positional-game');
+        expect(modes).toContain('btn-antidote-game');
         expect(modes).not.toContain('btn-league');
         expect(html).toMatch(/#start-screen \.home-modes \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
     });
