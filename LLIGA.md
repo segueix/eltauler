@@ -318,8 +318,9 @@ els 198 de parla catalana de la Catalunya Nord i els de parla catalana de la
 Franja; els 67 de les Balears. Es veu a sota del nom a la classificació, a la
 franja del proper rival i a la secció dels rivals. Els noms de persona van amb
 l'origen: a la Lliga Catalana de qui juga a la Catalunya Nord, cada rival té
-el nom del Principat o del Nord segons d'on és (`originTerritory`); a l'Alguer,
-de la Nurra a Sardenya la majoria són italians (50%, 75% i 85%).
+el nom del Principat o del Nord segons d'on és (`originTerritory`); a les
+Illes, cada rival té els cognoms de la seva illa (`placeCulture`: Mallorca,
+Menorca o les Pitiüses, pel lloc del rival o, si no se sap, del jugador).
 
 **Com es diuen els rivals** (`nomslliga.js`, `rivalNames`): noms de persona,
 nom i cognom, que s'escauen a la lliga i es fan més internacionals a mesura
@@ -336,6 +337,20 @@ d'un gran jugador d'escacs.
 | Països Catalans | del territori de la ciutat d'origen: un de Palma, mallorquí; un de Perpinyà, rossellonès | Miquel Florit (Palma), Pepa Tormo (Alacant) | 35% (93% dels Països Catalans) |
 | Europa | del país d'origen | Zofia Kowalska (Polònia), Thomas Mercier (França) | 0% |
 | món | del país d'origen | Sakura Yamamoto (Japó), Hayk Harutyunyan (Armènia) | 0% |
+
+**Els cognoms catalans de cada lloc**, també a les lligues locals: al País
+Valencià, els més estesos (Ferrer, Martí, Sanchis, Soler, Llopis, Vidal,
+Climent, Peris...); a les Illes, els de cada illa (Mallorca: Pons, Ferrer,
+Vidal, Coll, Riera, Oliver, Bauzà...; Menorca: Pons, Seguí, Mercadal,
+Carreras, Sintes, Taltavull...; Eivissa i Formentera: Marí, Tur, Ribas,
+Torres, Prats, Planells...); a la Catalunya Nord, en català (Vidal, Bosch,
+Pujol, Font, Roca, Sicre, Garriga, Sardà...; abans hi havia grafies franceses
+com Garrigue o Escudier), amb noms de pila francesos i catalans; i a
+l'Alguer, els catalans que s'hi conserven (Pons, Serra, Canelles, Garau,
+Fois, Galceran...). A l'Alguer els cognoms més freqüents avui són sards
+(Piras, Sanna, Manca...): van amb la gent d'altres orígens (85% sards, 15%
+italians), que de la Nurra a Sardenya és una part com als altres territoris
+(12%, 25% i 40%); abans hi eren la majoria (50%, 75% i 85% d'italians).
 
 Cada territori té els seus noms (catalans, valencians, de les Illes, de la
 Catalunya Nord, andorrans, de la Franja i de l'Alguer) i la seva barreja

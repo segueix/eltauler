@@ -183,18 +183,22 @@ describe('localitats: municipis dels altres territoris i orígens dels rivals', 
         expect(Loc.rivalOrigins(3, home('alguer', "l'Alguer"), 9, rnd)).not.toContain('Fertilia');
     });
 
-    test('noms dels rivals: a l\'Alguer, sobretot italians; a la Catalana del Nord, segons d\'on són', () => {
+    test('noms dels rivals: a l\'Alguer, cognoms catalans algueresos (i sards de la Nurra a Sardenya); a la Catalana del Nord, segons d\'on són', () => {
         let s = 3;
         const r = () => ((s = (s * 16807) % 2147483647) / 2147483647);
         const alguer = home('alguer', "l'Alguer");
-        const it = level => {
+        const share = (level, code) => {
             let n = 0;
-            for (let i = 0; i < 400; i++) if (Noms.cultureFor(level, alguer, 'Sàsser', { random: r }) === 'it') n++;
-            return n / 400;
+            for (let i = 0; i < 2000; i++) if (Noms.cultureFor(level, alguer, 'Sàsser', { random: r }) === code) n++;
+            return n / 2000;
         };
-        expect(it(0)).toBe(0);
-        expect(it(1)).toBeGreaterThan(0.45);
-        expect(it(3)).toBeGreaterThan(0.85);
+        // A la lliga de l'Alguer, tots algueresos; com més amunt, més sards
+        // (i alguns italians), però la majoria sempre amb cognom alguerès.
+        expect(share(0, 'alguer')).toBe(1);
+        expect(share(1, 'alguer')).toBeGreaterThan(0.8);
+        expect(share(3, 'alguer')).toBeGreaterThan(0.5);
+        expect(share(3, 'sard')).toBeGreaterThan(0.25);
+        expect(share(3, 'it')).toBeGreaterThan(0);
         const perpinya = home('nord', 'Perpinyà');
         const opts = { random: () => 0.99, territoryOf: Loc.originTerritory };
         expect(Noms.cultureFor(3, perpinya, 'Vic', opts)).toBe('cat');
@@ -552,11 +556,44 @@ describe('noms dels rivals (nomslliga.js): cada cop més internacionals', () => 
         for (let k = 0; k < 50; k++) {
             const pp = Loc.rivalOrigins(4, vic, 9, rnd);
             const names = Noms.rivalNames(4, vic, pp, Object.assign({}, opts, { random: () => 0.99 }));   // sense diversitat
-            names.forEach((n, i) => expect(inCulture(n, Noms.TERRITORY_CULTURE[Loc.ppccCityTerritory(pp[i])])).toBe(true));
+            names.forEach((n, i) => expect(inCulture(n, Noms.placeCulture(Loc.ppccCityTerritory(pp[i]), pp[i]))).toBe(true));
             for (const lv of [5, 6]) {
                 const o = Loc.rivalOrigins(lv, vic, 9, rnd);
                 Noms.rivalNames(lv, vic, o, opts).forEach((n, i) => expect(inCulture(n, Noms.countryCulture(o[i]))).toBe(true));
             }
+        }
+    });
+
+    test('els cognoms catalans de cada lloc: País Valencià, cada illa, la Catalunya Nord i l\'Alguer', () => {
+        const C = Noms.CULTURES;
+        expect(C.val.s).toEqual(expect.arrayContaining(['Ferrer', 'Martí', 'Sanchis', 'Soler', 'Llopis', 'Vidal']));
+        expect(C.bal.s).toEqual(expect.arrayContaining(['Pons', 'Ferrer', 'Vidal', 'Coll', 'Riera', 'Oliver', 'Bauzà']));
+        expect(C.menorca.s).toEqual(expect.arrayContaining(['Pons', 'Seguí', 'Mercadal', 'Carreras', 'Sintes', 'Taltavull']));
+        expect(C.pitiuses.s).toEqual(expect.arrayContaining(['Marí', 'Tur', 'Ribas', 'Torres', 'Prats', 'Planells']));
+        expect(C.nord.s).toEqual(expect.arrayContaining(['Vidal', 'Bosch', 'Pujol', 'Font', 'Roca', 'Sicre']));
+        expect(C.alguer.s).toEqual(expect.arrayContaining(['Pons', 'Serra', 'Canelles', 'Garau', 'Galceran']));
+        // En català: cap grafia francesa a la Catalunya Nord ni cap cognom sard a l'Alguer.
+        ['Garrigue', 'Escudier', 'Sarda', 'Py', 'Delonca', 'Bassole'].forEach(x => expect(C.nord.s).not.toContain(x));
+        C.sard.s.forEach(x => expect(C.alguer.s).not.toContain(x));
+        // Cada illa amb els seus: del lloc del rival o, si no se sap, del jugador.
+        const maó = Loc.normalizeHome({ territory: 'bal', municipi: 'Maó', comarca: 'Menorca' });
+        const eivissa = Loc.normalizeHome({ territory: 'bal', municipi: 'Sant Antoni de Portmany', comarca: 'Eivissa' });
+        const palma = Loc.normalizeHome({ territory: 'bal', municipi: 'Palma', comarca: 'Mallorca' });
+        expect(Noms.placeCulture('bal', '', maó)).toBe('menorca');
+        expect(Noms.placeCulture('bal', '', eivissa)).toBe('pitiuses');
+        expect(Noms.placeCulture('bal', '', { territory: 'bal', comarca: 'Formentera' })).toBe('pitiuses');
+        expect(Noms.placeCulture('bal', '', palma)).toBe('bal');
+        expect(Noms.placeCulture('bal', 'Ciutadella', palma)).toBe('menorca');
+        expect(Noms.placeCulture('bal', 'es Pujols', palma)).toBe('pitiuses');
+        expect(Noms.placeCulture('bal', 'Sóller', maó)).toBe('bal');
+        Noms.rivalNames(0, maó, [], Object.assign({ count: 9 }, opts)).forEach(n => expect(inCulture(n, 'menorca')).toBe(true));
+        Noms.rivalNames(0, eivissa, [], Object.assign({ count: 9 }, opts)).forEach(n => expect(inCulture(n, 'pitiuses')).toBe(true));
+        // A la Lliga Balear, cadascú amb els cognoms de la seva illa (sense
+        // gent d'altres orígens, amb l'atzar alt).
+        for (let k = 0; k < 20; k++) {
+            const origins = Loc.rivalOrigins(3, palma, 9, rnd);
+            Noms.rivalNames(3, palma, origins, { random: () => 0.99 }).forEach((n, i) =>
+                expect(inCulture(n, Noms.placeCulture('bal', origins[i], palma))).toBe(true));
         }
     });
 
