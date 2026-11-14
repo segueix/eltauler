@@ -330,18 +330,27 @@ d'un gran jugador d'escacs.
 | nivell | d'on són els noms | exemple (jugador de Vic) | noms catalans |
 |---|---|---|---|
 | municipal | del territori del jugador | Mireia Roig, Pol Guix | 100% |
-| comarcal | del territori, alguns d'altres orígens | Eudald Bonet, Rubén Sánchez | 88% |
-| provincial | encara més d'altres orígens | Ona Oliveras, Elena Popescu | 76% |
-| territori | la gent que hi viu (espanyols, llatinoamericans, marroquins, romanesos, xinesos, pakistanesos) | Aina Grau, Khadija Haddad | 60% |
-| Països Catalans | del territori de la ciutat d'origen: un de Palma, mallorquí; un de Perpinyà, rossellonès | Miquel Florit (Palma), Pepa Tormo (Alacant) | 30% (81% dels Països Catalans) |
+| comarcal | del territori, alguns d'altres orígens | Eudald Bonet, Yassine Chakir | 96% |
+| provincial | encara més d'altres orígens | Ona Oliveras, Elena Popescu | 92% |
+| territori | la gent que hi viu (marroquins, romanesos, xinesos, pakistanesos) | Aina Grau, Khadija Haddad | 88% |
+| Països Catalans | del territori de la ciutat d'origen: un de Palma, mallorquí; un de Perpinyà, rossellonès | Miquel Florit (Palma), Pepa Tormo (Alacant) | 35% (93% dels Països Catalans) |
 | Europa | del país d'origen | Zofia Kowalska (Polònia), Thomas Mercier (França) | 0% |
 | món | del país d'origen | Sakura Yamamoto (Japó), Hayk Harutyunyan (Armènia) | 0% |
 
 Cada territori té els seus noms (catalans, valencians, de les Illes, de la
 Catalunya Nord, andorrans, de la Franja i de l'Alguer) i la seva barreja
 d'altres orígens (a Andorra, molts portuguesos; a les Illes, alemanys; a la
-Catalunya Nord, francesos). Fora dels Països Catalans, els noms són del país
-que s'ha escrit. Hi ha 69 repertoris: on el cognom canvia amb el gènere hi va
+Catalunya Nord, francesos). **Cap nom castellà a les lligues dels Països
+Catalans** (del municipal als Països Catalans, des de qualsevol territori):
+ni noms castellans o de l'Amèrica hispana entre els d'altres orígens (la seva
+part, que abans era la majoria de la barreja, ara són noms del territori) ni
+formes castellanes entre els del territori (Amparo, Paco, Carmen, Pallarés...:
+ara Fina, Cento, Carme, Pallarès). Les temporades començades abans canvien
+els noms castellans dels rivals per noms catalans del seu territori, també a
+les jornades jugades (`catalanizeLeagueRivals` a app.js, amb la llavor de l'id
+de la lliga perquè cada càrrega doni els mateixos). A Europa, al món i per a
+qui juga des de fora dels Països Catalans, els noms són del país que s'ha
+escrit, castellans inclosos (Espanya, Mèxic, l'Argentina...). Hi ha 69 repertoris: on el cognom canvia amb el gènere hi va
 de dona i d'home (Kowalska, Kowalski; Jónsdóttir, Jónsson), i a la Xina, Corea
 i el Vietnam el cognom va davant (Yoon Jae-won, Trần Thị Hương).
 

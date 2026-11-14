@@ -202,6 +202,86 @@ describe('localitats: municipis dels altres territoris i orígens dels rivals', 
     });
 });
 
+describe('noms dels rivals: cap nom castellà a les lligues dels Països Catalans', () => {
+    let seed = 11;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const opts = { random: rnd, territoryOf: Loc.originTerritory };
+    const HOMES = [['cat', 'Vic'], ['val', 'Gandia'], ['bal', 'Palma'], ['and', 'Andorra la Vella'], ['nord', 'Perpinyà'],
+        ['franja', 'Fraga'], ['alguer', "l'Alguer"]].map(([territory, municipi]) => Loc.normalizeHome({ territory, municipi }));
+    const castilianTokens = new Set(Object.keys(Noms.CATALAN_FORMS));
+    const words = list => list.join(' ').split(' ');
+
+    test('del municipal als Països Catalans, des de cada territori: ni noms castellans ni formes castellanes', () => {
+        HOMES.forEach(home => {
+            for (let lv = 0; lv <= 4; lv++) {
+                for (let k = 0; k < 120; k++) {
+                    const names = Noms.rivalNames(lv, home, Loc.rivalOrigins(lv, home, 9, rnd), opts);
+                    names.forEach(n => expect(Noms.isCastilianName(n)).toBe(false));
+                    words(names).forEach(w => expect(castilianTokens.has(w)).toBe(false));
+                }
+            }
+        });
+        // Cap territori no barreja cap cultura castellana, i les llistes del
+        // territori ja no tenen les formes castellanes d'abans.
+        Object.values(Noms.DIVERSE).forEach(list => list.forEach(([code]) => expect(Noms.CASTILIAN_CULTURES).not.toContain(code)));
+        Object.values(Noms.TERRITORY_CULTURE).forEach(code => {
+            const c = Noms.CULTURES[code];
+            words(c.f.concat(c.m, c.s)).forEach(w => expect(castilianTokens.has(w)).toBe(false));
+        });
+    });
+
+    test('encara hi ha gent d’altres orígens i llengües (no castellans), i el castellà es manté a fora', () => {
+        const vic = HOMES[0];
+        const counts = {};
+        for (let k = 0; k < 400; k++) {
+            Noms.rivalNames(3, vic, [], Object.assign({ count: 9 }, opts)).forEach(n => {
+                const code = ['cat', 'ma', 'ro', 'cn', 'pk'].find(c => {
+                    const cu = Noms.CULTURES[c];
+                    const p = n.split(' ');
+                    const given = cu.order === 'family' ? p[p.length - 1] : p[0];
+                    return cu.f.concat(cu.m).includes(given);
+                });
+                counts[code] = (counts[code] || 0) + 1;
+            });
+        }
+        // A la Catalana, un 12 % d'altres orígens (40 % × 30 %): la resta, catalans.
+        const total = Object.values(counts).reduce((a, b) => a + b, 0);
+        expect(counts.cat / total).toBeGreaterThan(0.84);
+        ['ma', 'ro', 'cn', 'pk'].forEach(c => expect(counts[c]).toBeGreaterThan(0));
+        // Europa i món, i qui juga des de fora: els noms del país, castellans inclosos.
+        expect(Noms.countryCulture('Espanya')).toBe('es');
+        Noms.rivalNames(5, vic, Array(9).fill('Espanya'), opts).forEach(n => expect(Noms.isCastilianName(n)).toBe(true));
+        const madrid = { territory: 'fora', municipi: 'Madrid', pais: 'Espanya' };
+        Noms.rivalNames(2, madrid, [], Object.assign({ count: 9 }, opts)).forEach(n => expect(Noms.isCastilianName(n)).toBe(true));
+    });
+
+    test('temporades començades: el nom castellà d’un rival passa a català, del seu territori', () => {
+        const vic = HOMES[0];
+        let k = 5;
+        const fixed = { random: () => ((k = (k * 16807) % 2147483647) / 2147483647), territoryOf: Loc.originTerritory };
+        const taken = new Set();
+        const got = Noms.catalanRivalName('Lucía Navarro', 2, vic, 'Manlleu', Object.assign({ taken }, fixed));
+        expect(Noms.isCastilianName(got)).toBe(false);
+        expect(Noms.CULTURES.cat.f.concat(Noms.CULTURES.cat.m)).toContain(got.split(' ')[0]);
+        expect(taken.has(Noms.fold(got))).toBe(true);
+        // No en repeteix cap de pres.
+        const again = Noms.catalanRivalName('Sergio López', 2, vic, 'Manlleu', Object.assign({ taken }, fixed));
+        expect(again).not.toBe(got);
+        // Als Països Catalans, del territori de la ciutat del rival.
+        const pal = Noms.catalanRivalName('Laura Romero', 4, vic, 'Palma', { random: () => 0.6, territoryOf: Loc.originTerritory });
+        expect(Noms.CULTURES.bal.s).toContain(pal.split(' ').slice(1).join(' '));
+        // Les formes castellanes d'abans, a la catalana; la resta no es toca.
+        const gandia = HOMES[1];
+        expect(Noms.catalanRivalName('Paco Soriano', 0, gandia, null)).toBe('Cento Fuster');
+        expect(Noms.catalanRivalName('Carmen Blasco', 0, HOMES[5], null)).toBe('Carme Calvet');
+        expect(Noms.catalanRivalName('Jordi Puig', 3, vic, 'Reus')).toBe('Jordi Puig');
+        expect(Noms.catalanRivalName('Youssef Benali', 3, vic, 'Reus')).toBe('Youssef Benali');
+        // A Europa i per a qui juga des de fora, tal com era.
+        expect(Noms.catalanRivalName('Lucía Navarro', 5, vic, 'Espanya')).toBe('Lucía Navarro');
+        expect(Noms.catalanRivalName('Lucía Navarro', 2, { territory: 'fora', pais: 'Espanya' }, null)).toBe('Lucía Navarro');
+    });
+});
+
 describe('a l\'app: la lliga a l\'escala', () => {
     function appCtx({ career = null, base = 1000, league = null, underway = false, noms = true } = {}) {
         const store = career ? { chess_leagueCareer: JSON.stringify(career) } : {};
@@ -219,7 +299,8 @@ describe('a l\'app: la lliga a l\'escala', () => {
         vm.runInContext(constSource('LEAGUE_FALLBACK_NAMES'), ctx);
         vm.runInContext('const LEAGUE_RECENT_NAMES_MAX = 54;', ctx);
         ['shuffleArray', 'buildRoundRobinSchedule', 'loadLeagueCareer', 'saveLeagueCareer', 'createNewLeague',
-            'isLeagueTimeControlLocked', 'leagueNotStartedYet', 'upgradeLegacyLeague', 'refreshLeagueLadderGroup', 'saveLeagueHome']
+            'isLeagueTimeControlLocked', 'leagueNotStartedYet', 'upgradeLegacyLeague', 'refreshLeagueLadderGroup', 'saveLeagueHome',
+            'mulberry32', 'catalanizeLeagueRivals']
             .forEach(n => vm.runInContext(fnSource(n), ctx));
         return { ctx, store };
     }
@@ -361,6 +442,42 @@ describe('a l\'app: la lliga a l\'escala', () => {
         expect(c2).toMatchObject({ tier: 18, level: 6, bestLevel: 6, home: null });
         const c3 = appCtx({ career: { tier: 8, bestTier: 11, seasons: [] } }).ctx.loadLeagueCareer();
         expect(c3).toMatchObject({ tier: 8, level: 2, bestTier: 11, bestLevel: 3 });
+    });
+    test('una temporada començada amb noms castellans: els rivals passen a català, també a les jornades jugades', () => {
+        const league = {
+            id: 'league_1700000000000', ladder: { level: 3, group: 'C', tier: 9 },
+            players: [
+                { id: 'me', name: 'Tu' },
+                { id: 'bot1', name: 'Lucía Navarro', from: 'Manlleu' },
+                { id: 'bot2', name: 'Jordi Puig', from: 'Reus' },
+                { id: 'bot3', name: 'Sergio García', from: 'Olot' },
+                { id: 'bot4', name: 'Youssef Benali', from: 'Lleida' }
+            ],
+            history: [{ round: 1, oppName: 'Lucía Navarro' }, { round: 2, oppName: 'Jordi Puig' }]
+        };
+        const copy = JSON.parse(JSON.stringify(league));
+        const { ctx } = appCtx({ career: { home: vic, seasons: [] }, league });
+        ctx.leagueActiveMatch = { opponentId: 'bot3', opponentName: 'Sergio García' };
+        expect(ctx.catalanizeLeagueRivals()).toBe(true);
+        const names = league.players.map(p => p.name);
+        expect(names[2]).toBe('Jordi Puig');
+        expect(names[4]).toBe('Youssef Benali');
+        [names[1], names[3]].forEach(n => expect(Noms.isCastilianName(n)).toBe(false));
+        expect(new Set(names).size).toBe(names.length);
+        // Sense repetir el cognom de cap altre rival.
+        const surnames = names.slice(1).map(n => n.split(' ').slice(1).join(' '));
+        expect(new Set(surnames).size).toBe(surnames.length);
+        expect(league.history.map(h => h.oppName)).toEqual([names[1], 'Jordi Puig']);
+        expect(ctx.leagueActiveMatch.opponentName).toBe(names[3]);
+        // Ja no hi ha res a canviar; i la mateixa lliga dona sempre els mateixos noms.
+        expect(ctx.catalanizeLeagueRivals()).toBe(false);
+        const other = appCtx({ career: { home: vic, seasons: [] }, league: copy }).ctx;
+        other.catalanizeLeagueRivals();
+        expect(copy.players.map(p => p.name)).toEqual(names);
+        // A Europa no es toca res.
+        const europe = { id: 'x', ladder: { level: 5, group: 'C', tier: 15 }, players: [{ id: 'bot1', name: 'Lucía Navarro', from: 'Espanya' }] };
+        expect(appCtx({ league: europe }).ctx.catalanizeLeagueRivals()).toBe(false);
+        expect(europe.players[0].name).toBe('Lucía Navarro');
     });
 });
 
