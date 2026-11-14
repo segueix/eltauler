@@ -445,11 +445,42 @@ describe('controlador amb la retransmissió nova (motor fals, temps simulat)', (
             expect(r.game.comment.gameId).toBe(r.game.id);
         });
         // La veu llegeix exactament el text parlat dels comentaris mostrats, en ordre.
-        const expected = moves.filter(m => m.comment).map(m => TV.tvSpeechText(m.comment));
+        const expected = moves.filter(m => m.commentObj).flatMap(({ commentObj: c }) =>
+            c.dialogue ? c.dialogue.map(t => TV.tvSpeechText(t.solo || t.text)) : [TV.tvSpeechText(c.text)]);
         expect(spoken.slice(0, expected.length)).toEqual(expected);
         expect(maxActive).toBe(1);
         // No es demana mai anàlisi d'una posició acabada (el motor no hi respon).
         engine.jobs.filter(j => j.tag.kind === 'analysis').forEach(j => expect(new Chess(j.tag.fen).game_over()).toBe(false));
+        ctl.close();
+    });
+
+    test('desfer la jugada enmig del diàleg descarta la resposta pendent', async () => {
+        const voice = { isOn: () => true, status: () => 'ready', supportsDual: () => true, stop: () => {} };
+        const spoken = [];
+        let finishTurn;
+        let ctl;
+        voice.speak = (text, opts) => {
+            spoken.push({ text: text, voiceId: opts.voiceId });
+            const comment = ctl.state().game.comment;
+            if (comment && comment.dialogue && !finishTurn)
+                return new Promise(resolve => { finishTurn = resolve; });
+            return Promise.resolve({ spoken: true, reason: 'end' });
+        };
+        ctl = TV.createTvController({
+            ChessCtor: Chess, engine: fakeEngine(sanToUci(null, MORPHY)), voice,
+            getViewer: () => ({ calibrated: true, roc: 1500 }), getOpenings: () => [],
+            loadPrefs: () => null, savePrefs: () => {}, random: () => 0.5
+        });
+        await ctl.open();
+        await jest.advanceTimersByTimeAsync(5 * 60 * 1000);
+        const dialogue = ctl.state().game.comment;
+        expect(dialogue.dialogue).toHaveLength(2);
+        const played = spoken.length;
+        expect(ctl.stepBack()).toBe(true);
+        finishTurn({ spoken: true, reason: 'end' });
+        await jest.advanceTimersByTimeAsync(1000);
+        expect(spoken).toHaveLength(played);
+        expect(ctl.state().game.fen).not.toBe(dialogue.fen);
         ctl.close();
     });
 });
