@@ -40,6 +40,9 @@ describe('bàner de la lliga a l’inici', () => {
         expect(render).toContain('Juga la jornada ${st.round}');
         const state = app.slice(app.indexOf('function leagueHeroState() {'), app.indexOf('function renderLeagueHero() {'));
         expect(state).toContain('const started = !!(me && me.pj > 0);');
+        // El títol és la lliga amb la divisió («Lliga Catalana · Divisió B»).
+        expect(state).toContain('ElTaulerCore.leagueFullName(currentLeague.ladder.level, currentLeague.ladder.group, leagueHome())');
+        expect(render).toContain("if (title) title.textContent = st.league || 'Lliga';");
         expect(app).toContain("$('#btn-league-hero-play').off('click').on('click', () => { if (guardCalibrationAccess()) startLeagueRound(); });");
         const upd = app.slice(app.indexOf('function updateLeagueBanner() {'), app.indexOf('function updateLeagueBannerData() {'));
         expect(upd).toContain('renderLeagueHero();');
