@@ -6412,7 +6412,8 @@
         #start-screen .home-col { display: contents; }
         #start-screen .home-sec--juga { order: 1; }
         #start-screen .home-sec--comunitat { order: 2; }
-        #start-screen .home-sec--hub { order: 3; }
+        #start-screen .home-sec--tv { order: 3; }
+        #start-screen .home-sec--hub { order: 4; }
         #start-screen .home-sec { display: flex; flex-direction: column; gap: 10px; min-width: 0; animation: fadeInUp 0.34s ease both; }
         /* Inici en dos nivells: la portada (Juga, partides col·lectives i «Més»)
            i les seccions de segon nivell (data-view), tancades fins que una
@@ -6459,6 +6460,7 @@
         .home-sec--entrena { --sec: #b7a2f0; }
         .home-sec--comunitat { --sec: #ef8a6b; }
         .home-sec--apren { --sec: #7fbfe6; }
+        .home-sec--tv { --sec: #5fa8d3; }
         .home-sec--final { --sec: #a9bccb; }
         .home-sec--hub { --sec: #c9cfd6; }
         .home-sec--revisar { --sec: #f08ca0; }
@@ -6806,7 +6808,7 @@
             body.device-desktop #start-screen .home-sec--revisar > .home-tiles,
             body.device-desktop #start-screen .home-sec--modes > .home-sec-head,
             body.device-desktop #start-screen .home-sec--modes > .home-modes { grid-column: 1 / -1; }
-            /* Aprèn a l'esquerra: la TV i el tutorial un al costat de l'altre. */
+            /* Aprèn: el tutorial i la guia un al costat de l'altre. */
             body.device-desktop #start-screen .home-sec--apren { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
             body.device-desktop #start-screen .home-sec--apren > .home-sec-head { grid-column: 1 / -1; }
             /* Entrena: la proposta a tota l'amplada i la llista en dues columnes. */
@@ -6835,6 +6837,7 @@
         body.day-mode .home-sec--entrena { --sec: #5b3fa8; }
         body.day-mode .home-sec--comunitat { --sec: #a03a26; }
         body.day-mode .home-sec--apren { --sec: #2f6aa8; }
+        body.day-mode .home-sec--tv { --sec: #245f8a; }
         body.day-mode .home-sec--hub { --sec: #4a4f57; }
         body.day-mode .home-sec--revisar { --sec: #b0405a; }
         body.day-mode .home-sec--modes { --sec: #2f6aa8; }
@@ -6859,7 +6862,7 @@
         /* Paper electrònic: sense degradats ni colors, només contrast */
         body.epaper-mode #start-screen .home-sec { animation: none; }
         body.epaper-mode .home-sec--juga, body.epaper-mode .home-sec--avui, body.epaper-mode .home-sec--entrena,
-        body.epaper-mode .home-sec--comunitat, body.epaper-mode .home-sec--apren, body.epaper-mode .home-sec--final,
+        body.epaper-mode .home-sec--comunitat, body.epaper-mode .home-sec--apren, body.epaper-mode .home-sec--tv, body.epaper-mode .home-sec--final,
         body.epaper-mode .home-sec--hub, body.epaper-mode .home-sec--revisar, body.epaper-mode .home-sec--modes { --sec: #333; }
         body.epaper-mode #start-screen .hb,
         body.epaper-mode #start-screen .hb-card,
@@ -7320,16 +7323,16 @@
             </div>
 
             <div class="home-sections">
-                <!-- Inici net: a la portada només hi ha Juga (Nova partida i la lliga)
-                     i les partides col·lectives; la resta d'El Tauler és a «Més», en
+                <!-- Inici net: a la portada només hi ha Juga (Nova partida i la lliga),
+                     les partides col·lectives i Stockfish vs Lozza TV; la resta d'El Tauler és a «Més», en
                      seccions de segon nivell (data-view) que s'obren des de les rajoles
                      (data-home-open) i tornen a la portada amb «Inici» (data-home-back)
                      o amb el botó enrere. app.js (setHomeView) posa data-home-view a
                      #start-screen i .is-open a la secció. Els identificadors són els de
                      sempre: tutorial.js, la guia i «Què toca avui?» els cliquen encara
                      que la seva secció sigui tancada.
-                     Ordinador: dues columnes a la portada (Juga i les partides
-                     col·lectives a l'esquerra, «Més» a la dreta); cada secció de segon
+                     Ordinador: dues columnes a la portada (Juga, les partides
+                     col·lectives i la TV a l'esquerra, «Més» a la dreta); cada secció de segon
                      nivell ocupa tota l'amplada. -->
                 <div class="home-col home-col--main">
                 <!-- JUGA: l'acció principal de l'app, sempre a dalt de tot -->
@@ -7466,6 +7469,20 @@
                         </span>
                     </button>
                 </section>
+
+                <!-- MIRA: Stockfish vs Lozza TV (stockfishtv.js), partida entre
+                     motors GENERADA AL DISPOSITIU, amb comentaris breus. -->
+                <section class="home-sec home-sec--tv" aria-labelledby="home-sec-tv">
+                    <div class="home-sec-head"><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-tv">Mira</h2></div>
+                    <button class="hb hb--ocean" id="btn-sftv-banner" aria-label="Stockfish vs Lozza TV">
+                        <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-tv"/></svg></span>
+                        <span class="hb-text">
+                            <span class="hb-title">Stockfish vs Lozza TV</span>
+                            <span class="hb-sub">Dos motors diferents, rivalitat adaptativa i comentaris en català</span>
+                        </span>
+                        <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
+                    </button>
+                </section>
                 </div>
                 <div class="home-col home-col--side">
                 <!-- MÉS: la resta d'El Tauler, agrupada. Cada rajola obre la seva
@@ -7496,7 +7513,7 @@
                         <button type="button" class="hb-tile hb-tile--sky hub-tile" data-home-open="apren">
                             <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-cap"/></svg>
                             <span class="hb-tile-title">Aprèn</span>
-                            <span class="hb-tile-sub">Lliçons, Stockfish TV i la guia</span>
+                            <span class="hb-tile-sub">Lliçons i la guia d'El Tauler</span>
                         </button>
                         <button type="button" class="hb-tile hb-tile--slate hub-tile" data-home-open="ajustos">
                             <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-gear"/></svg>
@@ -7706,19 +7723,9 @@
                     </div>
                 </section>
 
-                <!-- APRÈN: Stockfish TV, el tutorial d'escacs i la guia d'El Tauler -->
+                <!-- APRÈN: el tutorial d'escacs i la guia d'El Tauler -->
                 <section class="home-sec home-sec--apren" data-view="apren" aria-labelledby="home-sec-apren">
                     <div class="home-sec-head"><button type="button" class="home-sec-back" data-home-back aria-label="Pàgina principal" title="Pàgina principal"><svg aria-hidden="true"><use href="#ic-home"/></svg><span>Inici</span></button><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-apren" tabindex="-1">Aprèn</h2></div>
-                    <!-- Stockfish vs Lozza TV (stockfishtv.js): partida entre
-                         Stockfish GENERADA AL DISPOSITIU, amb comentaris breus. -->
-                    <button class="hb hb--ocean" id="btn-sftv-banner" aria-label="Stockfish vs Lozza TV">
-                        <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-tv"/></svg></span>
-                        <span class="hb-text">
-                            <span class="hb-title">Stockfish vs Lozza TV</span>
-                            <span class="hb-sub">Dos motors diferents, rivalitat adaptativa i comentaris en català</span>
-                        </span>
-                        <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
-                    </button>
                     <button class="hb hb--azure" id="btn-tutorial-banner" aria-label="Aprèn a jugar a escacs">
                         <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-cap"/></svg></span>
                         <span class="hb-text">

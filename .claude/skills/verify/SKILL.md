@@ -117,7 +117,8 @@ Conduir amb Playwright + Chromium preinstal·lat
     columnes a partir de 1000 px) i el taller d'Obertures (760 px).
 
 12. **Inici (bàners per seccions)**: `#start-screen.home-d` agrupa els
-    bàners en `.home-sec--juga/avui/entrena/comunitat/apren/final`; els
+    bàners en `.home-sec--juga/avui/entrena/comunitat/tv/apren/final`
+    (a la portada, Juga, les partides col·lectives i la TV, `#btn-sftv-banner`); els
     identificadors dels botons són els de sempre (`#btn-new-game`,
     `#btn-settings`, `#btn-guide-banner`...). Tota la web fa servir una sola
     lletra, Plus Jakarta Sans (`--font-ui`), i cap botó no és verd. Les Google
