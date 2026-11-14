@@ -85,6 +85,43 @@ describe('localitats: altres territoris i localitat neta', () => {
         expect(Loc.normalizeHome(null)).toBe(null);
     });
 
+    test('la part de la lliga que representa cada jugador: comarca, illa, territori o país', () => {
+        const vic = Loc.normalizeHome({ municipi: 'Vic' });
+        expect(Loc.originArea(1, vic, 'Manlleu')).toBe('');
+        expect(Loc.originArea(2, vic, 'Manlleu')).toBe('Osona');
+        expect(Loc.originArea(3, vic, 'Reus')).toBe('Baix Camp');
+        expect(Loc.originArea(4, vic, 'Gandia')).toBe('País Valencià');
+        expect(Loc.originArea(4, vic, 'Andorra la Vella')).toBe('Andorra');
+        expect(Loc.originArea(4, vic, "l'Alguer")).toBe('');
+        expect(Loc.originArea(5, vic, 'Lió')).toBe('França');
+        expect(Loc.originArea(6, vic, 'Tòquio')).toBe('Japó');
+        // El jugador: la seva comarca, el seu territori.
+        expect(Loc.originArea(2, vic, 'Vic')).toBe('Osona');
+        expect(Loc.originArea(4, vic, 'Vic')).toBe('Catalunya');
+        expect(Loc.originArea(5, Loc.normalizeHome({ territory: 'bal', municipi: 'Sóller' }), 'Sóller')).toBe('Illes Balears');
+        // Illes i Catalunya Nord; a la Catalana del Nord, també els del Principat.
+        const palma = Loc.normalizeHome({ territory: 'bal', municipi: 'Palma' });
+        expect(Loc.originArea(3, palma, 'Maó')).toBe('Menorca');
+        const perpinya = Loc.normalizeHome({ territory: 'nord', municipi: 'Perpinyà' });
+        expect(Loc.originArea(2, perpinya, 'Ceret')).toBe('Vallespir');
+        expect(Loc.originArea(3, perpinya, 'Reus')).toBe('Baix Camp');
+        // Una temporada d'abans, amb la comarca o el país com a origen: res a afegir.
+        expect(Loc.originArea(2, vic, 'el Bages')).toBe('');
+        expect(Loc.originArea(5, vic, 'França')).toBe('');
+        // A les Illes, cada illa hi és: a la Balear, de Mallorca, Menorca, Eivissa i Formentera.
+        let k = 3;
+        const rnd = () => ((k = (k * 16807) % 2147483647) / 2147483647);
+        for (let i = 0; i < 30; i++) {
+            const islands = Loc.rivalOrigins(3, palma, 9, rnd).map(n => Loc.findMunicipality(n, 'bal').comarca);
+            expect(new Set(islands)).toEqual(new Set(['Mallorca', 'Menorca', 'Eivissa', 'Formentera']));
+            // Mallorca, la més gran, en té més.
+            expect(islands.filter(x => x === 'Mallorca').length).toBeGreaterThanOrEqual(4);
+        }
+        // Amb menys rivals que parts, parts diferents.
+        const five = Loc.rivalOrigins(4, vic, 5, rnd);
+        expect(new Set(five.map(Loc.ppccCityTerritory)).size).toBe(5);
+    });
+
     test('origen dels rivals segons el nivell', () => {
         const vic = Loc.normalizeHome({ municipi: 'Vic' });
         let k = 0;
@@ -98,13 +135,24 @@ describe('localitats: altres territoris i localitat neta', () => {
             expect(n).not.toBe('Vic');
             expect(Loc.findMunicipality(n).comarca).toBe('Osona');
         });
-        const provincial = Loc.rivalOrigins(2, vic, 9, rnd);
-        const comarquesBcn = Loc.comarques('cat').filter(c => c.province === 'Barcelona').map(c => c.name);
-        provincial.forEach(c => { expect(comarquesBcn).toContain(c); expect(c).not.toBe('Osona'); });
-        Loc.rivalOrigins(3, vic, 9, rnd).forEach(n => expect(Loc.findMunicipality(n)).not.toBe(null));
-        Loc.rivalOrigins(4, vic, 9, rnd).forEach(n => expect(Loc.PPCC_CITIES).toContain(n));
-        Loc.rivalOrigins(5, vic, 9, rnd).forEach(n => expect(Loc.EUROPE).toContain(n));
-        Loc.rivalOrigins(6, vic, 9, rnd).forEach(n => expect(Loc.WORLD).toContain(n));
+        // Provincial: poblacions de la província, cadascuna d'una comarca diferent.
+        const provincial = Loc.rivalOrigins(2, vic, 9, rnd).map(n => Loc.findMunicipality(n));
+        provincial.forEach(m => { expect(m.province).toBe('Barcelona'); expect(m.name).not.toBe('Vic'); });
+        expect(new Set(provincial.map(m => m.comarca)).size).toBe(9);
+        // Catalana: poblacions de les quatre províncies, de comarques diferents.
+        const catalana = Loc.rivalOrigins(3, vic, 9, rnd).map(n => Loc.findMunicipality(n));
+        expect(new Set(catalana.map(m => m.province)).size).toBe(4);
+        expect(new Set(catalana.map(m => m.comarca)).size).toBe(9);
+        // Països Catalans: ciutats de tots set territoris.
+        const ppcc = Loc.rivalOrigins(4, vic, 9, rnd);
+        ppcc.forEach(n => expect(Loc.PPCC_CITIES).toContain(n));
+        expect(new Set(ppcc.map(Loc.ppccCityTerritory)).size).toBe(7);
+        // Europa i món: una ciutat de cada país, tots diferents.
+        const eu = Loc.rivalOrigins(5, vic, 9, rnd);
+        eu.forEach(n => expect(Loc.EUROPE).toContain(Loc.cityCountry(n)));
+        expect(new Set(eu.map(Loc.cityCountry)).size).toBe(9);
+        Loc.rivalOrigins(6, vic, 9, rnd).forEach(n => expect(Loc.WORLD).toContain(Loc.cityCountry(n)));
+        Loc.EUROPE.concat(Loc.WORLD).forEach(c => expect(Loc.COUNTRY_CITIES[c].length).toBeGreaterThanOrEqual(3));
         // Sense dades (fora dels Països Catalans), en blanc als nivells de casa.
         expect(Loc.rivalOrigins(1, { territory: 'fora', municipi: 'Lió', comarca: 'Roine' }, 9)).toEqual(Array(9).fill(''));
         // Una comarca amb menys municipis que rivals els repeteix.
@@ -280,6 +328,17 @@ describe('noms dels rivals: cap nom castellà a les lligues dels Països Catalan
         expect(Noms.catalanRivalName('Carmen Blasco', 0, HOMES[5], null)).toBe('Carme Calvet');
         expect(Noms.catalanRivalName('Jordi Puig', 3, vic, 'Reus')).toBe('Jordi Puig');
         expect(Noms.catalanRivalName('Youssef Benali', 3, vic, 'Reus')).toBe('Youssef Benali');
+        // Les formes convertides es reserven abans de donar noms nous: «Amparo
+        // Calatayud» passa a «Fina Ribes», i cap nom nou no hi coincideix
+        // encara que l'atzar l'hi porti.
+        const gandiaHome = HOMES[1];
+        const forced = [0.1, 0.01, 8.5 / 35];
+        let lcg = 7;
+        const rand = () => (forced.length ? forced.shift() : ((lcg = (lcg * 16807) % 2147483647) / 2147483647));
+        const pair = Noms.catalanRivalNames([{ name: 'Iván Delgado', origin: '' }, { name: 'Amparo Calatayud', origin: '' }], 0, gandiaHome, { random: rand });
+        expect(pair[1]).toBe('Fina Ribes');
+        expect(pair[0]).not.toBe('Fina Ribes');
+        expect(Noms.isCastilianName(pair[0])).toBe(false);
         // A Europa i per a qui juga des de fora, tal com era.
         expect(Noms.catalanRivalName('Lucía Navarro', 5, vic, 'Espanya')).toBe('Lucía Navarro');
         expect(Noms.catalanRivalName('Lucía Navarro', 2, { territory: 'fora', pais: 'Espanya' }, null)).toBe('Lucía Navarro');
@@ -326,12 +385,14 @@ describe('a l\'app: la lliga a l\'escala', () => {
         expect(Math.abs(avg - 988)).toBeLessThan(15);
     });
 
-    test('amb la localitat al País Valencià: Lliga Valenciana C, amb rivals de comarques valencianes', () => {
+    test('amb la localitat al País Valencià: Lliga Valenciana C, amb rivals de poblacions de les tres províncies', () => {
         const gandia = { territory: 'val', municipi: 'Gandia', comarca: 'la Safor', provincia: 'València', pais: '' };
         const L = appCtx({ career: { home: gandia, seasons: [] }, base: 1200 }).ctx.createNewLeague(true);
         expect(L.name).toBe('Lliga Valenciana · Divisió C');
-        const comarques = Loc.comarques('val').map(c => c.name);
-        L.players.filter(p => p.id !== 'me').forEach(p => expect(comarques).toContain(p.from));
+        const towns = L.players.filter(p => p.id !== 'me').map(p => Loc.findMunicipality(p.from, 'val'));
+        towns.forEach(m => expect(m).toBeTruthy());
+        expect(new Set(towns.map(m => m.province))).toEqual(new Set(['Castelló', 'València', 'Alacant']));
+        expect(new Set(towns.map(m => m.comarca)).size).toBe(9);
     });
 
     test('amb la localitat: noms del lloc, rivals de la comarca i noms del país d\'origen a Europa', () => {
@@ -352,9 +413,9 @@ describe('a l\'app: la lliga a l\'escala', () => {
         const eu = appCtx({ career: { tier: 16, home: vic, seasons: [] }, base: 1500 }).ctx.createNewLeague(true);
         expect(eu.name).toBe('Lliga Europea · Divisió B');
         eu.players.filter(p => p.id !== 'me').forEach(p => {
-            expect(Loc.EUROPE).toContain(p.from);
-            // El nom és del país d'origen del rival.
-            const c = Noms.CULTURES[Noms.countryCulture(p.from)];
+            expect(Loc.EUROPE).toContain(Loc.cityCountry(p.from));
+            // El nom és del país de la ciutat del rival.
+            const c = Noms.CULTURES[Noms.countryCulture(Loc.cityCountry(p.from))];
             const parts = c.order === 'family' ? p.name.split(' ').reverse() : p.name.split(' ');
             expect(c.f.concat(c.m)).toContain(parts[0]);
         });
@@ -559,7 +620,12 @@ describe('noms dels rivals (nomslliga.js): cada cop més internacionals', () => 
             names.forEach((n, i) => expect(inCulture(n, Noms.placeCulture(Loc.ppccCityTerritory(pp[i]), pp[i]))).toBe(true));
             for (const lv of [5, 6]) {
                 const o = Loc.rivalOrigins(lv, vic, 9, rnd);
-                Noms.rivalNames(lv, vic, o, opts).forEach((n, i) => expect(inCulture(n, Noms.countryCulture(o[i]))).toBe(true));
+                Noms.rivalNames(lv, vic, o, Object.assign({}, opts, { countryOf: Loc.cityCountry }))
+                    .forEach((n, i) => expect(inCulture(n, Noms.countryCulture(Loc.cityCountry(o[i])))).toBe(true));
+                // Les temporades d'abans, amb el país com a origen, també.
+                const countries = o.map(Loc.cityCountry);
+                Noms.rivalNames(lv, vic, countries, Object.assign({}, opts, { countryOf: Loc.cityCountry }))
+                    .forEach((n, i) => expect(inCulture(n, Noms.countryCulture(countries[i]))).toBe(true));
             }
         }
     });
@@ -586,6 +652,9 @@ describe('noms dels rivals (nomslliga.js): cada cop més internacionals', () => 
         expect(Noms.placeCulture('bal', 'Ciutadella', palma)).toBe('menorca');
         expect(Noms.placeCulture('bal', 'es Pujols', palma)).toBe('pitiuses');
         expect(Noms.placeCulture('bal', 'Sóller', maó)).toBe('bal');
+        // Un poble que no és a la llista: l'illa que ha triat el jugador.
+        expect(Noms.placeCulture('bal', '', Loc.normalizeHome({ territory: 'bal', municipi: 'Fornells', comarca: 'Menorca' }))).toBe('menorca');
+        expect(Noms.placeCulture('bal', '', Loc.normalizeHome({ territory: 'bal', municipi: 'Portinatx', comarca: 'Eivissa' }))).toBe('pitiuses');
         Noms.rivalNames(0, maó, [], Object.assign({ count: 9 }, opts)).forEach(n => expect(inCulture(n, 'menorca')).toBe(true));
         Noms.rivalNames(0, eivissa, [], Object.assign({ count: 9 }, opts)).forEach(n => expect(inCulture(n, 'pitiuses')).toBe(true));
         // A la Lliga Balear, cadascú amb els cognoms de la seva illa (sense

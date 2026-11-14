@@ -5286,7 +5286,9 @@ function createNewLeague(force = false, options = {}) {
                 count: 9, exclude: career.recentNames,
                 // El territori de l'origen: ciutats dels Països Catalans i, a la
                 // Lliga Catalana de la Catalunya Nord, municipis del Principat o del Nord.
-                territoryOf: L && typeof L.originTerritory === 'function' ? L.originTerritory : null
+                territoryOf: L && typeof L.originTerritory === 'function' ? L.originTerritory : null,
+                // A Europa i al món, el país de la ciutat de cada rival.
+                countryOf: L && typeof L.cityCountry === 'function' ? L.cityCountry : null
             });
         }
     } catch (e) { baseNames = []; }
@@ -5419,7 +5421,7 @@ function curatedOpeningByName(name) {
 // joc. La llavor és l'id de la lliga: cada càrrega dona els mateixos noms.
 function catalanizeLeagueRivals(league = currentLeague) {
     const N = window.ElTaulerNomsLliga;
-    if (!N || typeof N.catalanRivalName !== 'function' || !league || !league.ladder || !Array.isArray(league.players)) return false;
+    if (!N || typeof N.catalanRivalNames !== 'function' || !league || !league.ladder || !Array.isArray(league.players)) return false;
     const level = league.ladder.level;
     if (!(level >= 0 && level <= 4)) return false;
     const L = window.ElTaulerLocalitats;
@@ -5431,11 +5433,13 @@ function catalanizeLeagueRivals(league = currentLeague) {
         random: mulberry32(seed), taken: new Set(league.players.map(p => N.fold(p && p.name))),
         territoryOf: L && typeof L.originTerritory === 'function' ? L.originTerritory : null
     };
+    // Primer les formes castellanes d'abans i després els noms castellans, sense
+    // que cap nom nou en repeteixi cap altre (catalanRivalNames).
+    const bots = league.players.filter(p => p && p.id !== 'me' && typeof p.name === 'string');
+    const names = N.catalanRivalNames(bots.map(p => ({ name: p.name, origin: p.from })), level, home, options);
     const renamed = new Map();
-    league.players.forEach(p => {
-        if (!p || p.id === 'me' || typeof p.name !== 'string') return;
-        const name = N.catalanRivalName(p.name, level, home, p.from, options);
-        if (name !== p.name) { renamed.set(p.name, name); p.name = name; }
+    bots.forEach((p, i) => {
+        if (names[i] !== p.name) { renamed.set(p.name, names[i]); p.name = names[i]; }
     });
     if (!renamed.size) return false;
     (league.history || []).forEach(h => { if (h && renamed.has(h.oppName)) h.oppName = renamed.get(h.oppName); });
@@ -6223,8 +6227,10 @@ function renderLeague() {
         const look = p.id === 'me' ? null : leagueStyleLook(p.style);
         const dot = look ? `<span class="lg-style-dot" style="background:${look.color}" title="${escapeHtml(leagueStyleLabel(p.style) || '')}"></span>` : '';
         tr.append(`<td class="num lg-pos"><span class="lg-pos-chip ${leagueRankClass(rank, sorted.length, zones.down)}">${rank}</span></td>`);
-        // D'on és cada jugador (el poble, la comarca, el país...), a sota del nom.
-        const from = p.from ? `<span class="lg-from">${escapeHtml(p.from)}</span>` : '';
+        // D'on és cada jugador (la població i la part de la lliga que hi
+        // representa: la comarca, l'illa, el territori o el país), a sota del nom.
+        const fromText = leagueFromLabel(p);
+        const from = fromText ? `<span class="lg-from">${escapeHtml(fromText)}</span>` : '';
         tr.append(`
             <td class="league-player-cell">
                 ${dot}<span class="league-player-name">${escapeHtml(p.name)}</span>${from}
@@ -6248,13 +6254,30 @@ function renderLeague() {
     renderLeagueCareer();
 }
 
+// D'on és un jugador de la lliga, amb la part de la lliga que hi representa
+// (localitats.js: originArea): «Reus · Baix Camp», «Gandia · País Valencià»,
+// «Lió · França». A les lligues local i comarcal (tots són d'allà mateix) i a
+// les lligues d'abans sense escala, només el lloc.
+function leagueFromLabel(p, league = currentLeague) {
+    if (!p || !p.from) return '';
+    const L = window.ElTaulerLocalitats;
+    const level = league && league.ladder ? league.ladder.level : null;
+    let area = '';
+    try {
+        if (L && typeof L.originArea === 'function' && Number.isFinite(level)) {
+            area = L.originArea(level, loadLeagueCareer().home || {}, p.from);
+        }
+    } catch (e) { area = ''; }
+    return area ? `${p.from} · ${area}` : p.from;
+}
+
 // Estil i obertures d'un rival, en una línia. myColor: el color del jugador a
 // la jornada (null si no se sap): llavors només es diu el que el rival hi jugarà.
 // options.roc: false per no repetir-hi el ROC.
 function describeLeagueOpponent(opp, myColor, options = {}) {
     if (!opp) return '';
     const parts = options.roc === false ? [] : [`ROC ${opp.elo}`];
-    if (opp.from && options.from !== false) parts.push(opp.from);
+    if (opp.from && options.from !== false) parts.push(leagueFromLabel(opp));
     const style = leagueStyleLabel(opp.style);
     if (style) parts.push(style);
     if (myColor === 'w' || myColor === 'b') parts.push(myColor === 'w' ? 'hi jugues amb blanques' : 'hi jugues amb negres');
@@ -6396,7 +6419,7 @@ function renderLeagueRivals() {
         ].filter(Boolean).map(escapeHtml).join('<br>');
         return `<div class="league-rival-row" style="border-left-color:${look.color}"><div class="league-rival-name">${escapeHtml(p.name)}`
             + `<span class="lg-chip lgc-silver">ROC ${p.elo}</span>${style ? `<span class="lg-chip ${look.cls}">${leagueIcon(look.icon)}${escapeHtml(style.label)}</span>` : ''}`
-            + `${p.from ? `<span class="lg-chip lgc-teal">${leagueIcon('ic-pin')}${escapeHtml(p.from)}</span>` : ''}</div>`
+            + `${p.from ? `<span class="lg-chip lgc-teal">${leagueIcon('ic-pin')}${escapeHtml(leagueFromLabel(p))}</span>` : ''}</div>`
             + `<div class="league-rival-meta">${lines}</div></div>`;
     });
     box.innerHTML = rows.join('') + '<div class="league-note">Els rivals juguen el seu repertori mentre la partida el segueix (més jugades com més ROC). L\'estil només decideix entre jugades que el motor valora gairebé igual (a 12 centèsimes de peó o menys), de manera que pràcticament no en canvia la força.</div>';
@@ -34008,6 +34031,9 @@ function resumeLiveGame(id) {
                 opponentName: opponent ? opponent.name : 'Rival',
                 opponentRoc: opponent ? opponent.elo : currentElo
             }, savedMatch);
+            // El nom, el del rival d'ara: una partida desada abans que la lliga
+            // en canviés el nom (noms castellans → catalans) duu el d'abans.
+            if (opponent) leagueActiveMatch.opponentName = opponent.name;
             saveStorage();
         }
         const ok = currentLeague && !currentLeague.completed && leagueActiveMatch && snap.league
