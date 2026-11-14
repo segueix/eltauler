@@ -673,7 +673,7 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   reprendre, si Matxa continua caiguda, s'atura al comentari següent). La
   **interfície de veu** només ofereix el perfil Ràdio, té l'equalitzador de
   cinc bandes a la TV i a la Configuració, la música de fons és «sense música» o
-  «música composta per l'app, nova a cada partida» i hi ha l'avís d'espera.
+  «música infinita, nova a cada partida» i hi ha l'avís d'espera.
   **Stockfish 19 (prova pilot)**: amb les opcions que declara Stockfish
   oficial (`UCI_Elo` 1320–3190 i `UCI_LimitStrength`) la TV passa sola al mode
   Elo, amb vint esglaons (els extrems i els centenars rodons: 1320, 1400 …

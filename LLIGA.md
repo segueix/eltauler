@@ -499,8 +499,8 @@ llavor (un enter); l'app recorda l'empremta de les 200 darreres peces
 sona («Sona: Rumba de la classificació · la menor · flauta»). La
 mateixa música composta sona també de fons a la TV Stockfish vs Lozza (un
 bucle de 32 s nou per a cada partida, `composeMelodyId`). Totes les peces
-queden al **registre** de Configuració › Veus de lectura › «Música composta
-per l'app» (`eltauler_composed_music`). De cada peça només es desa la
+queden al **registre** de Configuració › Veus de lectura › «Música infinita»
+(abans, «Música composta per l'app»; `eltauler_composed_music`). De cada peça només es desa la
 recepta (estil, llavor, on i quan va sonar, si és preferida: uns 90 bytes; el
 so es torna a generar igual), de manera que se'n conserven les 200 darreres
 (uns 18 kB) i fins a 100 preferides. La llista està ordenada
