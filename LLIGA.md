@@ -207,8 +207,10 @@ Andorra, Catalunya Nord, Franja de Ponent, l'Alguer o fora dels Països
 Catalans), municipi, comarca i província. A Catalunya el municipi es tria
 d'una llista mentre s'escriu (els 947 municipis d'Idescat, sense accents ni
 majúscules) i en surten la comarca i la província, també a les comarques
-partides com la Cerdanya o la Selva. Als altres territoris la comarca (o
-l'illa) es tria d'una llista que dona la província, i el municipi s'escriu.
+partides com la Cerdanya o la Selva. Als altres territoris dels Països
+Catalans també hi ha llista de municipis (el País Valencià, la Catalunya Nord,
+la Franja, les Balears, Andorra i l'Alguer), i si el municipi no hi és,
+s'escriu i la comarca (o l'illa) es tria d'una llista que dona la província.
 Fora dels Països Catalans tot s'escriu, i també el país. La finestra ensenya
 les set lligues que tocaran, amb «← hi comences» a la del territori (o «← hi
 jugues» on es juga ara, si ja s'han fet temporades). Amb «Ara no» no torna a sortir en una setmana; el
@@ -217,7 +219,7 @@ trajectòria (`chess_leagueCareer.home`) i se sincronitza; si la lliga encara
 no ha començat, es torna a sortejar amb els noms i els rivals del lloc nou.
 
 **Set nivells** (`LEAGUE_LEVELS`), amb el nom del lloc del jugador
-(`leagueLevelName`, contraccions amb `catalanDe`):
+(`leagueLevelName`, contraccions amb `catalanDe`, també «des Castell»):
 
 | nivell | icona | lliga (exemple: Vic) | graella del Grup C · B · A |
 |---|---|---|---|
@@ -249,7 +251,7 @@ Grup B»).
 
 **On es comença: com a mínim, a la lliga del territori.** Les trajectòries
 noves comencen a la Lliga Catalana C (o la Valenciana, la Balear, l'Andorrana,
-la de la Catalunya Nord, la de la Franja o l'Algueresa: graó 9,
+la de la Franja o la de Sardenya: graó 9,
 `LEAGUE_START_TIER`), amb la graella a −12. Abans es començava a la Lliga Local
 C i, jugant al nivell de la puntuació, s'arribava a la Lliga Catalana cap a la
 temporada 32. La provincial, la comarcal i la local hi són per a qui baixa:
@@ -278,12 +280,44 @@ fer res a la comarcal: així cada partida continua essent igualada i el que
 canvia és l'exigència per pujar. El grup ja no depèn de l'ELO: canviar el
 rellotge abans de començar mou la graella però no el grup.
 
+**Fora de Catalunya, cap nivell no repeteix l'àrea del de sota.** Abans, a
+les Balears la «província» era tot el territori (la Lliga Provincial d'Illes
+Balears era la Balear), a la Catalunya Nord el departament era el territori, a
+Andorra la comarcal, la provincial i l'andorrana eren totes Andorra, i a
+l'Alguer la municipal, la comarcal i l'algueresa eren la mateixa ciutat. Ara
+(`leaguePlaceName` i `LEAGUE_TERRITORY_NAMES`, a core.js):
+
+| territori | comarcal | provincial | territori |
+|---|---|---|---|
+| Catalunya, País Valencià, Franja | Lliga Comarcal de la Safor | Lliga Provincial de València | Lliga Valenciana (Catalana, de la Franja) |
+| Illes Balears | Lliga Insular de Mallorca | Lliga de les Gimnèsies (Mallorca i Menorca) o de les Pitiüses (Eivissa i Formentera) | Lliga Balear |
+| Catalunya Nord | Lliga Comarcal del Rosselló | Lliga de la Catalunya Nord | Lliga Catalana |
+| Andorra | Tercera Divisió Andorrana | Segona Divisió Andorrana | Lliga Andorrana |
+| l'Alguer | Lliga de la Nurra | Lliga Provincial de Sàsser | Lliga de Sardenya |
+
+La rajola diu el nom curt (`leagueLevelShort`): «Insular», «Gimnèsies»,
+«Tercera Divisió», «Nurra», «Sardenya»...
+
 **D'on són els rivals** (`rivalOrigins` de `localitats.js`): al municipal, del
-poble (no es diu); a la comarcal, de municipis de la comarca; a la
-provincial, de comarques de la província; a la del territori, de municipis de
-Catalunya (o comarques del territori); a la dels Països Catalans, de ciutats de
-tots els territoris; a l'europea i la mundial, de països. Es veu a sota del
-nom a la classificació, a la franja del proper rival i a la secció dels rivals.
+poble (no es diu); a la comarcal, de municipis de la comarca (a les Balears,
+de l'illa; a Formentera, un sol municipi, dels seus pobles; a la Fenolleda,
+occitana i sense municipis a la llista, de la Catalunya Nord; a Andorra, de
+parròquies i pobles; a l'Alguer, de llocs de la Nurra); a la provincial, de
+comarques de la província (Catalunya i País Valencià), de municipis del grup
+d'illes, de la Catalunya Nord o de la Franja dins la província, d'Andorra o de
+la província de Sàsser; a la del territori, de municipis de Catalunya (a la
+Catalunya Nord, també dels seus), de comarques del País Valencià, de
+municipis de les Balears o de la Franja, d'Andorra o de ciutats de Sardenya; a
+la dels Països Catalans, de ciutats de tots els territoris; a l'europea i la
+mundial, de països. Cap territori es queda sense orígens fins als Països
+Catalans. Les llistes de municipis són de la Viquipèdia (novembre de 2026):
+els 542 del País Valencià (33 comarques: l'Horta Oest es va suprimir el 2022),
+els 198 de parla catalana de la Catalunya Nord i els de parla catalana de la
+Franja; els 67 de les Balears. Es veu a sota del nom a la classificació, a la
+franja del proper rival i a la secció dels rivals. Els noms de persona van amb
+l'origen: a la Lliga Catalana de qui juga a la Catalunya Nord, cada rival té
+el nom del Principat o del Nord segons d'on és (`originTerritory`); a l'Alguer,
+de la Nurra a Sardenya la majoria són italians (50%, 75% i 85%).
 
 **Com es diuen els rivals** (`nomslliga.js`, `rivalNames`): noms de persona,
 nom i cognom, que s'escauen a la lliga i es fan més internacionals a mesura

@@ -5211,7 +5211,9 @@ function createNewLeague(force = false, options = {}) {
             const L = window.ElTaulerLocalitats;
             baseNames = window.ElTaulerNomsLliga.rivalNames(level.level, home || {}, origins, {
                 count: 9, exclude: career.recentNames,
-                territoryOf: L && typeof L.ppccCityTerritory === 'function' ? L.ppccCityTerritory : null
+                // El territori de l'origen: ciutats dels Països Catalans i, a la
+                // Lliga Catalana de la Catalunya Nord, municipis del Principat o del Nord.
+                territoryOf: L && typeof L.originTerritory === 'function' ? L.originTerritory : null
             });
         }
     } catch (e) { baseNames = []; }
@@ -5719,13 +5721,15 @@ function closeLeagueHomeSuggest() {
     if (leagueHomeModalState) { leagueHomeModalState.suggestions = []; leagueHomeModalState.active = -1; }
 }
 
-// Suggeriments del municipi (Catalunya, Andorra i l'Alguer tenen llista).
+// Suggeriments del municipi (tots els territoris dels Països Catalans tenen
+// llista; amb les llargues, a partir de dues lletres).
 function updateLeagueHomeSuggest() {
     const L = window.ElTaulerLocalitats;
     const box = $('#league-home-suggest');
     if (!L || !leagueHomeModalState) return;
     const t = $('#league-home-territory').val() || 'cat';
-    const list = L.searchMunicipalities($('#league-home-municipi').val(), { territory: t, limit: 8, minLength: t === 'cat' ? 2 : 1 });
+    const minLength = L.municipalities(t).length > 60 ? 2 : 1;
+    const list = L.searchMunicipalities($('#league-home-municipi').val(), { territory: t, limit: 8, minLength });
     leagueHomeModalState.suggestions = list;
     leagueHomeModalState.active = -1;
     if (!list.length) { closeLeagueHomeSuggest(); return; }

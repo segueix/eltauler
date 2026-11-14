@@ -4621,22 +4621,54 @@
         let m;
         if ((m = /^el\s+(.+)$/i.exec(s))) return 'del ' + m[1];
         if ((m = /^els\s+(.+)$/i.exec(s))) return 'dels ' + m[1];
-        if (/^(la|les)\s+/i.test(s) || /^l['’]/i.test(s)) return 'de ' + s;
+        // L'article salat de les Balears: «des Castell», «de sa Pobla».
+        if ((m = /^es\s+(.+)$/i.exec(s))) return 'des ' + m[1];
+        if (/^(la|les|sa|ses)\s+/i.test(s) || /^l['’]/i.test(s)) return 'de ' + s;
         // Vocal (o h muda) al davant: «d'». La i i la u davant de vocal són
         // consonants («de Iàtova», «de Uixó»).
         if (/^h?[aeiouàèéíïòóúü]/i.test(s) && !/^h?[iuíúïü][aeiouàèéíòóú]/i.test(s)) return "d'" + s;
         return 'de ' + s;
     }
-    // Lliga del nivell «territori» segons on juga el jugador: [nom, curt].
+    // Lliga del nivell «territori» segons on juga el jugador: [nom, curt]. Qui
+    // juga a la Catalunya Nord hi juga la Lliga Catalana (el nivell de sota ja
+    // és la Catalunya Nord), i qui juga a l'Alguer, la de Sardenya.
     const LEAGUE_TERRITORY_NAMES = {
         cat: ['Lliga Catalana', 'Catalana'],
         val: ['Lliga Valenciana', 'Valenciana'],
         bal: ['Lliga Balear', 'Balear'],
         and: ['Lliga Andorrana', 'Andorrana'],
-        nord: ['Lliga de la Catalunya Nord', 'Catalunya Nord'],
+        nord: ['Lliga Catalana', 'Catalana'],
         franja: ['Lliga de la Franja', 'Franja'],
-        alguer: ['Lliga Algueresa', 'Algueresa']
+        alguer: ['Lliga de Sardenya', 'Sardenya']
     };
+    // Illes Balears: el grup de cada illa (el nivell provincial).
+    const LEAGUE_ISLAND_GROUPS = { mallorca: 'les Gimnèsies', menorca: 'les Gimnèsies', eivissa: 'les Pitiüses',
+        formentera: 'les Pitiüses' };
+    function islandKey(s) {
+        return String(s == null ? '' : s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+    }
+    // Nom i nom curt dels nivells comarcal i provincial (LLIGA.md §6): cap
+    // nivell no repeteix l'àrea del de sota. A les Balears, l'illa i el grup
+    // d'illes; a la Catalunya Nord, la comarca i la Catalunya Nord; a Andorra
+    // (sense comarques ni províncies), la Tercera i la Segona Divisió; a
+    // l'Alguer, la Nurra i la província de Sàsser.
+    function leaguePlaceName(id, h) {
+        const t = h.territory || 'cat';
+        if (id === 'comarcal') {
+            if (t === 'bal') return [h.comarca ? 'Lliga Insular ' + catalanDe(h.comarca) : 'Lliga Insular', 'Insular'];
+            if (t === 'and') return ['Tercera Divisió Andorrana', 'Tercera Divisió'];
+            if (t === 'alguer') return ['Lliga de la Nurra', 'Nurra'];
+            return [h.comarca ? 'Lliga Comarcal ' + catalanDe(h.comarca) : 'Lliga Comarcal', 'Comarcal'];
+        }
+        if (t === 'bal') {
+            const g = LEAGUE_ISLAND_GROUPS[islandKey(h.comarca)];
+            return g ? ['Lliga ' + catalanDe(g), g.replace(/^les\s+/, '')] : ['Lliga Interinsular', 'Interinsular'];
+        }
+        if (t === 'nord') return ['Lliga de la Catalunya Nord', 'Catalunya Nord'];
+        if (t === 'and') return ['Segona Divisió Andorrana', 'Segona Divisió'];
+        if (t === 'alguer') return ['Lliga Provincial ' + catalanDe(h.provincia || 'Sàsser'), 'Provincial'];
+        return [h.provincia ? 'Lliga Provincial ' + catalanDe(h.provincia) : 'Lliga Provincial', 'Provincial'];
+    }
     // Nom de la lliga d'un nivell per a la localitat del jugador (home: {
     // territory, municipi, comarca, provincia, pais }). Sense localitat, els
     // noms genèrics.
@@ -4645,8 +4677,8 @@
         const L = leagueLevel(level);
         switch (L.id) {
             case 'municipal': return h.municipi ? 'Lliga ' + catalanDe(h.municipi) : 'Lliga Local';
-            case 'comarcal': return h.comarca ? 'Lliga Comarcal ' + catalanDe(h.comarca) : 'Lliga Comarcal';
-            case 'provincial': return h.provincia ? 'Lliga Provincial ' + catalanDe(h.provincia) : 'Lliga Provincial';
+            case 'comarcal':
+            case 'provincial': return leaguePlaceName(L.id, h)[0];
             case 'territorial': {
                 const t = LEAGUE_TERRITORY_NAMES[h.territory || 'cat'];
                 if (t) return t[0];
@@ -4657,11 +4689,13 @@
             default: return 'Lliga Mundial';
         }
     }
-    // Nom curt del nivell per a la rajola: «Municipal», «Catalana», «Mundial».
+    // Nom curt del nivell per a la rajola: «Municipal», «Catalana», «Mundial»
+    // (i «Insular», «Gimnèsies», «Tercera Divisió», «Nurra»...).
     function leagueLevelShort(level, home) {
         const L = leagueLevel(level);
-        if (L.id !== 'territorial') return L.label;
         const h = home || {};
+        if (L.id === 'comarcal' || L.id === 'provincial') return leaguePlaceName(L.id, h)[1];
+        if (L.id !== 'territorial') return L.label;
         const t = LEAGUE_TERRITORY_NAMES[h.territory || 'cat'];
         return t ? t[1] : 'Nacional';
     }

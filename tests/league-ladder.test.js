@@ -61,7 +61,10 @@ describe('localitats: municipis de Catalunya (Idescat)', () => {
 
 describe('localitats: altres territoris i localitat neta', () => {
     test('comarques dels altres territoris amb la província', () => {
-        expect(Loc.comarques('val')).toHaveLength(34);
+        // 33: l'Horta Oest es va suprimir el 2022 (els seus municipis tornen a l'Horta Sud i Paterna, a la Nord).
+        expect(Loc.comarques('val')).toHaveLength(33);
+        expect(Loc.normalizeHome({ territory: 'val', municipi: 'Torrent', comarca: "l'Horta Oest" }))
+            .toMatchObject({ comarca: "l'Horta Sud", provincia: 'València' });
         expect(Loc.provinceOfComarca('val', 'la Safor')).toBe('València');
         expect(Loc.provinceOfComarca('val', 'Safor')).toBe('València');
         expect(Loc.provinceOfComarca('bal', 'Menorca')).toBe('Illes Balears');
@@ -70,7 +73,7 @@ describe('localitats: altres territoris i localitat neta', () => {
         Loc.TERRITORIES.filter(t => t.id !== 'fora').forEach(t => expect(Loc.comarques(t.id).length).toBeGreaterThan(0));
     });
 
-    test('normalizeHome: a Catalunya mana la llista; als altres, la comarca dona la província', () => {
+    test('normalizeHome: mana la llista; si el municipi no hi és, la comarca dona la província', () => {
         expect(Loc.normalizeHome({ municipi: '  vic ', comarca: 'Inventada' }))
             .toEqual({ territory: 'cat', municipi: 'Vic', comarca: 'Osona', provincia: 'Barcelona', pais: '' });
         expect(Loc.normalizeHome({ territory: 'val', municipi: 'Gandia', comarca: 'la Safor' }))
@@ -108,6 +111,94 @@ describe('localitats: altres territoris i localitat neta', () => {
         const aran = Loc.rivalOrigins(1, Loc.normalizeHome({ municipi: 'Vielha e Mijaran' }), 9, rnd);
         expect(aran).toHaveLength(9);
         aran.forEach(n => expect(n).toBeTruthy());
+    });
+});
+
+describe('localitats: municipis dels altres territoris i orígens dels rivals', () => {
+    let k = 0;
+    const rnd = () => ((k = (k * 9301 + 49297) % 233280) / 233280);
+    const home = (territory, municipi, comarca) => Loc.normalizeHome({ territory, municipi, comarca });
+
+    test('municipis: 542 al País Valencià, 198 a la Catalunya Nord, 57 a la Franja i 67 a les Balears', () => {
+        expect(Loc.municipalities('val')).toHaveLength(542);
+        expect(Loc.municipalities('nord')).toHaveLength(198);
+        expect(Loc.municipalities('franja')).toHaveLength(57);
+        expect(Loc.municipalities('bal')).toHaveLength(67);
+        ['val', 'nord', 'franja', 'bal'].forEach(t => {
+            const list = Loc.municipalities(t);
+            expect(new Set(list.map(m => m.name)).size).toBe(list.length);
+            const coms = Loc.comarques(t).map(c => c.name);
+            list.forEach(m => { expect(coms).toContain(m.comarca); expect(m.province).toBeTruthy(); });
+        });
+        // Cada comarca valenciana en té algun; a la Catalunya Nord, totes menys la Fenolleda (occitana).
+        Loc.comarques('val').forEach(c => expect(Loc.municipalities('val').some(m => m.comarca === c.name)).toBe(true));
+        expect(Loc.municipalities('nord').some(m => m.comarca === 'la Fenolleda')).toBe(false);
+        // Mequinensa és del Baix Cinca però de la província de Saragossa.
+        expect(Loc.findMunicipality('mequinensa', 'franja')).toMatchObject({ comarca: 'el Baix Cinca', province: 'Saragossa' });
+        expect(home('val', 'gandia')).toMatchObject({ municipi: 'Gandia', comarca: 'la Safor', provincia: 'València' });
+        expect(home('bal', 'es castell')).toMatchObject({ municipi: 'es Castell', comarca: 'Menorca' });
+        expect(Loc.searchMunicipalities('vila-r', { territory: 'val' }).map(m => m.name)).toContain('Vila-real');
+    });
+
+    test('comarcal: municipis de la comarca (o de l\'illa), també fora de Catalunya', () => {
+        Loc.rivalOrigins(1, home('val', 'Gandia'), 9, rnd).forEach(n => {
+            expect(n).not.toBe('Gandia');
+            expect(Loc.findMunicipality(n, 'val').comarca).toBe('la Safor');
+        });
+        Loc.rivalOrigins(1, home('nord', 'Prada'), 9, rnd).forEach(n => expect(Loc.findMunicipality(n, 'nord').comarca).toBe('el Conflent'));
+        Loc.rivalOrigins(1, home('bal', 'Maó'), 9, rnd).forEach(n => expect(Loc.findMunicipality(n, 'bal').comarca).toBe('Menorca'));
+        Loc.rivalOrigins(1, home('franja', 'Calaceit'), 9, rnd).forEach(n => expect(Loc.findMunicipality(n, 'franja').comarca).toBe('el Matarranya'));
+        // Formentera (un sol municipi): els seus pobles. La Fenolleda: la Catalunya Nord.
+        Loc.rivalOrigins(1, home('bal', 'Formentera'), 9, rnd).forEach(n => expect(n).toBeTruthy());
+        Loc.rivalOrigins(1, home('nord', 'Sant Pau', 'la Fenolleda'), 9, rnd).forEach(n => expect(Loc.findMunicipality(n, 'nord')).toBeTruthy());
+    });
+
+    test('cap territori sense orígens fins als Països Catalans (ni l\'Alguer ni Andorra)', () => {
+        const homes = [home('val', 'Gandia'), home('bal', 'Palma'), home('bal', 'Eivissa'), home('nord', 'Perpinyà'),
+            home('and', 'Encamp'), home('franja', 'Fraga'), home('franja', 'Mequinensa'), home('alguer', "l'Alguer")];
+        homes.forEach(h => [1, 2, 3].forEach(lv => {
+            const o = Loc.rivalOrigins(lv, h, 9, rnd);
+            expect(o).toHaveLength(9);
+            o.forEach(n => expect(n).toBeTruthy());
+        }));
+    });
+
+    test('provincial i territori: l\'àrea de cada lliga', () => {
+        // Gimnèsies (Mallorca i Menorca) i Pitiüses (Eivissa i Formentera).
+        Loc.rivalOrigins(2, home('bal', 'Palma'), 9, rnd)
+            .forEach(n => expect(['Mallorca', 'Menorca']).toContain(Loc.findMunicipality(n, 'bal').comarca));
+        Loc.rivalOrigins(2, home('bal', 'Eivissa'), 9, rnd)
+            .forEach(n => expect(['Eivissa', 'Formentera']).toContain(Loc.findMunicipality(n, 'bal').comarca));
+        expect(Loc.islandGroup('Menorca').name).toBe('les Gimnèsies');
+        // La Catalunya Nord, i la Lliga Catalana amb rivals del Principat i del Nord.
+        Loc.rivalOrigins(2, home('nord', 'Perpinyà'), 9, rnd).forEach(n => expect(Loc.findMunicipality(n, 'nord')).toBeTruthy());
+        Loc.rivalOrigins(3, home('nord', 'Perpinyà'), 9, rnd)
+            .forEach(n => expect(['nord', 'cat']).toContain(Loc.originTerritory(n)));
+        // La Franja: municipis de la Franja de la mateixa província.
+        Loc.rivalOrigins(2, home('franja', 'Mequinensa'), 9, rnd)
+            .forEach(n => expect(Loc.findMunicipality(n, 'franja').province).toBe('Saragossa'));
+        // L'Alguer: la Nurra, la província de Sàsser i Sardenya; mai l'Alguer.
+        [1, 2, 3].forEach(lv => Loc.rivalOrigins(lv, home('alguer', "l'Alguer"), 9, rnd)
+            .forEach(n => expect(n).not.toBe("l'Alguer")));
+        expect(Loc.rivalOrigins(3, home('alguer', "l'Alguer"), 9, rnd)).not.toContain('Fertilia');
+    });
+
+    test('noms dels rivals: a l\'Alguer, sobretot italians; a la Catalana del Nord, segons d\'on són', () => {
+        let s = 3;
+        const r = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+        const alguer = home('alguer', "l'Alguer");
+        const it = level => {
+            let n = 0;
+            for (let i = 0; i < 400; i++) if (Noms.cultureFor(level, alguer, 'Sàsser', { random: r }) === 'it') n++;
+            return n / 400;
+        };
+        expect(it(0)).toBe(0);
+        expect(it(1)).toBeGreaterThan(0.45);
+        expect(it(3)).toBeGreaterThan(0.85);
+        const perpinya = home('nord', 'Perpinyà');
+        const opts = { random: () => 0.99, territoryOf: Loc.originTerritory };
+        expect(Noms.cultureFor(3, perpinya, 'Vic', opts)).toBe('cat');
+        expect(Noms.cultureFor(3, perpinya, 'Prada', opts)).toBe('nord');
     });
 });
 

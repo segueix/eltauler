@@ -216,7 +216,37 @@ describe('escala de nivells (LLIGA.md §6)', () => {
         expect(Core.leagueFullName(1, 'B', vic)).toBe("Lliga Comarcal d'Osona · Grup B");
     });
 
+    test('fora de Catalunya, cap nivell no repeteix l\'àrea del de sota', () => {
+        const names = h => [0, 1, 2, 3].map(l => Core.leagueLevelName(l, h));
+        const shorts = h => [1, 2, 3].map(l => Core.leagueLevelShort(l, h));
+        const palma = { territory: 'bal', municipi: 'Palma', comarca: 'Mallorca', provincia: 'Illes Balears' };
+        expect(names(palma)).toEqual(['Lliga de Palma', 'Lliga Insular de Mallorca', 'Lliga de les Gimnèsies', 'Lliga Balear']);
+        expect(shorts(palma)).toEqual(['Insular', 'Gimnèsies', 'Balear']);
+        const castell = { territory: 'bal', municipi: 'es Castell', comarca: 'Menorca', provincia: 'Illes Balears' };
+        expect(names(castell)).toEqual(['Lliga des Castell', 'Lliga Insular de Menorca', 'Lliga de les Gimnèsies', 'Lliga Balear']);
+        expect(Core.leagueLevelName(2, { territory: 'bal', municipi: 'Eivissa', comarca: 'Eivissa' })).toBe('Lliga de les Pitiüses');
+        expect(Core.leagueLevelName(1, { territory: 'bal', municipi: 'Eivissa', comarca: 'Eivissa' })).toBe("Lliga Insular d'Eivissa");
+        const perpinya = { territory: 'nord', municipi: 'Perpinyà', comarca: 'el Rosselló', provincia: 'els Pirineus Orientals' };
+        expect(names(perpinya)).toEqual(['Lliga de Perpinyà', 'Lliga Comarcal del Rosselló', 'Lliga de la Catalunya Nord', 'Lliga Catalana']);
+        expect(shorts(perpinya)).toEqual(['Comarcal', 'Catalunya Nord', 'Catalana']);
+        const encamp = { territory: 'and', municipi: 'Encamp', comarca: 'Andorra', provincia: 'Andorra' };
+        expect(names(encamp)).toEqual(["Lliga d'Encamp", 'Tercera Divisió Andorrana', 'Segona Divisió Andorrana', 'Lliga Andorrana']);
+        expect(Core.leagueFullName(1, 'B', encamp)).toBe('Tercera Divisió Andorrana · Grup B');
+        const alguer = { territory: 'alguer', municipi: "l'Alguer", comarca: "l'Alguer", provincia: 'Sàsser' };
+        expect(names(alguer)).toEqual(["Lliga de l'Alguer", 'Lliga de la Nurra', 'Lliga Provincial de Sàsser', 'Lliga de Sardenya']);
+        expect(shorts(alguer)).toEqual(['Nurra', 'Provincial', 'Sardenya']);
+        const fraga = { territory: 'franja', municipi: 'Fraga', comarca: 'el Baix Cinca', provincia: 'Osca' };
+        expect(names(fraga)).toEqual(['Lliga de Fraga', 'Lliga Comarcal del Baix Cinca', "Lliga Provincial d'Osca", 'Lliga de la Franja']);
+        // A cap territori dos nivells seguits no es diuen igual.
+        [palma, castell, perpinya, encamp, alguer, fraga].forEach(h => {
+            const n = names(h);
+            for (let i = 1; i < n.length; i++) expect(n[i]).not.toBe(n[i - 1]);
+        });
+    });
+
     test('contraccions de «de»', () => {
+        expect(['es Castell', 'es Migjorn Gran', 'sa Pobla', 'ses Salines'].map(Core.catalanDe))
+            .toEqual(['des Castell', 'des Migjorn Gran', 'de sa Pobla', 'de ses Salines']);
         expect(['el Bages', 'els Ports', 'la Selva', "l'Anoia", 'les Garrigues', 'Osona', 'Igualada', 'Hostalric', 'Barcelona', 'Iàtova']
             .map(Core.catalanDe)).toEqual(['del Bages', 'dels Ports', 'de la Selva', "de l'Anoia", 'de les Garrigues',
             "d'Osona", "d'Igualada", "d'Hostalric", 'de Barcelona', 'de Iàtova']);
