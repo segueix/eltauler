@@ -5363,7 +5363,9 @@ function loadLeagueCareer() {
     try { data = JSON.parse(localStorage.getItem(LEAGUE_CAREER_KEY) || 'null'); } catch (e) { data = null; }
     const division = (data && Number.isFinite(data.division)) ? ElTaulerCore.leagueDivision(data.division).level
         : ElTaulerCore.LEAGUE_START_DIVISION;
-    const seasons = (data && Array.isArray(data.seasons)) ? data.seasons.filter(x => x && typeof x === 'object') : [];
+    // Les temporades d'abans es deien «· Grup B»; ara, «· Divisió B».
+    const seasons = (data && Array.isArray(data.seasons)) ? data.seasons.filter(x => x && typeof x === 'object')
+        .map(x => (typeof x.name === 'string' ? Object.assign({}, x, { name: ElTaulerCore.leagueRenameGroup(x.name) }) : x)) : [];
     const savedLevel = (data && Number.isFinite(data.level)) ? ElTaulerCore.leagueLevel(data.level).level
         : ElTaulerCore.LEAGUE_START_LEVEL;
     // Les trajectòries d'abans dels graons només tenien el nivell: comencen a
@@ -5376,7 +5378,7 @@ function loadLeagueCareer() {
     // la lliga del territori.
     const bestTier = (data && Number.isFinite(data.bestTier)) ? ElTaulerCore.leagueTier(data.bestTier)
         : ((data && Number.isFinite(data.bestLevel)) ? ElTaulerCore.leagueTierOf(data.bestLevel, 'C') : savedTier);
-    // L'escalada comença com a mínim a la lliga del territori, Grup C: qui no
+    // L'escalada comença com a mínim a la lliga del territori, Divisió C: qui no
     // hi ha jugat mai (les trajectòries noves i les d'abans que no hi havien
     // arribat) hi comença.
     const tier = ElTaulerCore.leagueFloorTier(savedTier, bestTier);
@@ -5621,8 +5623,11 @@ function leagueHeroState() {
     const started = !!(me && me.pj > 0);
     return {
         round, total, players: players.length,
-        // Nom de la lliga sense el grup («Lliga de Vic»), per al títol del bàner.
-        league: currentLeague.ladder ? ElTaulerCore.leagueLevelName(currentLeague.ladder.level, leagueHome()) : null,
+        // Nom de la lliga amb la divisió («Lliga Catalana · Divisió B»), per al
+        // títol del bàner de l'inici.
+        league: currentLeague.ladder ? (currentLeague.ladder.group
+            ? ElTaulerCore.leagueFullName(currentLeague.ladder.level, currentLeague.ladder.group, leagueHome())
+            : ElTaulerCore.leagueLevelName(currentLeague.ladder.level, leagueHome())) : null,
         rank: started ? findPlayerRank(players, 'me') : null,
         pts: me ? me.pts || 0 : 0,
         tc: tc === 'none' ? 'sense rellotge' : tc,
@@ -5646,7 +5651,7 @@ function renderLeagueHero() {
         return;
     }
     if (st.fresh) {
-        sub.textContent = st.noHome ? 'Digues on jugues i comença a la lliga del teu municipi'
+        sub.textContent = st.noHome ? 'Digues on jugues i comença a la lliga del teu territori'
             : 'Temporada nova: 9 jornades contra rivals del teu nivell';
         if (meta) meta.textContent = '';
         if (play) play.hidden = true;
@@ -6044,7 +6049,7 @@ function renderLeagueLevelTile() {
     $('#league-division-label').text('NIVELL');
     $('#league-division').text(ElTaulerCore.leagueLevelShort(lad.level, leagueHome()));
     const rules = [z.up ? '↑ podi' : null, z.down ? '↓ 3 últims' : null].filter(Boolean).join(' · ');
-    $('#league-division-sub').text(`Grup ${lad.group}${rules ? ' · ' + rules : ''}`);
+    $('#league-division-sub').text(`Divisió ${lad.group}${rules ? ' · ' + rules : ''}`);
 }
 // Moviment de final de temporada: { cls, text } («Puges a la Lliga
 // Comarcal d'Osona»). Les temporades de divisions diuen la divisió.
@@ -6079,7 +6084,7 @@ function renderLeagueLadderSteps() {
             const startLevel = ElTaulerCore.leagueTierLevel(ElTaulerCore.LEAGUE_START_TIER);
             const cls = ['lg-step', i === cur ? 'is-current' : (cur !== null && i < cur && i >= startLevel ? 'is-done' : ''), i === career.bestLevel ? 'is-best' : '']
                 .filter(Boolean).join(' ');
-            const title = ElTaulerCore.leagueLevelName(i, career.home) + (i === cur && lad.group ? ' · Grup ' + lad.group : '');
+            const title = ElTaulerCore.leagueLevelName(i, career.home) + (i === cur && lad.group ? ' · Divisió ' + lad.group : '');
             return `<span class="${cls}" title="${escapeHtml(title)}">${leagueIcon(L.icon)}</span>`;
         }).join('');
     }
@@ -6105,9 +6110,9 @@ function renderLeagueLadder() {
             const done = t < curTier && t >= ElTaulerCore.LEAGUE_START_TIER;
             const cls = t === curTier ? 'lgc-orange is-mine' : (done ? 'lgc-green'
                 : (t > curTier && t === career.bestTier ? 'lgc-gold' : 'lgc-silver'));
-            return `<span class="lg-chip ${cls}">Grup ${id}</span>`;
+            return `<span class="lg-chip ${cls}">Divisió ${id}</span>`;
         }).join('<span class="lll-arrow" aria-hidden="true">→</span>');
-        const marks = [i === cur ? `<span class="lg-chip lgc-orange">Ets aquí: Grup ${escapeHtml(ElTaulerCore.leagueTierGroup(curTier))}</span>` : '',
+        const marks = [i === cur ? `<span class="lg-chip lgc-orange">Ets aquí: Divisió ${escapeHtml(ElTaulerCore.leagueTierGroup(curTier))}</span>` : '',
             i === ElTaulerCore.leagueTierLevel(career.bestTier) && career.bestTier > curTier ? '<span class="lg-chip lgc-gold">Millor graó</span>' : ''].join('');
         const cls = i === cur ? ' is-current'
             : (i < cur && i >= ElTaulerCore.leagueTierLevel(ElTaulerCore.LEAGUE_START_TIER) ? ' is-done' : '');
@@ -6115,10 +6120,10 @@ function renderLeagueLadder() {
             + `<div class="lll-name">${escapeHtml(ElTaulerCore.leagueLevelName(i, career.home))}${marks}</div>`
             + `<div class="lll-groups">${groups}</div></div></div>`;
     }).reverse().join('');
-    box.innerHTML = levels + '<div class="league-note">Es comença, com a mínim, al Grup C de la lliga del teu territori; '
+    box.innerHTML = levels + '<div class="league-note">Es comença, com a mínim, a la Divisió C de la lliga del teu territori; '
         + 'la provincial, la comarcal i la del municipi hi són per si baixes. '
         + 'Es puja d\'un graó en un: de la C a la B, de la B a la A i de la A a la C del nivell següent. '
-        + 'El podi puja un graó i els tres últims en baixen un (del Grup C del municipal no se\'n baixa). '
+        + 'El podi puja un graó i els tres últims en baixen un (de la Divisió C del municipal no se\'n baixa). '
         + 'Cada graó fa els rivals 12 punts més forts que l\'anterior: a la Lliga Local C ets favorit i a la Mundial A cal jugar molt per sobre de la teva puntuació. '
         + 'Els rivals sempre són del teu nivell (±200).</div>';
 }
@@ -9619,6 +9624,8 @@ function loadStorage() {
         calibratgeComplet = false;
     }
     const league = localStorage.getItem('chess_currentLeague'); if (league) currentLeague = JSON.parse(league);
+    // Les lligues d'abans es deien «· Grup B»; ara, «· Divisió B».
+    if (currentLeague && currentLeague.name) currentLeague.name = ElTaulerCore.leagueRenameGroup(currentLeague.name);
     const lMatch = localStorage.getItem('chess_leagueActiveMatch'); if (lMatch) leagueActiveMatch = JSON.parse(lMatch);
     const reviews = localStorage.getItem('chess_reviewHistory'); if (reviews) reviewHistory = JSON.parse(reviews);
     const gameHistoryStored = localStorage.getItem('chess_gameHistory'); if (gameHistoryStored) gameHistory = JSON.parse(gameHistoryStored);

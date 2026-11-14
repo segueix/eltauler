@@ -119,7 +119,7 @@ describe('escala de graons: C → B → A → C del nivell següent (LLIGA.md §
         expect(Core.leagueTierLevel(Core.LEAGUE_START_TIER)).toBe(3);
         expect(Core.leagueTierGroup(Core.LEAGUE_START_TIER)).toBe('C');
         expect(Core.leagueFullName(3, 'C', { territory: 'val', municipi: 'Gandia', comarca: 'la Safor' }))
-            .toBe('Lliga Valenciana · Grup C');
+            .toBe('Lliga Valenciana · Divisió C');
         const order = Array.from({ length: 21 }, (_, t) => Core.leagueTierGroup(t)).join('');
         expect(order).toBe('CBA'.repeat(7));
         expect([0, 2, 3, 20].map(Core.leagueTierLevel)).toEqual([0, 0, 1, 6]);
@@ -154,11 +154,21 @@ describe('escala de graons: C → B → A → C del nivell següent (LLIGA.md §
 
     test('on es juga la temporada següent, en paraules', () => {
         const vic = { territory: 'cat', municipi: 'Vic', comarca: 'Osona', provincia: 'Barcelona' };
-        expect(Core.leagueTierMoveText(0, 1, vic)).toBe('Puges al Grup B de la Lliga de Vic');
-        expect(Core.leagueTierMoveText(1, 2, vic)).toBe('Puges al Grup A de la Lliga de Vic');
-        expect(Core.leagueTierMoveText(2, 3, vic)).toBe("Puges a la Lliga Comarcal d'Osona · Grup C");
-        expect(Core.leagueTierMoveText(3, 2, vic)).toBe('Baixes a la Lliga de Vic · Grup A');
-        expect(Core.leagueTierMoveText(4, 4, vic)).toBe("Continues al Grup B de la Lliga Comarcal d'Osona");
+        expect(Core.leagueTierMoveText(0, 1, vic)).toBe('Puges a la Divisió B de la Lliga de Vic');
+        expect(Core.leagueTierMoveText(1, 2, vic)).toBe('Puges a la Divisió A de la Lliga de Vic');
+        expect(Core.leagueTierMoveText(2, 3, vic)).toBe("Puges a la Divisió C de la Lliga Comarcal d'Osona");
+        expect(Core.leagueTierMoveText(3, 2, vic)).toBe('Baixes a la Divisió A de la Lliga de Vic');
+        expect(Core.leagueTierMoveText(4, 4, vic)).toBe("Continues a la Divisió B de la Lliga Comarcal d'Osona");
+    });
+
+    test('cada nivell té les divisions C, B i A; els noms desats d\'abans («Grup») s\'actualitzen', () => {
+        expect(Core.leagueFullName(3, 'C')).toBe('Lliga Catalana · Divisió C');
+        expect(Core.leagueRenameGroup('Lliga de Vic · Grup B')).toBe('Lliga de Vic · Divisió B');
+        expect(Core.leagueRenameGroup('Lliga de Vic · Lliga C')).toBe('Lliga de Vic · Divisió C');
+        expect(Core.leagueRenameGroup("Lliga Comarcal d'Osona · Grup A")).toBe("Lliga Comarcal d'Osona · Divisió A");
+        expect(Core.leagueRenameGroup('Copa del Rei III')).toBe('Copa del Rei III');
+        expect(Core.leagueRenameGroup(null)).toBe(null);
+        expect(Core.leagueLevelGroups(3).map(g => g.label).every(l => /^Divisió [ABC]$/.test(l))).toBe(true);
     });
 });
 
@@ -213,7 +223,7 @@ describe('escala de nivells (LLIGA.md §6)', () => {
         expect(Core.leagueLevelName(3, { territory: 'fora', municipi: 'Lió', pais: 'França' })).toBe('Lliga Nacional de França');
         // Sense localitat, els genèrics.
         expect([0, 1, 2, 3].map(l => Core.leagueLevelName(l))).toEqual(['Lliga Local', 'Lliga Comarcal', 'Lliga Provincial', 'Lliga Catalana']);
-        expect(Core.leagueFullName(1, 'B', vic)).toBe("Lliga Comarcal d'Osona · Grup B");
+        expect(Core.leagueFullName(1, 'B', vic)).toBe("Lliga Comarcal d'Osona · Divisió B");
     });
 
     test('fora de Catalunya, cap nivell no repeteix l\'àrea del de sota', () => {
@@ -231,7 +241,7 @@ describe('escala de nivells (LLIGA.md §6)', () => {
         expect(shorts(perpinya)).toEqual(['Comarcal', 'Catalunya Nord', 'Catalana']);
         const encamp = { territory: 'and', municipi: 'Encamp', comarca: 'Andorra', provincia: 'Andorra' };
         expect(names(encamp)).toEqual(["Lliga d'Encamp", 'Tercera Divisió Andorrana', 'Segona Divisió Andorrana', 'Lliga Andorrana']);
-        expect(Core.leagueFullName(1, 'B', encamp)).toBe('Tercera Divisió Andorrana · Grup B');
+        expect(Core.leagueFullName(1, 'B', encamp)).toBe('Tercera Divisió Andorrana · Divisió B');
         const alguer = { territory: 'alguer', municipi: "l'Alguer", comarca: "l'Alguer", provincia: 'Sàsser' };
         expect(names(alguer)).toEqual(["Lliga de l'Alguer", 'Lliga de la Nurra', 'Lliga Provincial de Sàsser', 'Lliga de Sardenya']);
         expect(shorts(alguer)).toEqual(['Nurra', 'Provincial', 'Sardenya']);
@@ -816,31 +826,31 @@ describe('final de la lliga: la posició, gran, a la revisió de la darrera jorn
     test('escala de graons: es puja de la C a la B, de la B a la A i de la A a la C del nivell següent', () => {
         const home = { territory: 'cat', municipi: 'Vic', comarca: 'Osona', provincia: 'Barcelona' };
         const ctx = finalCtx({ tier: 1, home, seasons: [] });
-        const lad = { players: 10, pts: 7, performance: 1100, champion: 'Gambit', name: 'Lliga de Vic · Grup B' };
+        const lad = { players: 10, pts: 7, performance: 1100, champion: 'Gambit', name: 'Lliga de Vic · Divisió B' };
         expect(ctx.leagueFinalReviewHtml({ ...lad, rank: 2, level: 0, tier: 0, nextLevel: 0, nextTier: 1, movement: 'up' }))
-            .toContain('↑ Puges al Grup B de la Lliga de Vic');
+            .toContain('↑ Puges a la Divisió B de la Lliga de Vic');
         expect(ctx.leagueFinalReviewHtml({ ...lad, rank: 2, level: 0, tier: 1, nextLevel: 0, nextTier: 2, movement: 'up' }))
-            .toContain('↑ Puges al Grup A de la Lliga de Vic');
+            .toContain('↑ Puges a la Divisió A de la Lliga de Vic');
         expect(ctx.leagueFinalReviewHtml({ ...lad, rank: 2, level: 0, tier: 2, nextLevel: 1, nextTier: 3, movement: 'up' }))
-            .toContain('↑ Puges a la Lliga Comarcal d&#39;Osona · Grup C');
+            .toContain('↑ Puges a la Divisió C de la Lliga Comarcal d&#39;Osona');
         expect(ctx.leagueFinalReviewHtml({ ...lad, rank: 9, level: 2, tier: 6, nextLevel: 1, nextTier: 5, movement: 'down' }))
-            .toMatch(/<span class="rlf-pos lgc-red">9è<\/span>[\s\S]*↓ Baixes a la Lliga Comarcal d&#39;Osona · Grup A/);
+            .toMatch(/<span class="rlf-pos lgc-red">9è<\/span>[\s\S]*↓ Baixes a la Divisió A de la Lliga Comarcal d&#39;Osona/);
         // Al primer graó la cua no és zona de descens.
         expect(ctx.leagueFinalReviewHtml({ ...lad, rank: 9, level: 0, tier: 0, nextLevel: 0, nextTier: 0, movement: 'stay' }))
-            .toMatch(/<span class="rlf-pos lgc-teal">9è<\/span>[\s\S]*Continues al Grup C de la Lliga de Vic/);
+            .toMatch(/<span class="rlf-pos lgc-teal">9è<\/span>[\s\S]*Continues a la Divisió C de la Lliga de Vic/);
         // Campió del món només al cim (Mundial A); a la Mundial C, el campió puja a la B.
         const world = ctx.leagueFinalReviewHtml({ ...lad, rank: 1, level: 6, tier: 20, nextLevel: 6, nextTier: 20, movement: 'stay', champion: 'Tu' });
         expect(world).toContain('<use href="#ic-globe"/></svg>CAMPIÓ DEL MÓN');
-        expect(world).toContain('Continues al Grup A de la Lliga Mundial');
+        expect(world).toContain('Continues a la Divisió A de la Lliga Mundial');
         const mundialC = ctx.leagueFinalReviewHtml({ ...lad, rank: 1, level: 6, tier: 18, nextLevel: 6, nextTier: 19, movement: 'up', champion: 'Tu' });
         expect(mundialC).toContain('CAMPIÓ DE LA LLIGA');
-        expect(mundialC).toContain('Puges al Grup B de la Lliga Mundial');
+        expect(mundialC).toContain('Puges a la Divisió B de la Lliga Mundial');
     });
 
     test('temporades d\'abans dels graons: es puja, es baixa o es continua de nivell', () => {
         const home = { territory: 'cat', municipi: 'Vic', comarca: 'Osona', provincia: 'Barcelona' };
         const ctx = finalCtx({ level: 1, home, seasons: [] });
-        const lad = { players: 10, pts: 7, performance: 1100, champion: 'Gambit', name: 'Lliga de Vic · Grup B' };
+        const lad = { players: 10, pts: 7, performance: 1100, champion: 'Gambit', name: 'Lliga de Vic · Divisió B' };
         expect(ctx.leagueFinalReviewHtml({ ...lad, rank: 2, level: 0, nextLevel: 1, movement: 'up' }))
             .toContain('↑ Puges a la Lliga Comarcal d&#39;Osona');
         expect(ctx.leagueFinalReviewHtml({ ...lad, rank: 9, level: 2, nextLevel: 1, movement: 'down' }))

@@ -221,7 +221,7 @@ no ha començat, es torna a sortejar amb els noms i els rivals del lloc nou.
 **Set nivells** (`LEAGUE_LEVELS`), amb el nom del lloc del jugador
 (`leagueLevelName`, contraccions amb `catalanDe`, també «des Castell»):
 
-| nivell | icona | lliga (exemple: Vic) | graella del Grup C · B · A |
+| nivell | icona | lliga (exemple: Vic) | graella de la Divisió C · B · A |
 |---|---|---|---|
 | municipal | `ic-village` (cases) | Lliga de Vic | −120 · −108 · −96 |
 | comarcal | `ic-mountain` (muntanyes) | Lliga Comarcal d'Osona | −84 · −72 · −60 |
@@ -246,8 +246,10 @@ la B a la A, i de la A a la C del nivell següent (com a Remigi). En acabar la t
 els tres últims en baixen un (`leagueNextTier`); de Municipal C no es baixa i
 de Mundial A no es puja (allà, el primer és «Campió del món», amb el globus).
 El graó viu a la trajectòria (`tier`, de 0 a 20) i a la lliga
-(`ladder.tier`); el nom de la lliga porta el grup («Lliga Comarcal d'Osona ·
-Grup B»).
+(`ladder.tier`); el nom de la lliga porta la divisió («Lliga Comarcal d'Osona ·
+Divisió B»). Cada nivell té tres divisions, **Divisió C, Divisió B i Divisió A**
+(abans, «Grup C, B i A»): els noms desats d'abans s'actualitzen en llegir-los
+(`leagueRenameGroup`).
 
 **On es comença: com a mínim, a la lliga del territori.** Les trajectòries
 noves comencen a la Lliga Catalana C (o la Valenciana, la Balear, l'Andorrana,
@@ -379,16 +381,19 @@ botó de la localitat amb el municipi i la comarca. La rajola **NIVELL** diu el 
 grup i les zones (a Municipal C només «↑ podi»; a Mundial A, «↓ 3 últims»), i la
 taula i la llegenda només marquen les zones que hi ha (a Municipal C la cua no
 va de vermell). La secció plegable «L'escalada: del municipi al món» ensenya
-els set nivells (el mundial a dalt) amb els seus grups en ordre, Grup C → Grup B
-→ Grup A: els graons fets en verd, el d'ara en taronja («Ets aquí: Grup B») i el
+els set nivells (el mundial a dalt) amb les seves divisions en ordre, Divisió C →
+Divisió B → Divisió A: els graons fets en verd, el d'ara en taronja («Ets aquí:
+Divisió B») i el
 millor graó en daurat.
 Els graons de la capçalera l'obren. Al bàner de l'inici, el títol és la lliga
-(«Lliga de Vic»); sense localitat, convida a triar-la.
+amb la divisió («Lliga Catalana · Divisió B»); sense localitat, convida a
+triar-la.
 
 En acabar, la revisió i la franja diuen on es jugarà la temporada següent
-(`leagueTierMoveText`): «Puges al Grup B de la Lliga de Vic», «Puges al Grup A
-de la Lliga de Vic», «Puges a la Lliga Comarcal d'Osona · Grup C», «Baixes a
-la Lliga de Vic · Grup A» o «Continues al Grup B...». La trajectòria
+(`leagueTierMoveText`): «Puges a la Divisió B de la Lliga de Vic», «Puges a la
+Divisió A de la Lliga de Vic», «Puges a la Divisió C de la Lliga Comarcal
+d'Osona», «Baixes a la Divisió A de la Lliga de Vic» o «Continues a la Divisió
+B de la Lliga de Vic». La trajectòria
 (`chess_leagueCareer`) desa el graó (`tier`) i el nivell, el millor graó i el
 millor nivell, la localitat i fins a 30 temporades (nom, ritme, posició,
 punts, rendiment, nivell, grup, graó i graó següent); el palmarès en mostra
@@ -609,7 +614,8 @@ tothom) i el Sonneborn-Berger (que és al quadre i a la llegenda).
   `sf19RivalWanted`.
 - Escala de graons (§6): 21 graons en l'ordre C, B, A per nivell, desplaçament
   de 12 punts per graó, el podi puja un graó i els tres últims en baixen un,
-  els textos «Puges al Grup B…» / «… · Grup C», temporades senceres que pugen
+  els textos «Puges a la Divisió B de la Lliga de Vic» / «… · Divisió C», els
+  noms d'abans («Grup») actualitzats, temporades senceres que pugen
   de la C a la B, de la B a la A i de la A a la C del nivell següent, campió del
   món només a Mundial A, i trajectòries i lligues d'abans dels graons; el
   mínim (`leagueFloorTier`): les trajectòries noves comencen a la lliga del

@@ -4522,7 +4522,7 @@
         const th = leagueLevel(level).groups;
         const ids = th.length === 2 ? ['C', 'B', 'A'] : ['B', 'A'];
         return ids.map(function (id, i) {
-            return { id: id, label: 'Grup ' + id, min: i === 0 ? null : th[i - 1], max: i < th.length ? th[i] - 1 : null };
+            return { id: id, label: 'Divisió ' + id, min: i === 0 ? null : th[i - 1], max: i < th.length ? th[i] - 1 : null };
         });
     }
     // Grup que toca a una graella d'ELO mitjà `center` en aquest nivell.
@@ -4562,7 +4562,7 @@
     const LEAGUE_GROUP_IDS = ['C', 'B', 'A'];
     const LEAGUE_TIER_COUNT = LEAGUE_LEVELS.length * LEAGUE_GROUP_IDS.length;
     // On comença l'escalada, com a mínim: la lliga del territori (Catalana,
-    // Valenciana, Balear...), Grup C. Les de sota (municipal, comarcal i
+    // Valenciana, Balear...), Divisió C. Les de sota (municipal, comarcal i
     // provincial) hi són per a qui baixa, no per començar-hi.
     const LEAGUE_START_TIER = 3 * LEAGUE_GROUP_IDS.length;
     function leagueTier(tier) {
@@ -4601,14 +4601,11 @@
         if (rank > n - 3 && rank <= n) return Math.max(0, cur - 1);
         return cur;
     }
-    // On es jugarà la temporada següent, en paraules: «Puges al Grup B de la
-    // Lliga de Vic», «Puges a la Lliga Comarcal d'Osona · Grup C»...
+    // On es jugarà la temporada següent, en paraules: «Puges a la Divisió B de
+    // la Lliga de Vic», «Puges a la Divisió C de la Lliga Comarcal d'Osona»...
     function leagueTierMoveText(from, to, home) {
         const a = leagueTier(from), b = leagueTier(to);
-        const sameLevel = leagueTierLevel(a) === leagueTierLevel(b);
-        const where = sameLevel
-            ? 'al Grup ' + leagueTierGroup(b) + ' de la ' + leagueLevelName(leagueTierLevel(b), home)
-            : 'a la ' + leagueFullName(leagueTierLevel(b), leagueTierGroup(b), home);
+        const where = 'a la Divisió ' + leagueTierGroup(b) + ' de la ' + leagueLevelName(leagueTierLevel(b), home);
         if (b > a) return 'Puges ' + where;
         if (b < a) return 'Baixes ' + where;
         return 'Continues ' + where;
@@ -4699,9 +4696,14 @@
         const t = LEAGUE_TERRITORY_NAMES[h.territory || 'cat'];
         return t ? t[1] : 'Nacional';
     }
-    // «Lliga de Vic · Grup B».
+    // «Lliga de Vic · Divisió B». Cada nivell té tres divisions, la C, la B i
+    // la A (abans es deien «Grup C», «Grup B» i «Grup A»).
     function leagueFullName(level, groupId, home) {
-        return leagueLevelName(level, home) + (groupId ? ' · Grup ' + groupId : '');
+        return leagueLevelName(level, home) + (groupId ? ' · Divisió ' + groupId : '');
+    }
+    // Noms desats d'abans («Lliga de Vic · Grup B») amb el nom d'ara.
+    function leagueRenameGroup(name) {
+        return typeof name === 'string' ? name.replace(/ · (?:Grup|Lliga) ([ABC])$/, ' · Divisió $1') : name;
     }
 
     // Divisions (LLIGA.md §6, abans de l'escala de nivells): les lligues
@@ -10698,6 +10700,7 @@
         LEAGUE_TIER_COUNT,
         LEAGUE_START_TIER,
         leagueFloorTier,
+        leagueRenameGroup,
         leagueTier,
         leagueTierLevel,
         leagueTierGroup,
