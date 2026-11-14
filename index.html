@@ -6428,7 +6428,15 @@
             font-family: var(--hd-font); font-size: 0.82rem; font-weight: 700; color: var(--hd-text);
             background: var(--hd-card); border: 1px solid var(--hd-line);
         }
-        #start-screen .home-sec-back svg { width: 16px; height: 16px; transform: rotate(180deg); fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+        #start-screen .home-sec-back svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; }
+        /* A baix de cada secció, el botó d'inici de sempre (casa daurada). */
+        #start-screen .home-sec-foot { margin-top: 6px; }
+        #start-screen .home-sec-foot .btn-nav-home { display: flex; align-items: center; justify-content: center; min-height: 52px; }
+        #start-screen .home-sec[data-view] > .home-sec-foot { grid-column: 1 / -1; }
+        /* A l'ordinador, .menu-buttons és una graella de dues columnes: aquí el
+           botó va sol i centrat. */
+        body.device-desktop #start-screen .home-sec-foot { display: flex; flex-direction: column; align-items: center; }
+        body.device-desktop #start-screen .home-sec-foot .btn-nav-home { max-width: 360px; }
         #start-screen .home-sec-back:hover { border-color: var(--sec); }
         #start-screen .home-sec-back:focus-visible { outline: 2px solid var(--sec); outline-offset: 2px; }
         /* «Més»: sis rajoles, dues per fila */
@@ -7502,7 +7510,7 @@
                 <!-- TASQUES I ENTRENADOR: suggeriment del dia, missions diàries (els reptes
                      que donen estrelles) i el diagnòstic i el pla de l'entrenador -->
                 <section class="home-sec home-sec--avui" data-view="tasques" aria-labelledby="home-sec-avui">
-                    <div class="home-sec-head"><button type="button" class="home-sec-back" data-home-back aria-label="Torna a l'inici"><svg aria-hidden="true"><use href="#ic-chevron"/></svg><span>Inici</span></button><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-avui" tabindex="-1">Tasques i entrenador</h2></div>
+                    <div class="home-sec-head"><button type="button" class="home-sec-back" data-home-back aria-label="Pàgina principal" title="Pàgina principal"><svg aria-hidden="true"><use href="#ic-home"/></svg><span>Inici</span></button><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-avui" tabindex="-1">Tasques i entrenador</h2></div>
                     <!-- Suggeriment contextual del dia (es mostra quan hi ha res a dir) -->
                     <div class="engagement-banner" id="engagement-banner" style="display:none;">
                         <span class="eng-icon">💡</span>
@@ -7552,12 +7560,15 @@
                         <div id="weekly-plan-list"></div>
                         <div class="coach-plan-done" id="weekly-plan-done" style="display:none;"></div>
                     </div>
+                    <div class="menu-buttons home-sec-foot">
+                        <button type="button" class="btn btn-nav-home" data-home-back aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+                    </div>
                 </section>
 
                 <!-- TÀCTIQUES I ENTRENAMENT: «Què toca avui?» al capdavant i la llista
                      d'entrenaments (jeroglífics, repàs, tests, tàctiques, bullet, obertures) -->
                 <section class="home-sec home-sec--entrena" data-view="tactiques" aria-labelledby="home-sec-entrena">
-                    <div class="home-sec-head"><button type="button" class="home-sec-back" data-home-back aria-label="Torna a l'inici"><svg aria-hidden="true"><use href="#ic-chevron"/></svg><span>Inici</span></button><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-entrena" tabindex="-1">Tàctiques i entrenament</h2></div>
+                    <div class="home-sec-head"><button type="button" class="home-sec-back" data-home-back aria-label="Pàgina principal" title="Pàgina principal"><svg aria-hidden="true"><use href="#ic-home"/></svg><span>Inici</span></button><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-entrena" tabindex="-1">Tàctiques i entrenament</h2></div>
                     <!-- «Què toca avui?»: UNA proposta segons el progrés (repassos
                          pendents, errors nous, jeroglífics, la teva obertura…). La
                          tria és d'ElTaulerCore.entrenaPickToday i el botó reutilitza
@@ -7647,12 +7658,15 @@
                         </button>
                         </div>
                     </details>
+                    <div class="menu-buttons home-sec-foot">
+                        <button type="button" class="btn btn-nav-home" data-home-back aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+                    </div>
                 </section>
 
                 <!-- REVISAR: els errors de les teves partides, l'historial, les
                      estadístiques i el tauler d'anàlisi -->
                 <section class="home-sec home-sec--revisar" data-view="revisar" aria-labelledby="home-sec-revisar">
-                    <div class="home-sec-head"><button type="button" class="home-sec-back" data-home-back aria-label="Torna a l'inici"><svg aria-hidden="true"><use href="#ic-chevron"/></svg><span>Inici</span></button><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-revisar" tabindex="-1">Revisar</h2></div>
+                    <div class="home-sec-head"><button type="button" class="home-sec-back" data-home-back aria-label="Pàgina principal" title="Pàgina principal"><svg aria-hidden="true"><use href="#ic-home"/></svg><span>Inici</span></button><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-revisar" tabindex="-1">Revisar</h2></div>
                         <button class="hb hb--ochre" id="btn-bundle-menu" type="button">
                             <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-search"/></svg></span>
                             <span class="hb-text"><span class="hb-title">Revisa errors</span><span class="hb-sub" id="bundle-info">Biblioteca manual</span></span>
@@ -7675,20 +7689,26 @@
                             <span class="hb-text"><span class="hb-title">Tauler d'anàlisi</span><span class="hb-sub">Qualsevol posició, amb motor</span></span>
                             <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
                         </button>
+                    <div class="menu-buttons home-sec-foot">
+                        <button type="button" class="btn btn-nav-home" data-home-back aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+                    </div>
                 </section>
 
                 <!-- MÉS MANERES DE JUGAR: els altres modes contra el motor -->
                 <section class="home-sec home-sec--modes" data-view="modes" aria-labelledby="home-sec-modes">
-                    <div class="home-sec-head"><button type="button" class="home-sec-back" data-home-back aria-label="Torna a l'inici"><svg aria-hidden="true"><use href="#ic-chevron"/></svg><span>Inici</span></button><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-modes" tabindex="-1">Més maneres de jugar</h2></div>
+                    <div class="home-sec-head"><button type="button" class="home-sec-back" data-home-back aria-label="Pàgina principal" title="Pàgina principal"><svg aria-hidden="true"><use href="#ic-home"/></svg><span>Inici</span></button><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-modes" tabindex="-1">Més maneres de jugar</h2></div>
                     <div class="home-modes">
                         <button type="button" class="hb-mode hb-mode--sky" id="btn-positional-game"><svg class="hb-mode-ic" aria-hidden="true"><use href="#ic-scope"/></svg><span>Joc vista</span></button>
                         <button type="button" class="hb-mode hb-mode--lilac" id="btn-antidote-game"><svg class="hb-mode-ic" aria-hidden="true"><use href="#ic-dna"/></svg><span>Rival Antídot</span></button>
+                    </div>
+                    <div class="menu-buttons home-sec-foot">
+                        <button type="button" class="btn btn-nav-home" data-home-back aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
                     </div>
                 </section>
 
                 <!-- APRÈN: Stockfish TV, el tutorial d'escacs i la guia d'El Tauler -->
                 <section class="home-sec home-sec--apren" data-view="apren" aria-labelledby="home-sec-apren">
-                    <div class="home-sec-head"><button type="button" class="home-sec-back" data-home-back aria-label="Torna a l'inici"><svg aria-hidden="true"><use href="#ic-chevron"/></svg><span>Inici</span></button><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-apren" tabindex="-1">Aprèn</h2></div>
+                    <div class="home-sec-head"><button type="button" class="home-sec-back" data-home-back aria-label="Pàgina principal" title="Pàgina principal"><svg aria-hidden="true"><use href="#ic-home"/></svg><span>Inici</span></button><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-apren" tabindex="-1">Aprèn</h2></div>
                     <!-- Stockfish vs Lozza TV (stockfishtv.js): partida entre
                          Stockfish GENERADA AL DISPOSITIU, amb comentaris breus. -->
                     <button class="hb hb--ocean" id="btn-sftv-banner" aria-label="Stockfish vs Lozza TV">
@@ -7715,11 +7735,14 @@
                         </span>
                         <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
                     </button>
+                    <div class="menu-buttons home-sec-foot">
+                        <button type="button" class="btn btn-nav-home" data-home-back aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+                    </div>
                 </section>
 
                 <!-- RÀNQUING I AJUSTOS: el rànquing i la configuració -->
                 <section class="home-sec home-sec--final" data-view="ajustos" aria-labelledby="home-sec-final">
-                    <div class="home-sec-head"><button type="button" class="home-sec-back" data-home-back aria-label="Torna a l'inici"><svg aria-hidden="true"><use href="#ic-chevron"/></svg><span>Inici</span></button><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-final" tabindex="-1">Rànquing i ajustos</h2></div>
+                    <div class="home-sec-head"><button type="button" class="home-sec-back" data-home-back aria-label="Pàgina principal" title="Pàgina principal"><svg aria-hidden="true"><use href="#ic-home"/></svg><span>Inici</span></button><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-final" tabindex="-1">Rànquing i ajustos</h2></div>
                     <button class="hb hb--copper" id="btn-ranking" aria-label="Rànquing">
                         <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-bars"/></svg></span>
                         <span class="hb-text">
@@ -7736,6 +7759,9 @@
                         </span>
                         <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
                     </button>
+                    <div class="menu-buttons home-sec-foot">
+                        <button type="button" class="btn btn-nav-home" data-home-back aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+                    </div>
                 </section>
             </div>
 
