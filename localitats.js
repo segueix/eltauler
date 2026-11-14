@@ -292,6 +292,73 @@
         'Noruega', 'França', 'Països Baixos', 'Ucraïna', 'Alemanya', 'Geòrgia', 'Armènia'
     ];
 
+    // Ciutats de cada país d'Europa i del món (en català), perquè a les lligues
+    // europea i mundial cada rival també sigui d'una població.
+    const COUNTRY_CITIES = {
+        'França': ['París', 'Lió', 'Marsella', 'Tolosa', 'Bordeus', 'Lilla'],
+        'Itàlia': ['Roma', 'Milà', 'Nàpols', 'Torí', 'Florència', 'Bolonya'],
+        'Alemanya': ['Berlín', 'Munic', 'Hamburg', 'Colònia', 'Frankfurt', 'Leipzig'],
+        'Països Baixos': ['Amsterdam', 'Rotterdam', 'la Haia', 'Utrecht', 'Eindhoven'],
+        'Noruega': ['Oslo', 'Bergen', 'Trondheim', 'Stavanger'],
+        'Polònia': ['Varsòvia', 'Cracòvia', 'Wrocław', 'Gdańsk', 'Poznań'],
+        'Ucraïna': ['Kíiv', 'Lviv', 'Odessa', 'Khàrkiv', 'Dnipró'],
+        'Hongria': ['Budapest', 'Debrecen', 'Szeged', 'Pécs'],
+        'Portugal': ['Lisboa', 'Porto', 'Coïmbra', 'Braga'],
+        'Grècia': ['Atenes', 'Tessalònica', 'Patres', 'Heraklion'],
+        'Suècia': ['Estocolm', 'Göteborg', 'Malmö', 'Uppsala'],
+        'Àustria': ['Viena', 'Graz', 'Salzburg', 'Innsbruck'],
+        'Irlanda': ['Dublín', 'Cork', 'Galway', 'Limerick'],
+        'Txèquia': ['Praga', 'Brno', 'Ostrava', 'Plzeň'],
+        'Romania': ['Bucarest', 'Cluj-Napoca', 'Timișoara', 'Iași'],
+        'Croàcia': ['Zagreb', 'Split', 'Rijeka', 'Osijek'],
+        'Dinamarca': ['Copenhaguen', 'Aarhus', 'Odense', 'Aalborg'],
+        'Bèlgica': ['Brussel·les', 'Anvers', 'Gant', 'Lieja', 'Bruges'],
+        'Suïssa': ['Zúric', 'Ginebra', 'Berna', 'Basilea', 'Lausana'],
+        'Finlàndia': ['Hèlsinki', 'Tampere', 'Turku', 'Oulu'],
+        'Eslovènia': ['Ljubljana', 'Maribor', 'Celje'],
+        'Lituània': ['Vílnius', 'Kaunas', 'Klaipėda'],
+        'Estònia': ['Tallinn', 'Tartu', 'Pärnu'],
+        'Islàndia': ['Reykjavík', 'Akureyri', 'Kópavogur'],
+        'Sèrbia': ['Belgrad', 'Novi Sad', 'Niš'],
+        'Geòrgia': ['Tbilissi', 'Batumi', 'Kutaissi'],
+        'Armènia': ['Erevan', 'Gyumri', 'Vanadzor'],
+        'Bulgària': ['Sofia', 'Plovdiv', 'Varna'],
+        'Eslovàquia': ['Bratislava', 'Košice', 'Žilina'],
+        'Letònia': ['Riga', 'Daugavpils', 'Liepāja'],
+        'Índia': ['Mumbai', 'Delhi', 'Bangalore', 'Chennai', 'Calcuta'],
+        'Xina': ['Pequín', 'Xangai', 'Canton', 'Shenzhen', 'Chengdu'],
+        'Estats Units': ['Nova York', 'Los Angeles', 'Chicago', 'San Francisco', 'Saint Louis'],
+        'Brasil': ['São Paulo', 'Rio de Janeiro', 'Belo Horizonte', 'Salvador'],
+        'Argentina': ['Buenos Aires', 'Còrdova', 'Rosario', 'Mendoza'],
+        'Japó': ['Tòquio', 'Osaka', 'Kyoto', 'Yokohama'],
+        'Mèxic': ['Ciutat de Mèxic', 'Guadalajara', 'Monterrey', 'Puebla'],
+        'Perú': ['Lima', 'Arequipa', 'Cusco'],
+        'Egipte': ['el Caire', 'Alexandria', 'Gizeh'],
+        'Iran': ['Teheran', 'Isfahan', 'Xiraz', 'Tabriz'],
+        'Uzbekistan': ['Taixkent', 'Samarcanda', 'Bukharà'],
+        'Kazakhstan': ['Almati', 'Astanà', 'Ximkent'],
+        'Austràlia': ['Sydney', 'Melbourne', 'Brisbane', 'Perth'],
+        'Canadà': ['Toronto', 'Mont-real', 'Vancouver', 'Quebec'],
+        'Sud-àfrica': ['Johannesburg', 'Ciutat del Cap', 'Durban', 'Pretòria'],
+        'Filipines': ['Manila', 'Cebú', 'Davao'],
+        'Vietnam': ['Hanoi', 'Ciutat Ho Chi Minh', 'Da Nang'],
+        'Indonèsia': ['Jakarta', 'Surabaya', 'Bandung', 'Yogyakarta'],
+        'Cuba': ["l'Havana", 'Santiago de Cuba', 'Camagüey'],
+        'Colòmbia': ['Bogotà', 'Medellín', 'Cali'],
+        'Mongòlia': ['Ulan Bator', 'Erdenet', 'Darkhan'],
+        'Nigèria': ['Lagos', 'Abuja', 'Kano', 'Ibadan'],
+        'Marroc': ['Casablanca', 'Rabat', 'Marràqueix', 'Fes', 'Tànger'],
+        'Xile': ['Santiago de Xile', 'Valparaíso', 'Concepción'],
+        'Turquia': ['Istanbul', 'Ankara', 'Esmirna'],
+        'Corea del Sud': ['Seül', 'Busan', 'Incheon'],
+        'Nova Zelanda': ['Auckland', 'Wellington', 'Christchurch'],
+        'Uruguai': ['Montevideo', 'Salto', 'Paysandú']
+    };
+    const CITY_COUNTRY = {};
+    Object.keys(COUNTRY_CITIES).forEach(function (country) {
+        COUNTRY_CITIES[country].forEach(function (city) { if (!CITY_COUNTRY[city]) CITY_COUNTRY[city] = country; });
+    });
+
     // Comparació sense accents ni majúscules ni l'apòstrof tipogràfic.
     function fold(s) {
         return String(s == null ? '' : s).normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -430,30 +497,118 @@
         return out;
     }
 
+    // Tria count llocs repartits entre les parts d'una lliga (comarques,
+    // províncies, illes, territoris...), perquè hi siguin representades: primer
+    // un lloc de cada part (si hi ha més parts que rivals, les parts a l'atzar,
+    // més probables com més grans) i la resta en proporció a la mida de cada
+    // part (com més llocs, més rivals). Una part pot tenir llocs (places) o
+    // parts de dins (parts): una província, les seves comarques. exclude: llocs
+    // que no hi poden ser (el del jugador).
+    function spreadPick(groups, count, random, exclude) {
+        const rnd = typeof random === 'function' ? random : Math.random;
+        const ex = (exclude || []).map(fold);
+        const sizeOf = function (g) {
+            return g.parts ? g.parts.reduce(function (sum, p) { return sum + sizeOf(p); }, 0)
+                : (g.places || []).filter(function (x) { return x && ex.indexOf(fold(x)) < 0; }).length;
+        };
+        const parts = (groups || []).filter(function (g) { return sizeOf(g) > 0; });
+        if (!parts.length || !(count > 0)) return [];
+        const sizes = parts.map(sizeOf);
+        const quota = parts.map(function () { return 0; });
+        // Un de cada part, triades a l'atzar segons la mida si no hi caben totes.
+        const left = parts.map(function (_, i) { return i; });
+        for (let n = 0; n < count && left.length; n++) {
+            const total = left.reduce(function (sum, i) { return sum + sizes[i]; }, 0);
+            let r = rnd() * total, k = 0;
+            while (k < left.length - 1 && r >= sizes[left[k]]) { r -= sizes[left[k]]; k++; }
+            quota[left.splice(k, 1)[0]] = 1;
+        }
+        // La resta, en proporció a la mida (el repartiment de D'Hondt).
+        let rest = count - quota.reduce(function (a, b) { return a + b; }, 0);
+        while (rest > 0) {
+            let best = -1, bestRatio = -1;
+            parts.forEach(function (_, i) {
+                if (quota[i] >= sizes[i]) return;
+                const ratio = sizes[i] / (quota[i] + 1);
+                if (ratio > bestRatio) { bestRatio = ratio; best = i; }
+            });
+            if (best < 0) break;
+            quota[best]++;
+            rest--;
+        }
+        const out = [];
+        parts.forEach(function (g, i) {
+            if (!quota[i]) return;
+            const got = g.parts ? spreadPick(g.parts, quota[i], rnd, exclude) : pickDistinct(g.places, quota[i], rnd, exclude);
+            got.forEach(function (x) { out.push(x); });
+        });
+        for (let i = out.length - 1; i > 0; i--) {
+            const j = Math.floor(rnd() * (i + 1));
+            const tmp = out[i]; out[i] = out[j]; out[j] = tmp;
+        }
+        // Si hi ha menys llocs que rivals (lligues petites), es repeteixen.
+        let k = 0;
+        while (out.length < count && out.length > 0) out.push(out[k++ % out.length]);
+        return out;
+    }
+
+    // Parts d'una llista de municipis: per comarca (o illa) i per província.
+    function byComarca(list) {
+        const groups = {};
+        const order = [];
+        list.forEach(function (m) {
+            const key = m.comarca || '';
+            if (!groups[key]) { groups[key] = []; order.push(key); }
+            groups[key].push(m.name);
+        });
+        return order.map(function (key) { return { name: key, places: groups[key] }; });
+    }
+    function byProvince(list) {
+        const groups = {};
+        const order = [];
+        list.forEach(function (m) {
+            const key = m.province || '';
+            if (!groups[key]) { groups[key] = []; order.push(key); }
+            groups[key].push(m);
+        });
+        return order.map(function (key) { return { name: key, parts: byComarca(groups[key]) }; });
+    }
+
     // D'on és cada rival segons el nivell (0 municipal ... 6 mundial), amb
-    // l'àrea de cada lliga (core.js: leagueLevelName):
+    // l'àrea de cada lliga (core.js: leagueLevelName). Sempre una població, i
+    // repartides entre les parts de la lliga perquè totes hi siguin
+    // representades (spreadPick):
     // - municipal: en blanc (tots són del poble);
     // - comarcal: municipis de la comarca (a les Balears, de l'illa; a Andorra,
     //   parròquies i pobles; a l'Alguer, llocs de la Nurra);
-    // - provincial: comarques de la província (Catalunya i País Valencià);
-    //   municipis del grup d'illes (Gimnèsies o Pitiüses), de la Catalunya Nord
-    //   o de la Franja dins la província; Andorra; la província de Sàsser;
-    // - territori: municipis de Catalunya (a la Catalunya Nord, també els seus:
-    //   hi juga la Lliga Catalana), comarques del País Valencià, municipis de
-    //   les Balears o de la Franja, Andorra, ciutats de Sardenya;
-    // - Països Catalans, ciutats; Europa i món, països.
+    // - provincial: municipis de les comarques de la província, un de cada
+    //   comarca abans de repetir-ne (Catalunya, País Valencià, la Catalunya
+    //   Nord i la Franja); de cada illa del grup (Gimnèsies o Pitiüses);
+    //   Andorra; la província de Sàsser;
+    // - territori: municipis de cada província i, dins, de comarques diferents
+    //   (a la Catalunya Nord, també dels seus: hi juga la Lliga Catalana); de
+    //   cada illa a les Balears i de cada comarca a la Franja; Andorra;
+    //   ciutats de Sardenya;
+    // - Països Catalans: ciutats de cada territori;
+    // - Europa i món: una ciutat de cada país (COUNTRY_CITIES).
     // Retorna count textos (buits si no se'n sap res).
     function rivalOrigins(level, home, count, random) {
         const h = home || {};
         const n = Number.isFinite(count) ? count : 9;
+        const rnd = typeof random === 'function' ? random : Math.random;
         const blank = function () { const a = []; for (let i = 0; i < n; i++) a.push(''); return a; };
         const t = h.territory || 'cat';
         const pick = function (list) {
-            const picked = pickDistinct(list, n, random, [h.municipi]);
+            const picked = pickDistinct(list, n, rnd, [h.municipi]);
+            return picked.length ? picked : blank();
+        };
+        const spread = function (groups) {
+            const picked = spreadPick(groups, n, rnd, [h.municipi]);
             return picked.length ? picked : blank();
         };
         const names = function (list) { return list.map(function (m) { return m.name; }); };
         const inComarca = function (m) { return h.comarca && fold(bare(m.comarca)) === fold(bare(h.comarca)); };
+        const inProvince = function (m) { return fold(m.province) === fold(h.provincia); };
         if (level === 0 || (t === 'fora' && level < 4)) return blank();
         if (level === 1) {
             if (t === 'and') return pick(ANDORRA_PLACES);
@@ -471,30 +626,63 @@
             if (t === 'alguer') return pick(ALGUER_PLACES.sasser);
             if (t === 'bal') {
                 const g = islandGroup(h.comarca);
-                return g ? pick(names(municipalities(t).filter(function (m) {
+                return g ? spread(byComarca(municipalities(t).filter(function (m) {
                     return g.islands.some(function (i) { return fold(i) === fold(m.comarca); });
                 }))) : blank();
             }
-            if (t === 'nord') return pick(names(municipalities(t)));
-            if (t === 'franja') {
-                return pick(names(municipalities(t).filter(function (m) { return fold(m.province) === fold(h.provincia); })));
-            }
-            const list = comarques(t).filter(function (c) { return fold(c.province) === fold(h.provincia); })
-                .map(function (c) { return c.name; });
-            const picked = pickDistinct(list, n, random, [h.comarca]);
-            return picked.length ? picked : blank();
+            if (t === 'nord') return spread(byComarca(municipalities(t)));
+            return spread(byComarca(municipalities(t).filter(inProvince)));
         }
         if (level === 3) {
             if (t === 'and') return pick(ANDORRA_PLACES);
             if (t === 'alguer') return pick(ALGUER_PLACES.sardenya);
-            if (t === 'cat') return pick(names(catalanMunicipalities()));
-            if (t === 'nord') return pick(names(catalanMunicipalities()).concat(names(municipalities('nord'))));
-            if (t === 'bal' || t === 'franja') return pick(names(municipalities(t)));
-            return pick(comarques(t).map(function (c) { return c.name; }));
+            if (t === 'cat') return spread(byProvince(catalanMunicipalities()));
+            if (t === 'nord') {
+                return spread(byProvince(catalanMunicipalities()).concat([{ name: 'Catalunya Nord', parts: byComarca(municipalities('nord')) }]));
+            }
+            if (t === 'bal' || t === 'franja') return spread(byComarca(municipalities(t)));
+            return spread(byProvince(municipalities(t)));
         }
-        if (level === 4) return pickDistinct(PPCC_CITIES, n, random, [h.municipi]);
-        if (level === 5) return pickDistinct(EUROPE, n, random);
-        return pickDistinct(WORLD, n, random);
+        if (level === 4) {
+            return spreadPick(Object.keys(PPCC_CITIES_BY_TERRITORY).map(function (id) {
+                return { name: id, places: PPCC_CITIES_BY_TERRITORY[id] };
+            }), n, rnd, [h.municipi]);
+        }
+        const countries = pickDistinct(level === 5 ? EUROPE : WORLD, n, rnd);
+        return countries.map(function (c) {
+            const cities = COUNTRY_CITIES[c];
+            return cities && cities.length ? cities[Math.floor(rnd() * cities.length) % cities.length] : c;
+        });
+    }
+
+    // País d'una ciutat de les lligues europea i mundial (o null).
+    function cityCountry(city) { return CITY_COUNTRY[city] || null; }
+
+    // La part de la lliga que representa un jugador, per veure'n el
+    // repartiment geogràfic: a les lligues provincial i del territori, la
+    // comarca (a les Balears, l'illa); als Països Catalans, el territori; a
+    // Europa i al món, el país. Del jugador mateix (place = el seu municipi),
+    // les seves. Buit a les lligues local i comarcal (tots són d'allà mateix),
+    // a Andorra i a l'Alguer, si no se sap o si és el mateix nom que el lloc.
+    function originArea(level, home, place) {
+        const h = home || {};
+        if (!place || !(level >= 2)) return '';
+        const own = fold(place) === fold(h.municipi);
+        const t = h.territory || 'cat';
+        let area = '';
+        if (level >= 5) {
+            area = CITY_COUNTRY[place] || (own ? (t === 'fora' ? h.pais : (territory(t) || {}).name) : '');
+        } else if (level === 4) {
+            const where = PPCC_CITY_TERRITORY[place] || (own ? t : null);
+            area = where === 'fora' ? h.pais : ((territory(where) || {}).name || '');
+        } else {
+            if (t === 'and' || t === 'alguer' || t === 'fora') return '';
+            const where = level === 3 && t === 'nord' ? (originTerritory(place) || t) : t;
+            const m = findMunicipality(place, where);
+            area = m ? bare(m.comarca) : (own ? bare(h.comarca) : '');
+        }
+        area = area || '';
+        return !area || fold(area) === fold(place) || fold(area) === fold(bare(place)) ? '' : area;
     }
 
     // Territori d'on és un rival: el d'una ciutat de la Lliga dels Països
@@ -508,6 +696,9 @@
         if (findMunicipality(place, 'cat')) return 'cat';
         return null;
     }
+
+    // Territori d'una ciutat de la Lliga dels Països Catalans (o null).
+    function ppccCityTerritory(city) { return PPCC_CITY_TERRITORY[city] || null; }
 
     return {
         TERRITORIES: TERRITORIES,
@@ -529,8 +720,10 @@
         normalizeHome: normalizeHome,
         rivalOrigins: rivalOrigins,
         islandGroup: islandGroup,
-        // Territori d'una ciutat de la Lliga dels Països Catalans (o null).
-        ppccCityTerritory: function (city) { return PPCC_CITY_TERRITORY[city] || null; },
-        originTerritory: originTerritory
+        ppccCityTerritory: ppccCityTerritory,
+        originTerritory: originTerritory,
+        COUNTRY_CITIES: COUNTRY_CITIES,
+        cityCountry: cityCountry,
+        originArea: originArea
     };
 });

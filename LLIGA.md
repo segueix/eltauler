@@ -300,23 +300,39 @@ l'Alguer la municipal, la comarcal i l'algueresa eren la mateixa ciutat. Ara
 La rajola diu el nom curt (`leagueLevelShort`): «Insular», «Gimnèsies»,
 «Tercera Divisió», «Nurra», «Sardenya»...
 
-**D'on són els rivals** (`rivalOrigins` de `localitats.js`): al municipal, del
-poble (no es diu); a la comarcal, de municipis de la comarca (a les Balears,
-de l'illa; a Formentera, un sol municipi, dels seus pobles; a la Fenolleda,
-occitana i sense municipis a la llista, de la Catalunya Nord; a Andorra, de
-parròquies i pobles; a l'Alguer, de llocs de la Nurra); a la provincial, de
-comarques de la província (Catalunya i País Valencià), de municipis del grup
-d'illes, de la Catalunya Nord o de la Franja dins la província, d'Andorra o de
-la província de Sàsser; a la del territori, de municipis de Catalunya (a la
-Catalunya Nord, també dels seus), de comarques del País Valencià, de
-municipis de les Balears o de la Franja, d'Andorra o de ciutats de Sardenya; a
-la dels Països Catalans, de ciutats de tots els territoris; a l'europea i la
-mundial, de països. Cap territori es queda sense orígens fins als Països
-Catalans. Les llistes de municipis són de la Viquipèdia (novembre de 2026):
+**D'on són els rivals** (`rivalOrigins` de `localitats.js`): sempre d'una
+població, i a les lligues de més d'una part (comarques, illes, províncies,
+territoris, països), **repartits perquè totes hi siguin representades**
+(`spreadPick`: primer un lloc de cada part, triades segons la mida si n'hi ha
+més que rivals, i la resta en proporció al nombre de municipis de cada part).
+Al municipal, del poble (no es diu); a la comarcal, de municipis de la comarca
+(a les Balears, de l'illa; a Formentera, un sol municipi, dels seus pobles; a
+la Fenolleda, occitana i sense municipis a la llista, de la Catalunya Nord; a
+Andorra, de parròquies i pobles; a l'Alguer, de llocs de la Nurra); a la
+provincial, de municipis de comarques diferents de la província (Catalunya,
+País Valencià, la Catalunya Nord i la Franja) o de cada illa del grup, d'Andorra
+o de la província de Sàsser; a la del territori, de municipis de cada província
+i de comarques diferents (a la Catalunya Nord, també dels seus), de cada illa a
+les Balears i de cada comarca a la Franja, d'Andorra o de ciutats de Sardenya;
+a la dels Països Catalans, de ciutats de tots els territoris; a l'europea i la
+mundial, d'una ciutat de cada país (`COUNTRY_CITIES`; el país en surt amb
+`cityCountry`, i els noms de persona, del país). Cap territori es queda sense
+orígens fins als Països Catalans.
+
+**La part que representa cada jugador** (`originArea`) es veu al costat de la
+població, a la classificació, a la franja del proper rival i a la secció dels
+rivals: la comarca a la provincial i a la del territori (a les Balears,
+l'illa), el territori als Països Catalans i el país a Europa i al món
+(«Manlleu · Osona», «Reus · Baix Camp», «Maó · Menorca», «Gandia · País
+Valencià», «Lió · França»). El jugador hi surt amb la seva població i la seva
+part. A la local i a la comarcal, només la població (tots són d'allà mateix).
+Les temporades d'abans, amb una comarca o un país com a origen, es veuen com
+eren.
+
+Les llistes de municipis són de la Viquipèdia (novembre de 2026):
 els 542 del País Valencià (33 comarques: l'Horta Oest es va suprimir el 2022),
 els 198 de parla catalana de la Catalunya Nord i els de parla catalana de la
-Franja; els 67 de les Balears. Es veu a sota del nom a la classificació, a la
-franja del proper rival i a la secció dels rivals. Els noms de persona van amb
+Franja; els 67 de les Balears. Els noms de persona van amb
 l'origen: a la Lliga Catalana de qui juga a la Catalunya Nord, cada rival té
 el nom del Principat o del Nord segons d'on és (`originTerritory`); a les
 Illes, cada rival té els cognoms de la seva illa (`placeCulture`: Mallorca,
@@ -362,8 +378,10 @@ part, que abans era la majoria de la barreja, ara són noms del territori) ni
 formes castellanes entre els del territori (Amparo, Paco, Carmen, Pallarés...:
 ara Fina, Cento, Carme, Pallarès). Les temporades començades abans canvien
 els noms castellans dels rivals per noms catalans del seu territori, també a
-les jornades jugades (`catalanizeLeagueRivals` a app.js, amb la llavor de l'id
-de la lliga perquè cada càrrega doni els mateixos). A Europa, al món i per a
+les jornades jugades i a la partida de lliga represa (`catalanizeLeagueRivals`
+a app.js, amb la llavor de l'id de la lliga perquè cada càrrega doni els
+mateixos; `catalanRivalNames` converteix primer les formes castellanes i
+després dona els noms nous, de manera que cap no en repeteix cap altre). A Europa, al món i per a
 qui juga des de fora dels Països Catalans, els noms són del país que s'ha
 escrit, castellans inclosos (Espanya, Mèxic, l'Argentina...). Hi ha 69 repertoris: on el cognom canvia amb el gènere hi va
 de dona i d'home (Kowalska, Kowalski; Jónsdóttir, Jónsson), i a la Xina, Corea

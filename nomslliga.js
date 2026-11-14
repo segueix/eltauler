@@ -557,25 +557,32 @@
             const f = fold(place);
             return !!f && list.some(function (p) { return fold(p) === f; });
         };
-        const where = origin || (home && home.municipi);
-        if (inList(MENORCA_PLACES, where)) return 'menorca';
-        if (inList(PITIUSES_PLACES, where)) return 'pitiuses';
-        if (!where) {
-            const island = fold(home && home.comarca);
-            if (island === 'menorca') return 'menorca';
-            if (island === 'eivissa' || island === 'formentera') return 'pitiuses';
-        }
-        return 'bal';
+        const ofPlace = function (place) {
+            return inList(MENORCA_PLACES, place) ? 'menorca' : inList(PITIUSES_PLACES, place) ? 'pitiuses' : null;
+        };
+        if (origin) return ofPlace(origin) || 'bal';
+        // Sense lloc del rival, el del jugador: primer l'illa que ha triat
+        // (un poble que no és a la llista, com Fornells, també hi és), i si no
+        // n'hi ha, la del seu municipi.
+        const island = fold(home && home.comarca);
+        if (island === 'menorca') return 'menorca';
+        if (island === 'eivissa' || island === 'formentera') return 'pitiuses';
+        if (island === 'mallorca') return 'bal';
+        return ofPlace(home && home.municipi) || 'bal';
     }
 
     // Cultura del nom d'un rival segons el nivell (0 municipal ... 6 mundial),
     // la localitat del jugador i l'origen del rival. options.territoryOf: ciutat
-    // dels Països Catalans → territori (localitats.js).
+    // dels Països Catalans → territori; options.countryOf: ciutat d'Europa o
+    // del món → país (localitats.js: originTerritory i cityCountry).
     function cultureFor(level, home, origin, options) {
         const opts = options || {};
         const rnd = typeof opts.random === 'function' ? opts.random : Math.random;
         const h = home || {};
-        if (level >= 5) return countryCulture(origin) || pick(EUROPE_CULTURES, rnd);
+        if (level >= 5) {
+            const country = (typeof opts.countryOf === 'function' && opts.countryOf(origin)) || origin;
+            return countryCulture(country) || pick(EUROPE_CULTURES, rnd);
+        }
         const territory = territoryFor(level, h, origin, opts);
         if (territory === 'fora') return countryCulture(h.pais) || pick(EUROPE_CULTURES, rnd);
         const base = placeCulture(territory, origin, h);
@@ -612,12 +619,17 @@
         if (typeof name !== 'string' || !(level >= 0 && level <= 4)) return name;
         const territory = territoryFor(level, home || {}, origin, opts);
         if (territory === 'fora') return name;
+        const taken = opts.taken instanceof Set ? opts.taken : new Set();
         if (!isCastilianName(name)) {
-            return name.split(' ').map(function (w) { return CATALAN_FORMS[w] || w; }).join(' ');
+            // Una forma convertida es reserva perquè cap nom nou no hi coincideixi
+            // (qui en canvia uns quants, primer converteix les formes: vegeu
+            // catalanRivalNames).
+            const converted = name.split(' ').map(function (w) { return CATALAN_FORMS[w] || w; }).join(' ');
+            taken.add(fold(converted));
+            return converted;
         }
         const rnd = typeof opts.random === 'function' ? opts.random : Math.random;
         const code = placeCulture(territory, origin, home);
-        const taken = opts.taken instanceof Set ? opts.taken : new Set();
         // Com a rivalNames: un nom que no hi sigui i, si es pot, sense repetir
         // el nom de pila ni el cognom de cap altre rival de la lliga.
         const usedGiven = new Set(), usedSurnames = new Set();
@@ -652,7 +664,7 @@
         const usedNames = new Set(), usedSurnames = new Set(), usedGiven = new Set();
         const out = [];
         for (let i = 0; i < count; i++) {
-            const culture = cultureFor(level, home, list[i], { random: rnd, territoryOf: opts.territoryOf });
+            const culture = cultureFor(level, home, list[i], { random: rnd, territoryOf: opts.territoryOf, countryOf: opts.countryOf });
             // El millor candidat: nom nou; després, cognom nou; i, si pot ser,
             // nom de pila nou.
             let best = null, bestScore = -1;
@@ -669,6 +681,26 @@
             usedGiven.add(fold(got.given));
             out.push(got.name);
         }
+        return out;
+    }
+
+    // Els noms dels rivals d'una temporada ja començada, amb catalanRivalName,
+    // sense que cap no en repeteixi un altre: primer les formes castellanes
+    // d'abans (que només canvien de forma) i després els noms castellans (que
+    // en reben un de nou). rivals: [{ name, origin }]; retorna els noms, en el
+    // mateix ordre.
+    function catalanRivalNames(rivals, level, home, options) {
+        const opts = Object.assign({}, options || {});
+        const list = Array.isArray(rivals) ? rivals : [];
+        opts.taken = opts.taken instanceof Set ? opts.taken : new Set();
+        list.forEach(function (r) { if (r && typeof r.name === 'string') opts.taken.add(fold(r.name)); });
+        const out = list.map(function (r) { return r ? r.name : r; });
+        [false, true].forEach(function (castilian) {
+            list.forEach(function (r, i) {
+                if (!r || typeof r.name !== 'string' || isCastilianName(r.name) !== castilian) return;
+                out[i] = catalanRivalName(r.name, level, home, r.origin, opts);
+            });
+        });
         return out;
     }
 
@@ -697,6 +729,7 @@
         placeCulture: placeCulture,
         rivalNames: rivalNames,
         isCastilianName: isCastilianName,
-        catalanRivalName: catalanRivalName
+        catalanRivalName: catalanRivalName,
+        catalanRivalNames: catalanRivalNames
     };
 });
