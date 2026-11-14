@@ -2789,9 +2789,13 @@
                 : 'Ara l’apunten ' + numWord(after.count, true) + ' peces, menys que abans.';
             return event(after.count === 0 ? 'resolved' : 'defence', 'Queda la mateixa pressió sobre ' + victim + '?', answer);
         }
-        if (after && rivalMoved && after.defenders > before.defenders)
-            return event('defence', 'Com responen a la pressió sobre ' + victim + '?', 'Ara ' + piecePronoun(t.piece) + ' defensen ' + numWord(after.defenders, true) + ' peces. ' +
-                (before.defenders === 0 ? 'Abans no en tenia cap.' : 'Abans en tenia ' + numWord(before.defenders, true) + '.'));
+        if (after && rivalMoved && after.defenders > before.defenders) {
+            const pronoun = piecePronoun(t.piece);
+            const present = after.defenders === 1 ? 'Ara ' + pronoun + ' defensa una peça.'
+                : 'Ara ' + pronoun + ' defensen ' + numWord(after.defenders, true) + ' peces.';
+            return event('defence', 'Com responen a la pressió sobre ' + victim + '?', present +
+                (before.defenders === 0 ? ' Abans no en tenia cap.' : ' Abans en tenia ' + numWord(before.defenders, true) + '.'));
+        }
         if (after && !rivalMoved && after.count > before.count)
             return event('reinforced', 'D’on ve la pressió sobre ' + victim + '?', 'Ara l’apunten ' +
                 numWord(after.count, true) + ' peces. Abans l’apuntaven ' + numWord(before.count, true) + '.');
