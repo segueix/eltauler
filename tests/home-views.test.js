@@ -54,10 +54,13 @@ describe('inici: la portada', () => {
 });
 
 describe('inici: les seccions de segon nivell', () => {
-    test.each(Object.entries(VIEWS))('%s: hi és tot i té «Inici»', (view, [cls, ids]) => {
+    test.each(Object.entries(VIEWS))('%s: hi és tot i té el botó d’inici a dalt i a baix', (view, [cls, ids]) => {
         const sec = sectionOf(cls);
         expect(sec).toContain(`data-view="${view}"`);
-        expect(sec).toMatch(/<button type="button" class="home-sec-back" data-home-back aria-label="Torna a l'inici">/);
+        // A dalt, «Inici» amb la casa; a baix, la casa daurada de les altres pantalles.
+        expect(sec).toMatch(/<div class="home-sec-head"><button type="button" class="home-sec-back" data-home-back aria-label="Pàgina principal" title="Pàgina principal"><svg aria-hidden="true"><use href="#ic-home"\/><\/svg><span>Inici<\/span><\/button>/);
+        const foot = sec.slice(sec.lastIndexOf('<div class="menu-buttons home-sec-foot">'));
+        expect(foot).toMatch(/^<div class="menu-buttons home-sec-foot">\s*<button type="button" class="btn btn-nav-home" data-home-back aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"\/><\/svg><\/button>\s*<\/div>\s*$/);
         expect(sec).toMatch(/<h2 class="home-sec-title" id="home-sec-[a-z]+" tabindex="-1">/);
         ids.forEach(id => expect(sec).toContain(`id="${id}"`));
     });
