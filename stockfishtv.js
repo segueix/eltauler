@@ -265,6 +265,11 @@
         const speech = String(c.speech || '').trim();
         if (!speech) return [];
         const single = (voiceId, role) => [{ text: speech, voiceId: voiceId || null, role: role || 'presenter' }];
+        if (Array.isArray(c.dialogue) && c.dialogue.length === 2) {
+            return c.dialogue.map(t => ({ text: tvSpeechText(t.text),
+                voiceId: enabled ? (t.role === 'analyst' ? TV_DUO.analyst : TV_DUO.presenter) : null,
+                role: t.role }));
+        }
         // Màxima separada del fet: Elia narra, Grau reflexiona.
         // Si el duet és desactivat, la veu única conserva els dos textos.
         if (c.maxim && typeof c.maxim.text === 'string' && c.maxim.text.trim()) {
@@ -2691,7 +2696,26 @@
                 }
             } catch (err) { /* reserva: comentari original i memòria intacta */ }
         }
-        const artStep = tvArtStep(c, chosen, memory, candidates);
+        // Preguntes només per a fets que el selector ja ha certificat. La
+        // resposta és el comentari factual, no una inferència nova del motor.
+        const questions = {
+            'passed-new': 'Què ha canviat en l’estructura de peons?',
+            'passed-advance': 'Què passa amb el peó passat?',
+            'open-file': 'Què ha canviat en aquesta columna?',
+            'doubled-rooks': 'Com estan disposades les torres?',
+            'king-pressure': 'Quina peça apunta cap al rei?',
+            'pressure': 'On se centra la pressió?'
+        };
+        if (chosen && questions[chosen.kind] && !chosen.narrative && !c.prepared && !c.end
+                && Number.isInteger(c.ply) && c.ply % 8 === 0
+                && chosen.text.trim().split(/\s+/).length <= 30) {
+            const question = questions[chosen.kind];
+            chosen = Object.assign({}, chosen, { dialogue: [
+                { role: 'presenter', text: question },
+                { role: 'analyst', text: chosen.text }
+            ] });
+        }
+        const artStep = chosen && chosen.dialogue ? { comment: chosen, memory: memory } : tvArtStep(c, chosen, memory, candidates);
         chosen = artStep.comment;
         const next = tvCommitComment(artStep.memory, chosen, { ply: c.ply, fenAfter: c.fenAfter, move: c.move, candidates: candidates });
         return { comment: chosen, memory: next, candidates: candidates };
@@ -3700,6 +3724,7 @@
             g.comment = { kind: chosen.kind, text: chosen.text, speech: tvSpeechText(chosen.text), ply: entry.ply, fen: entry.fen, gameId: g.id,
                 explanatory: !!chosen.explanatory, extended: !!chosen.extended, byUser: entry.byUser,
                 narrative: chosen.narrative || null,
+                dialogue: chosen.dialogue || null,
                 maxim: chosen.maxim || null };
             g.comments.push({ ply: entry.ply, kind: chosen.kind, text: chosen.text, color: entry.color, key: chosen.key, sig: chosen.sig });
             entry.comment = chosen.text;
@@ -4823,6 +4848,14 @@
         // Només es mostra si és de la partida i la posició visibles.
         const valid = c && c.gameId === g.id && (c.kind === 'intro' || c.fen === g.fen);
         el.textContent = valid ? c.text : '';
+        if (valid && Array.isArray(c.dialogue)) {
+            el.textContent = '';
+            c.dialogue.forEach(turn => {
+                const line = document.createElement('div');
+                line.textContent = (turn.role === 'analyst' ? 'Grau: ' : 'Elia: ') + turn.text;
+                el.appendChild(line);
+            });
+        }
         if (valid && c.maxim && c.maxim.text) {
             const line = document.createElement('div');
             line.className = 'sftv-art-maxim';
