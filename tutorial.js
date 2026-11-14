@@ -276,7 +276,7 @@
         {
             id: 'entrenar', title: 'Entrenar', items: [
                 { id: 'avui', icon: 'ic-target', title: 'Què toca avui?', action: 'today', cta: 'Mira la proposta',
-                  text: 'A dalt de la secció <strong>Entrena</strong> de l\'inici hi ha una sola proposta, triada segons el teu progrés: primer els <strong>repassos pendents</strong> (sobretot els errors nous de les teves partides), després el que és nou (<strong>jeroglífics</strong>, posicions de <strong>la teva obertura</strong> per repassar) i després varietat (Tres camins, pla bullet, tàctiques). El que ja has obert avui baixa de prioritat. La resta d\'entrenaments són a <strong>Més entrenaments</strong>, a un toc.' },
+                  text: 'A dalt de la secció <strong>Tàctiques</strong> (a <strong>Més</strong>, a l\'inici) hi ha una sola proposta, triada segons el teu progrés: primer els <strong>repassos pendents</strong> (sobretot els errors nous de les teves partides), després el que és nou (<strong>jeroglífics</strong>, posicions de <strong>la teva obertura</strong> per repassar) i després varietat (Tres camins, pla bullet, tàctiques). El que ja has obert avui baixa de prioritat. La resta d\'entrenaments són a <strong>Més entrenaments</strong>, just a sota.' },
                 { id: 'jeroglifics', icon: 'ic-puzzle-piece', title: 'Jeroglífics', action: 'hieroglyphics', cta: 'Resol-ne un',
                   text: 'Exercicis generats de les <strong>teves partides</strong>: has de trobar els tres millors moviments seguits. Es preparen en segon pla mentre fas servir l\'app, i pots triar quin <strong>final</strong> han de tenir (mat, forquilla, clavada, coronació...). L\'historial de jeroglífics guarda els que has resolt.' },
                 { id: 'tria', icon: 'ic-shuffle', title: 'Tres camins', action: 'tria', cta: 'Fer el test',
@@ -310,7 +310,7 @@
                 { id: 'historial', icon: 'ic-history', title: 'Historial i revisió', action: 'history', cta: 'Obre l\'historial',
                   text: 'Totes les partides amb la seva precisió, el moment clau, l\'anàlisi per fases i les notes de les errades. Pots reproduir-les, explorar qualsevol posició al tauler d\'anàlisi, regenerar la ressenya o exportar-les en <strong>PGN</strong>. La revisió es pot <strong>escoltar</strong> amb les veus del navegador, en to casual, equilibrat o tècnic. La pestanya PGN guarda partides importades.' },
                 { id: 'estadistiques', icon: 'ic-bars', title: 'Estadístiques i diagnòstic de l\'entrenador', action: 'stats', cta: 'Veure',
-                  text: 'ELO per ritme, evolució, obertures més jugades, debilitats i el <strong>diagnòstic de l\'entrenador</strong>, que llegeix les teves darreres partides i et proposa un pla setmanal. A la pàgina d\'inici tens les <strong>missions diàries</strong>, la <strong>ratxa</strong> de dies actius i els <strong>trofeus</strong>.' }
+                  text: 'ELO per ritme, evolució, obertures més jugades, debilitats i el <strong>diagnòstic de l\'entrenador</strong>, que llegeix les teves darreres partides i et proposa un pla setmanal. A l\'inici hi ha la <strong>ratxa</strong> de dies actius i les <strong>estrelles</strong>; tocant-les (o a <strong>Més › Tasques i entrenador</strong>) hi ha les <strong>missions diàries</strong>, els <strong>trofeus</strong> i el pla de l\'entrenador.' }
             ]
         },
         {

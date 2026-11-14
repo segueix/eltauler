@@ -978,6 +978,76 @@ function navGoBack() {
     // De tornada a l'inici, la proposta d'Entrena té en compte el que acabes de fer.
     if (typeof scheduleEntrenaToday === 'function') scheduleEntrenaToday();
 }
+/* ---- Inici en dos nivells ----
+   La portada només té Juga (Nova partida i la lliga) i les partides
+   col·lectives; la resta d'El Tauler és a «Més», en seccions de segon nivell
+   (index.html: .home-sec[data-view]). Una rajola (data-home-open) n'obre una:
+   #start-screen rep data-home-view i la secció, .is-open; el CSS amaga la
+   portada. «Inici» (data-home-back) o el botó enrere del mòbil hi tornen. La
+   secció oberta es manté en anar a una pantalla i tornar-ne (com una pestanya). */
+const HOME_VIEWS = ['tasques', 'tactiques', 'revisar', 'modes', 'apren', 'ajustos'];
+let homeViewInHistory = false;
+function getHomeView() {
+    const screen = document.getElementById('start-screen');
+    return (screen && screen.getAttribute('data-home-view')) || '';
+}
+function setHomeView(view, options = {}) {
+    const screen = document.getElementById('start-screen');
+    if (!screen) return;
+    const next = HOME_VIEWS.indexOf(view) >= 0 ? view : '';
+    const prev = getHomeView();
+    screen.querySelectorAll('.home-sec[data-view]').forEach(sec => {
+        sec.classList.toggle('is-open', sec.getAttribute('data-view') === next);
+    });
+    if (next) screen.setAttribute('data-home-view', next);
+    else screen.removeAttribute('data-home-view');
+    // Obrir una secció des de la portada és un pas enrere més (botó del mòbil).
+    if (next && !prev && options.push) {
+        history.pushState({ screen: 'start-screen', homeView: next }, '', screenUrl('start-screen'));
+        homeViewInHistory = true;
+    }
+    if (!next) homeViewInHistory = false;
+    scrollNavigationToTop();
+    if (next) {
+        const title = screen.querySelector('.home-sec[data-view="' + next + '"] .home-sec-title');
+        if (title && options.focus !== false) { try { title.focus({ preventScroll: true }); } catch (e) {} }
+        // Les dades d'entrenament es repinten en obrir-ne la secció.
+        if (next === 'tactiques' && typeof scheduleEntrenaToday === 'function') scheduleEntrenaToday();
+    } else if (prev) {
+        const tile = screen.querySelector('.home-hub [data-home-open="' + prev + '"]');
+        if (tile && options.focus !== false) { try { tile.focus({ preventScroll: true }); } catch (e) {} }
+    }
+}
+function closeHomeView() {
+    if (!getHomeView()) return;
+    // Si en obrir-la es va afegir un pas a l'historial, es desfà (popstate la tanca).
+    if (homeViewInHistory) history.back();
+    else setHomeView('');
+}
+function initHomeViews() {
+    $(document).off('click.homeView').on('click.homeView', '#start-screen [data-home-open]', function (e) {
+        e.preventDefault();
+        setHomeView(this.getAttribute('data-home-open'), { push: true });
+    });
+    $(document).off('keydown.homeView').on('keydown.homeView', '#start-screen [data-home-open][role="button"]', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        setHomeView(this.getAttribute('data-home-open'), { push: true });
+    });
+    $(document).off('click.homeBack').on('click.homeBack', '#start-screen [data-home-back]', function (e) {
+        e.preventDefault();
+        closeHomeView();
+    });
+}
+// La rajola «Tasques i entrenador» diu com van les missions del dia.
+function updateHomeHubTasks(done, total) {
+    const sub = document.getElementById('hub-tasques-sub');
+    if (!sub) return;
+    sub.textContent = total > 0
+        ? (done >= total ? `Missions fetes (${done}/${total}) · el pla` : `Missions ${done}/${total} · el pla`)
+        : 'Missions del dia i el pla';
+}
+
 window.addEventListener('popstate', function(e) {
     const cid = customGameIdFromUrl();
     if (cid) {
@@ -990,6 +1060,8 @@ window.addEventListener('popstate', function(e) {
     }
     const current = getCurrentScreen();
     if (current === 'start-screen') {
+        // Una secció de l'inici oberta: enrere torna a la portada.
+        if (getHomeView()) { setHomeView(''); return; }
         history.pushState({ screen: 'start-screen' }, '', window.location.pathname + window.location.search);
         return;
     }
@@ -7061,6 +7133,7 @@ function updateMissionsDisplay() {
     });
     const countEl = document.getElementById('missions-count');
     if (countEl) countEl.textContent = `${doneCount}/${todayMissions.length}`;
+    updateHomeHubTasks(doneCount, todayMissions.length);
 }
 
 function checkMissions() {
@@ -26908,6 +26981,7 @@ function setupEvents() {
 
     $('#btn-srs-review').click(() => startSrsReview());
     initEntrenaToday();
+    initHomeViews();
     $('#btn-tactics').click(() => {
         // Reset de ratxa quan s'inicia des del menú (no des de "Una altra")
         tacticsStats.streak = 0;
@@ -28406,13 +28480,17 @@ function initEntrenaToday() {
     if (!section || section.dataset.entrenaReady) return;
     section.dataset.entrenaReady = '1';
     // Qualsevol entrenament obert des de la secció (proposta o llista) compta
-    // com a fet avui. La proposta clica el botó de la llista, de manera que
-    // només es registra una vegada.
-    section.addEventListener('click', e => {
+    // com a fet avui; també Revisa errors i el tauler d'anàlisi, que són a
+    // «Revisar». La proposta clica el botó de la llista, de manera que només
+    // es registra una vegada.
+    const markFrom = e => {
         const btn = e.target && e.target.closest ? e.target.closest('button[id]') : null;
         const kind = btn ? ElTaulerCore.entrenaKindForTarget(btn.id) : null;
         if (kind) entrenaMarkDone(kind);
-    }, true);
+    };
+    section.addEventListener('click', markFrom, true);
+    const revisar = document.querySelector('#start-screen .home-sec--revisar');
+    if (revisar) revisar.addEventListener('click', markFrom, true);
     $('#btn-entrena-today').off('click').on('click', function () {
         if (this.dataset.kind === 'weak') {
             entrenaMarkDone('weak');
@@ -28426,7 +28504,12 @@ function initEntrenaToday() {
     });
     const more = document.getElementById('entrena-more');
     if (more) {
-        try { if (localStorage.getItem(ENTRENA_MORE_OPEN_KEY) === '1') more.open = true; } catch (e) {}
+        // Oberta per defecte (ara té secció pròpia); es recorda si es plega.
+        try {
+            const saved = localStorage.getItem(ENTRENA_MORE_OPEN_KEY);
+            if (saved === '1') more.open = true;
+            else if (saved === '0') more.open = false;
+        } catch (e) {}
         more.addEventListener('toggle', () => {
             try { localStorage.setItem(ENTRENA_MORE_OPEN_KEY, more.open ? '1' : '0'); } catch (e) {}
         });
