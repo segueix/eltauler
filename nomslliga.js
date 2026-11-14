@@ -5,9 +5,10 @@
  *
  * - municipal, comarcal, provincial i territori: noms del territori del
  *   jugador (catalans, valencians, mallorquins i menorquins, rossellonesos,
- *   andorrans, de la Franja o de l'Alguer), cada nivell amb més noms de la
- *   gent que hi viu d'altres orígens (del 0% al municipal al 40% al
- *   territori);
+ *   andorrans, de la Franja o de l'Alguer), cada nivell amb alguns noms més
+ *   de la gent que hi viu d'altres orígens i llengües (marroquins, romanesos,
+ *   xinesos...). Cap nom castellà: a les lligues dels Països Catalans els
+ *   noms i cognoms són catalans (o d'altres llengües, no del castellà);
  * - Països Catalans: el nom va amb la ciutat d'origen del rival (un de Palma,
  *   mallorquí; un de Perpinyà, rossellonès...);
  * - Europa i món: el nom és del país d'origen del rival (una de Polònia,
@@ -43,10 +44,10 @@
                 'Vilaró', 'Bertran', 'Canals', 'Galí', 'Oliveras', 'Rierola']
         },
         val: {
-            f: ['Amparo', 'Pepa', 'Vicenta', 'Empar', 'Rosa', 'Neus', 'Llum', 'Carme', 'Lourdes', 'Inma', 'Xelo', 'Maria'],
-            m: ['Vicent', 'Ximo', 'Pepe', 'Toni', 'Xavi', 'Batiste', 'Joanjo', 'Quique', 'Rafa', 'Pau', 'Nelo', 'Paco'],
-            s: ['Ferrer', 'Peris', 'Climent', 'Llopis', 'Gisbert', 'Martí', 'Bataller', 'Soriano', 'Escrivà', 'Sanchis',
-                'Alemany', 'Monzó', 'Ballester', 'Mompó', 'Tormo', 'Boix', 'Cervera', 'Calatayud', 'Sendra', 'Gil']
+            f: ['Fina', 'Pepa', 'Vicenta', 'Empar', 'Rosa', 'Neus', 'Llum', 'Carme', 'Remei', 'Imma', 'Xelo', 'Maria'],
+            m: ['Vicent', 'Ximo', 'Pasqual', 'Toni', 'Xavi', 'Batiste', 'Joanjo', 'Quico', 'Rafel', 'Pau', 'Nelo', 'Cento'],
+            s: ['Ferrer', 'Peris', 'Climent', 'Llopis', 'Gisbert', 'Martí', 'Bataller', 'Fuster', 'Escrivà', 'Sanchis',
+                'Alemany', 'Monzó', 'Ballester', 'Mompó', 'Tormo', 'Boix', 'Cervera', 'Ribes', 'Sendra', 'Gil']
         },
         bal: {
             f: ['Aina', 'Joana', 'Margalida', 'Catalina', 'Francina', 'Antònia', 'Maria', 'Bel', 'Xisca', 'Apol·lònia'],
@@ -67,10 +68,10 @@
                 'Ribas', 'Babot', 'Naudi', 'Riba']
         },
         franja: {
-            f: ['Pilar', 'Carmen', 'Rosa', 'Teresa', 'Núria', 'Montse', 'Ana', 'Mercè'],
+            f: ['Pilar', 'Carme', 'Rosa', 'Teresa', 'Núria', 'Montse', 'Anna', 'Mercè'],
             m: ['Josep', 'Ramon', 'Joaquim', 'Manel', 'Jesús', 'Àngel', 'Xavier', 'Hèctor'],
-            s: ['Lacasa', 'Salvador', 'Pallarés', 'Arnau', 'Sancho', 'Bielsa', 'Castell', 'Monclús', 'Gràcia',
-                'Llovet', 'Blasco', 'Ballarín', 'Moliné', 'Abella']
+            s: ['Ricart', 'Salvador', 'Pallarès', 'Arnau', 'Farré', 'Fontanet', 'Castell', 'Monclús', 'Gràcia',
+                'Llovet', 'Calvet', 'Esteve', 'Moliné', 'Abella']
         },
         alguer: {
             f: ['Maria', 'Antonella', 'Giovanna', 'Caterina', 'Rita', 'Paola', 'Margalida'],
@@ -78,6 +79,9 @@
             s: ['Sechi', 'Piras', 'Mura', 'Carta', 'Pinna', 'Delogu', 'Scanu', 'Manca', 'Pais', 'Fois', 'Serra', 'Bardino']
         },
         // ── Gent d'altres orígens que viu als territoris ──
+        // (els noms castellans i de l'Amèrica hispana ja no surten a les lligues
+        // dels Països Catalans: només a Europa i al món, i per a qui juga des
+        // de fora; vegeu DIVERSE)
         es: {
             f: ['Laura', 'Lucía', 'Cristina', 'Sara', 'Raquel', 'Elena', 'Paula', 'Silvia', 'Beatriz', 'Irene'],
             m: ['Sergio', 'Javier', 'Alejandro', 'David', 'Álvaro', 'Rubén', 'Iván', 'Pablo', 'Daniel', 'Adrián'],
@@ -411,16 +415,29 @@
     };
 
     // Cultura de cada territori dels Països Catalans, i de quins altres
-    // orígens és la gent que hi viu (pesos).
+    // orígens és la gent que hi viu, en percentatge de la proporció de cada
+    // nivell (DIVERSITY_BY_LEVEL). El que falta fins a 100 són noms del
+    // territori: abans hi havia noms castellans i de l'Amèrica hispana, i ara
+    // a les lligues dels Països Catalans tots els noms i cognoms són catalans
+    // o d'altres llengües.
     const TERRITORY_CULTURE = { cat: 'cat', val: 'val', bal: 'bal', and: 'and', nord: 'nord', franja: 'franja', alguer: 'alguer' };
     const DIVERSE = {
-        cat: [['es', 55], ['latam', 15], ['ma', 12], ['ro', 8], ['cn', 5], ['pk', 5]],
-        val: [['es', 65], ['latam', 10], ['ro', 15], ['ma', 10]],
-        bal: [['es', 55], ['de', 15], ['latam', 15], ['ma', 10], ['it', 5]],
-        and: [['es', 45], ['pt', 45], ['fr', 10]],
+        cat: [['ma', 12], ['ro', 8], ['cn', 5], ['pk', 5]],
+        val: [['ro', 15], ['ma', 10]],
+        bal: [['de', 15], ['ma', 10], ['it', 5]],
+        and: [['pt', 45], ['fr', 10]],
         nord: [['fr', 85], ['ma', 15]],
-        franja: [['es', 85], ['ro', 15]],
+        franja: [['ro', 15]],
         alguer: [['it', 100]]
+    };
+    // Cultures del castellà: no surten mai a les lligues dels Països Catalans.
+    const CASTILIAN_CULTURES = ['es', 'latam'];
+    // Formes castellanes que hi havia entre els noms dels territoris, i la
+    // catalana que les substitueix (per als rivals de temporades ja començades).
+    const CATALAN_FORMS = {
+        'Amparo': 'Fina', 'Lourdes': 'Remei', 'Inma': 'Imma', 'Pepe': 'Pasqual', 'Quique': 'Quico', 'Paco': 'Cento',
+        'Rafa': 'Rafel', 'Soriano': 'Fuster', 'Calatayud': 'Ribes', 'Carmen': 'Carme', 'Ana': 'Anna', 'Lacasa': 'Ricart',
+        'Pallarés': 'Pallarès', 'Sancho': 'Farré', 'Bielsa': 'Fontanet', 'Blasco': 'Calvet', 'Ballarín': 'Esteve'
     };
     // Proporció de rivals d'altres orígens als nivells de casa (municipal,
     // comarcal, provincial, territori) i als Països Catalans.
@@ -485,27 +502,88 @@
     // Cultura del nom d'un rival segons el nivell (0 municipal ... 6 mundial),
     // la localitat del jugador i l'origen del rival. options.territoryOf: ciutat
     // dels Països Catalans → territori (localitats.js).
+    // Territori d'on surt el nom d'un rival dels nivells de casa i dels Països
+    // Catalans (0-4): el del jugador o, als Països Catalans i a la Lliga
+    // Catalana de qui juga a la Catalunya Nord (rivals del Principat i del
+    // Nord), el d'on és el rival.
+    function territoryFor(level, home, origin, opts) {
+        let territory = (home && home.territory) || 'cat';
+        if (level === 4 || (level === 3 && territory === 'nord')) {
+            const t = opts && typeof opts.territoryOf === 'function' ? opts.territoryOf(origin) : null;
+            territory = t || territory;
+        }
+        return territory;
+    }
+
     function cultureFor(level, home, origin, options) {
         const opts = options || {};
         const rnd = typeof opts.random === 'function' ? opts.random : Math.random;
         const h = home || {};
         if (level >= 5) return countryCulture(origin) || pick(EUROPE_CULTURES, rnd);
-        let territory = h.territory || 'cat';
-        // Als Països Catalans, i a la Lliga Catalana de qui juga a la Catalunya
-        // Nord (rivals del Principat i del Nord), el nom va amb el territori
-        // d'on és el rival.
-        if (level === 4 || (level === 3 && territory === 'nord')) {
-            const t = typeof opts.territoryOf === 'function' ? opts.territoryOf(origin) : null;
-            territory = t || territory;
-        }
+        const territory = territoryFor(level, h, origin, opts);
         if (territory === 'fora') return countryCulture(h.pais) || pick(EUROPE_CULTURES, rnd);
         // A l'Alguer, de la Nurra a Sardenya la majoria de rivals no són
         // algueresos: noms italians (cada nivell, més).
         if (territory === 'alguer' && level >= 1 && level <= 3 && rnd() < ALGUER_ITALIAN_BY_LEVEL[level]) return 'it';
         const base = TERRITORY_CULTURE[territory] || 'cat';
         const share = DIVERSITY_BY_LEVEL[Math.max(0, Math.min(4, level))] || 0;
-        if (share > 0 && rnd() < share && DIVERSE[territory]) return pickWeighted(DIVERSE[territory], rnd);
+        const others = DIVERSE[territory];
+        if (share > 0 && others && rnd() < share) {
+            const percent = others.reduce(function (sum, p) { return sum + p[1]; }, 0);
+            if (rnd() * 100 < percent) return pickWeighted(others, rnd);
+        }
         return base;
+    }
+
+    // Noms de pila i cognoms del castellà (cultures es i latam).
+    const CASTILIAN_GIVEN = new Set(), CASTILIAN_SURNAMES = new Set();
+    CASTILIAN_CULTURES.forEach(function (code) {
+        const c = CULTURES[code];
+        c.f.concat(c.m).forEach(function (n) { CASTILIAN_GIVEN.add(n); });
+        (c.s || []).forEach(function (n) { CASTILIAN_SURNAMES.add(n); });
+    });
+
+    // Un nom fet amb un nom i un cognom castellans (García, Martínez...).
+    function isCastilianName(name) {
+        const parts = String(name == null ? '' : name).trim().split(/\s+/);
+        return parts.length >= 2 && CASTILIAN_GIVEN.has(parts[0]) && CASTILIAN_SURNAMES.has(parts.slice(1).join(' '));
+    }
+
+    // El nom d'un rival d'una temporada ja començada, sense res de castellà a
+    // les lligues dels Països Catalans (nivells 0-4): un nom castellà en dona
+    // un de nou del territori (cap dels de options.taken, que s'hi afegeix), i
+    // les formes castellanes d'abans passen a la catalana (Carmen, Carme). A
+    // Europa, al món i per a qui juga des de fora, el nom no es toca.
+    function catalanRivalName(name, level, home, origin, options) {
+        const opts = options || {};
+        if (typeof name !== 'string' || !(level >= 0 && level <= 4)) return name;
+        const territory = territoryFor(level, home || {}, origin, opts);
+        if (territory === 'fora') return name;
+        if (!isCastilianName(name)) {
+            return name.split(' ').map(function (w) { return CATALAN_FORMS[w] || w; }).join(' ');
+        }
+        const rnd = typeof opts.random === 'function' ? opts.random : Math.random;
+        const code = TERRITORY_CULTURE[territory] || 'cat';
+        const taken = opts.taken instanceof Set ? opts.taken : new Set();
+        // Com a rivalNames: un nom que no hi sigui i, si es pot, sense repetir
+        // el nom de pila ni el cognom de cap altre rival de la lliga.
+        const usedGiven = new Set(), usedSurnames = new Set();
+        taken.forEach(function (key) {
+            const parts = String(key).split(' ');
+            usedGiven.add(parts[0]);
+            usedSurnames.add(parts.slice(1).join(' '));
+        });
+        let best = null, bestScore = -1;
+        for (let k = 0; k < 80 && bestScore < 2; k++) {
+            const cand = makeName(code, rnd);
+            const key = fold(cand.name);
+            if (taken.has(key) || FAMOUS.has(key)) continue;
+            const score = (usedSurnames.has(fold(cand.surname)) ? 0 : 1) + (usedGiven.has(fold(cand.given)) ? 0 : 1);
+            if (score > bestScore) { best = cand; bestScore = score; }
+        }
+        const got = best ? best.name : makeName(code, rnd).name;
+        taken.add(fold(got));
+        return got;
     }
 
     // Noms dels rivals d'una lliga nova: count noms diferents (i, si es pot,
@@ -552,6 +630,8 @@
         CULTURES: CULTURES,
         COUNTRY_CULTURE: COUNTRY_CULTURE,
         DIVERSE: DIVERSE,
+        CASTILIAN_CULTURES: CASTILIAN_CULTURES,
+        CATALAN_FORMS: CATALAN_FORMS,
         DIVERSITY_BY_LEVEL: DIVERSITY_BY_LEVEL,
         TERRITORY_CULTURE: TERRITORY_CULTURE,
         FAMOUS: FAMOUS,
@@ -559,6 +639,8 @@
         countryCulture: countryCulture,
         makeName: makeName,
         cultureFor: cultureFor,
-        rivalNames: rivalNames
+        rivalNames: rivalNames,
+        isCastilianName: isCastilianName,
+        catalanRivalName: catalanRivalName
     };
 });

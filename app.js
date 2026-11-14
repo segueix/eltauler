@@ -2745,6 +2745,7 @@ function importBackupData(data) {
     aiDifficulty = levelToDifficulty(currentElo); recentGames = data.recentGames || []; consecutiveWins = data.consecutiveWins || 0; consecutiveLosses = data.consecutiveLosses || 0;
     currentLeague = data.currentLeague || null;
     leagueActiveMatch = data.leagueActiveMatch || null;
+    catalanizeLeagueRivals();
     reviewHistory = data.reviewHistory || [];
     gameHistory = data.gameHistory || [];
     importedGameHistory = Array.isArray(data.importedGameHistory) ? data.importedGameHistory : [];
@@ -5412,10 +5413,42 @@ function curatedOpeningByName(name) {
     try { list = CURATED_OPENINGS; } catch (e) { list = []; }
     return list.find(o => o && o.name === name) || null;
 }
+// Lligues dels Països Catalans començades quan encara hi sortien noms
+// castellans: els rivals passen a tenir nom català (nomslliga.js:
+// catalanRivalName), també a les jornades jugades i a la partida de lliga en
+// joc. La llavor és l'id de la lliga: cada càrrega dona els mateixos noms.
+function catalanizeLeagueRivals(league = currentLeague) {
+    const N = window.ElTaulerNomsLliga;
+    if (!N || typeof N.catalanRivalName !== 'function' || !league || !league.ladder || !Array.isArray(league.players)) return false;
+    const level = league.ladder.level;
+    if (!(level >= 0 && level <= 4)) return false;
+    const L = window.ElTaulerLocalitats;
+    let home = {};
+    try { home = loadLeagueCareer().home || {}; } catch (e) { home = {}; }
+    let seed = 7;
+    for (const ch of String(league.id || '')) seed = (Math.imul(seed, 31) + ch.charCodeAt(0)) >>> 0;
+    const options = {
+        random: mulberry32(seed), taken: new Set(league.players.map(p => N.fold(p && p.name))),
+        territoryOf: L && typeof L.originTerritory === 'function' ? L.originTerritory : null
+    };
+    const renamed = new Map();
+    league.players.forEach(p => {
+        if (!p || p.id === 'me' || typeof p.name !== 'string') return;
+        const name = N.catalanRivalName(p.name, level, home, p.from, options);
+        if (name !== p.name) { renamed.set(p.name, name); p.name = name; }
+    });
+    if (!renamed.size) return false;
+    (league.history || []).forEach(h => { if (h && renamed.has(h.oppName)) h.oppName = renamed.get(h.oppName); });
+    if (league === currentLeague && leagueActiveMatch && renamed.has(leagueActiveMatch.opponentName)) {
+        leagueActiveMatch.opponentName = renamed.get(leagueActiveMatch.opponentName);
+    }
+    return true;
+}
+
 // Les lligues desades abans de la personalitat dels rivals la reben en obrir-les.
 function ensureLeaguePersonality() {
     if (!currentLeague || !Array.isArray(currentLeague.players)) return;
-    let changed = false;
+    let changed = catalanizeLeagueRivals();
     const bots = currentLeague.players.filter(p => p && p.id !== 'me');
     const missing = bots.filter(p => !p.style);
     if (missing.length) {
@@ -9627,6 +9660,7 @@ function loadStorage() {
     // Les lligues d'abans es deien «· Grup B»; ara, «· Divisió B».
     if (currentLeague && currentLeague.name) currentLeague.name = ElTaulerCore.leagueRenameGroup(currentLeague.name);
     const lMatch = localStorage.getItem('chess_leagueActiveMatch'); if (lMatch) leagueActiveMatch = JSON.parse(lMatch);
+    catalanizeLeagueRivals();
     const reviews = localStorage.getItem('chess_reviewHistory'); if (reviews) reviewHistory = JSON.parse(reviews);
     const gameHistoryStored = localStorage.getItem('chess_gameHistory'); if (gameHistoryStored) gameHistory = JSON.parse(gameHistoryStored);
     // Ara sí: amb l'historial carregat, les missions del dia es poden restaurar
