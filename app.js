@@ -2267,7 +2267,7 @@ function resetReviewTtsState(keepPaused = false) {
 
 // «Atura» de Configuració: la prova de veu i també la música de fons que
 // l'acompanya (que, si no, continuaria una estona) i la peça composta que
-// s'estigui escoltant a «Música composta per l'app».
+// s'estigui escoltant a «Música infinita».
 function stopSettingsAudioPreview() {
     stopReviewTts();
     const coord = voiceMusicApi();
