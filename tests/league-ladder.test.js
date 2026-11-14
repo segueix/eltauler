@@ -61,7 +61,10 @@ describe('localitats: municipis de Catalunya (Idescat)', () => {
 
 describe('localitats: altres territoris i localitat neta', () => {
     test('comarques dels altres territoris amb la província', () => {
-        expect(Loc.comarques('val')).toHaveLength(34);
+        // 33: l'Horta Oest es va suprimir el 2022 (els seus municipis tornen a l'Horta Sud i Paterna, a la Nord).
+        expect(Loc.comarques('val')).toHaveLength(33);
+        expect(Loc.normalizeHome({ territory: 'val', municipi: 'Torrent', comarca: "l'Horta Oest" }))
+            .toMatchObject({ comarca: "l'Horta Sud", provincia: 'València' });
         expect(Loc.provinceOfComarca('val', 'la Safor')).toBe('València');
         expect(Loc.provinceOfComarca('val', 'Safor')).toBe('València');
         expect(Loc.provinceOfComarca('bal', 'Menorca')).toBe('Illes Balears');
@@ -70,7 +73,7 @@ describe('localitats: altres territoris i localitat neta', () => {
         Loc.TERRITORIES.filter(t => t.id !== 'fora').forEach(t => expect(Loc.comarques(t.id).length).toBeGreaterThan(0));
     });
 
-    test('normalizeHome: a Catalunya mana la llista; als altres, la comarca dona la província', () => {
+    test('normalizeHome: mana la llista; si el municipi no hi és, la comarca dona la província', () => {
         expect(Loc.normalizeHome({ municipi: '  vic ', comarca: 'Inventada' }))
             .toEqual({ territory: 'cat', municipi: 'Vic', comarca: 'Osona', provincia: 'Barcelona', pais: '' });
         expect(Loc.normalizeHome({ territory: 'val', municipi: 'Gandia', comarca: 'la Safor' }))
@@ -111,6 +114,94 @@ describe('localitats: altres territoris i localitat neta', () => {
     });
 });
 
+describe('localitats: municipis dels altres territoris i orígens dels rivals', () => {
+    let k = 0;
+    const rnd = () => ((k = (k * 9301 + 49297) % 233280) / 233280);
+    const home = (territory, municipi, comarca) => Loc.normalizeHome({ territory, municipi, comarca });
+
+    test('municipis: 542 al País Valencià, 198 a la Catalunya Nord, 57 a la Franja i 67 a les Balears', () => {
+        expect(Loc.municipalities('val')).toHaveLength(542);
+        expect(Loc.municipalities('nord')).toHaveLength(198);
+        expect(Loc.municipalities('franja')).toHaveLength(57);
+        expect(Loc.municipalities('bal')).toHaveLength(67);
+        ['val', 'nord', 'franja', 'bal'].forEach(t => {
+            const list = Loc.municipalities(t);
+            expect(new Set(list.map(m => m.name)).size).toBe(list.length);
+            const coms = Loc.comarques(t).map(c => c.name);
+            list.forEach(m => { expect(coms).toContain(m.comarca); expect(m.province).toBeTruthy(); });
+        });
+        // Cada comarca valenciana en té algun; a la Catalunya Nord, totes menys la Fenolleda (occitana).
+        Loc.comarques('val').forEach(c => expect(Loc.municipalities('val').some(m => m.comarca === c.name)).toBe(true));
+        expect(Loc.municipalities('nord').some(m => m.comarca === 'la Fenolleda')).toBe(false);
+        // Mequinensa és del Baix Cinca però de la província de Saragossa.
+        expect(Loc.findMunicipality('mequinensa', 'franja')).toMatchObject({ comarca: 'el Baix Cinca', province: 'Saragossa' });
+        expect(home('val', 'gandia')).toMatchObject({ municipi: 'Gandia', comarca: 'la Safor', provincia: 'València' });
+        expect(home('bal', 'es castell')).toMatchObject({ municipi: 'es Castell', comarca: 'Menorca' });
+        expect(Loc.searchMunicipalities('vila-r', { territory: 'val' }).map(m => m.name)).toContain('Vila-real');
+    });
+
+    test('comarcal: municipis de la comarca (o de l\'illa), també fora de Catalunya', () => {
+        Loc.rivalOrigins(1, home('val', 'Gandia'), 9, rnd).forEach(n => {
+            expect(n).not.toBe('Gandia');
+            expect(Loc.findMunicipality(n, 'val').comarca).toBe('la Safor');
+        });
+        Loc.rivalOrigins(1, home('nord', 'Prada'), 9, rnd).forEach(n => expect(Loc.findMunicipality(n, 'nord').comarca).toBe('el Conflent'));
+        Loc.rivalOrigins(1, home('bal', 'Maó'), 9, rnd).forEach(n => expect(Loc.findMunicipality(n, 'bal').comarca).toBe('Menorca'));
+        Loc.rivalOrigins(1, home('franja', 'Calaceit'), 9, rnd).forEach(n => expect(Loc.findMunicipality(n, 'franja').comarca).toBe('el Matarranya'));
+        // Formentera (un sol municipi): els seus pobles. La Fenolleda: la Catalunya Nord.
+        Loc.rivalOrigins(1, home('bal', 'Formentera'), 9, rnd).forEach(n => expect(n).toBeTruthy());
+        Loc.rivalOrigins(1, home('nord', 'Sant Pau', 'la Fenolleda'), 9, rnd).forEach(n => expect(Loc.findMunicipality(n, 'nord')).toBeTruthy());
+    });
+
+    test('cap territori sense orígens fins als Països Catalans (ni l\'Alguer ni Andorra)', () => {
+        const homes = [home('val', 'Gandia'), home('bal', 'Palma'), home('bal', 'Eivissa'), home('nord', 'Perpinyà'),
+            home('and', 'Encamp'), home('franja', 'Fraga'), home('franja', 'Mequinensa'), home('alguer', "l'Alguer")];
+        homes.forEach(h => [1, 2, 3].forEach(lv => {
+            const o = Loc.rivalOrigins(lv, h, 9, rnd);
+            expect(o).toHaveLength(9);
+            o.forEach(n => expect(n).toBeTruthy());
+        }));
+    });
+
+    test('provincial i territori: l\'àrea de cada lliga', () => {
+        // Gimnèsies (Mallorca i Menorca) i Pitiüses (Eivissa i Formentera).
+        Loc.rivalOrigins(2, home('bal', 'Palma'), 9, rnd)
+            .forEach(n => expect(['Mallorca', 'Menorca']).toContain(Loc.findMunicipality(n, 'bal').comarca));
+        Loc.rivalOrigins(2, home('bal', 'Eivissa'), 9, rnd)
+            .forEach(n => expect(['Eivissa', 'Formentera']).toContain(Loc.findMunicipality(n, 'bal').comarca));
+        expect(Loc.islandGroup('Menorca').name).toBe('les Gimnèsies');
+        // La Catalunya Nord, i la Lliga Catalana amb rivals del Principat i del Nord.
+        Loc.rivalOrigins(2, home('nord', 'Perpinyà'), 9, rnd).forEach(n => expect(Loc.findMunicipality(n, 'nord')).toBeTruthy());
+        Loc.rivalOrigins(3, home('nord', 'Perpinyà'), 9, rnd)
+            .forEach(n => expect(['nord', 'cat']).toContain(Loc.originTerritory(n)));
+        // La Franja: municipis de la Franja de la mateixa província.
+        Loc.rivalOrigins(2, home('franja', 'Mequinensa'), 9, rnd)
+            .forEach(n => expect(Loc.findMunicipality(n, 'franja').province).toBe('Saragossa'));
+        // L'Alguer: la Nurra, la província de Sàsser i Sardenya; mai l'Alguer.
+        [1, 2, 3].forEach(lv => Loc.rivalOrigins(lv, home('alguer', "l'Alguer"), 9, rnd)
+            .forEach(n => expect(n).not.toBe("l'Alguer")));
+        expect(Loc.rivalOrigins(3, home('alguer', "l'Alguer"), 9, rnd)).not.toContain('Fertilia');
+    });
+
+    test('noms dels rivals: a l\'Alguer, sobretot italians; a la Catalana del Nord, segons d\'on són', () => {
+        let s = 3;
+        const r = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+        const alguer = home('alguer', "l'Alguer");
+        const it = level => {
+            let n = 0;
+            for (let i = 0; i < 400; i++) if (Noms.cultureFor(level, alguer, 'Sàsser', { random: r }) === 'it') n++;
+            return n / 400;
+        };
+        expect(it(0)).toBe(0);
+        expect(it(1)).toBeGreaterThan(0.45);
+        expect(it(3)).toBeGreaterThan(0.85);
+        const perpinya = home('nord', 'Perpinyà');
+        const opts = { random: () => 0.99, territoryOf: Loc.originTerritory };
+        expect(Noms.cultureFor(3, perpinya, 'Vic', opts)).toBe('cat');
+        expect(Noms.cultureFor(3, perpinya, 'Prada', opts)).toBe('nord');
+    });
+});
+
 describe('a l\'app: la lliga a l\'escala', () => {
     function appCtx({ career = null, base = 1000, league = null, underway = false, noms = true } = {}) {
         const store = career ? { chess_leagueCareer: JSON.stringify(career) } : {};
@@ -134,24 +225,34 @@ describe('a l\'app: la lliga a l\'escala', () => {
     }
     const vic = { territory: 'cat', municipi: 'Vic', comarca: 'Osona', provincia: 'Barcelona', pais: '' };
 
-    test('sense trajectòria: es comença a la C de la lliga local, amb noms genèrics', () => {
+    test('sense trajectòria: es comença a la C de la lliga del territori (com a mínim)', () => {
         const { ctx } = appCtx({ base: 1000 });
         const L = ctx.createNewLeague(true);
-        // El grup ja no surt de l'ELO: es comença al primer graó, Municipal C.
-        expect(L.ladder).toEqual({ level: 0, group: 'C', tier: 0 });
-        expect(L.divisionShift).toBe(-120);
-        expect(L.name).toBe('Lliga Local · Grup C');
+        // El grup ja no surt de l'ELO, i no es comença a la lliga local: la
+        // Lliga Catalana C (sense localitat, la catalana), rivals de −12.
+        expect(L.ladder).toEqual({ level: 3, group: 'C', tier: 9 });
+        expect(L.divisionShift).toBe(-12);
+        expect(L.name).toBe('Lliga Catalana · Grup C');
         expect(L.division).toBeUndefined();
-        L.players.forEach(p => expect(p.from).toBeUndefined());
         const bots = L.players.filter(p => p.id !== 'me');
         expect(bots).toHaveLength(9);
+        bots.forEach(p => expect(Loc.findMunicipality(p.from)).toBeTruthy());
         const avg = bots.reduce((s, p) => s + p.elo, 0) / 9;
-        expect(Math.abs(avg - 880)).toBeLessThan(15);
+        expect(Math.abs(avg - 988)).toBeLessThan(15);
+    });
+
+    test('amb la localitat al País Valencià: Lliga Valenciana C, amb rivals de comarques valencianes', () => {
+        const gandia = { territory: 'val', municipi: 'Gandia', comarca: 'la Safor', provincia: 'València', pais: '' };
+        const L = appCtx({ career: { home: gandia, seasons: [] }, base: 1200 }).ctx.createNewLeague(true);
+        expect(L.name).toBe('Lliga Valenciana · Grup C');
+        const comarques = Loc.comarques('val').map(c => c.name);
+        L.players.filter(p => p.id !== 'me').forEach(p => expect(comarques).toContain(p.from));
     });
 
     test('amb la localitat: noms del lloc, rivals de la comarca i noms del país d\'origen a Europa', () => {
         // Trajectòria d'abans dels graons (només el nivell): comença a la C.
-        const { ctx } = appCtx({ career: { level: 1, home: vic, seasons: [] }, base: 1150 });
+        // Ja havia jugat a la Catalana (millor nivell 3) i havia baixat: no es puja.
+        const { ctx } = appCtx({ career: { level: 1, bestLevel: 3, home: vic, seasons: [] }, base: 1150 });
         const L = ctx.createNewLeague(true);
         expect(L.ladder).toEqual({ level: 1, group: 'C', tier: 3 });
         expect(L.divisionShift).toBe(-84);
@@ -193,7 +294,7 @@ describe('a l\'app: la lliga a l\'escala', () => {
     });
 
     test('el grup és el graó: no canvia encara que la referència canviï abans de començar', () => {
-        const { ctx } = appCtx({ career: { tier: 1, home: vic, seasons: [] }, base: 1000 });
+        const { ctx } = appCtx({ career: { tier: 1, bestTier: 9, home: vic, seasons: [] }, base: 1000 });
         ctx.createNewLeague(true);
         expect(ctx.currentLeague.name).toBe('Lliga de Vic · Grup B');
         ctx.currentLeague.baseRating = 600;
@@ -214,7 +315,8 @@ describe('a l\'app: la lliga a l\'escala', () => {
         const before = ctx.currentLeague.id;
         ctx.saveLeagueHome(vic);
         expect(JSON.parse(store.chess_leagueCareer).home).toEqual(vic);
-        expect(ctx.currentLeague.name).toBe('Lliga de Vic · Grup C');
+        expect(ctx.currentLeague.name).toBe('Lliga Catalana · Grup C');
+        expect(ctx.currentLeague.players.find(p => p.id === 'me').from).toBe('Vic');
 
         ctx.currentLeague.currentRound = 2;
         const name = ctx.currentLeague.name;
@@ -229,7 +331,7 @@ describe('a l\'app: la lliga a l\'escala', () => {
             currentRound: 1, completed: false, players: [{ id: 'me', pj: 0 }] });
         const fresh = appCtx({ league: legacy() }).ctx;
         expect(fresh.upgradeLegacyLeague()).toBe(true);
-        expect(fresh.currentLeague.ladder).toEqual({ level: 0, group: 'C', tier: 0 });
+        expect(fresh.currentLeague.ladder).toEqual({ level: 3, group: 'C', tier: 9 });
         expect(fresh.currentLeague.timeControl).toBe('3+2');
 
         const started = appCtx({ league: Object.assign(legacy(), { currentRound: 4 }) }).ctx;
@@ -242,7 +344,18 @@ describe('a l\'app: la lliga a l\'escala', () => {
 
     test('la trajectòria llegeix nivell, millor nivell i localitat (i les velles, sense)', () => {
         const { ctx } = appCtx({ career: { division: 3, seasons: [{ name: 'x', division: 3 }] } });
-        expect(ctx.loadLeagueCareer()).toMatchObject({ division: 3, tier: 0, level: 0, bestTier: 0, bestLevel: 0, home: null });
+        // Mai no ha jugat a la lliga del territori: hi comença (el millor graó
+        // jugat continua essent el que era).
+        expect(ctx.loadLeagueCareer()).toMatchObject({ division: 3, tier: 9, level: 3, bestTier: 0, bestLevel: 3, home: null });
+        expect(appCtx({}).ctx.loadLeagueCareer()).toMatchObject({ tier: 9, level: 3, seasons: [] });
+        expect(appCtx({ career: { tier: 4, bestTier: 4, seasons: [] } }).ctx.loadLeagueCareer()).toMatchObject({ tier: 9 });
+        expect(appCtx({ career: { tier: 7, bestTier: 10, seasons: [] } }).ctx.loadLeagueCareer()).toMatchObject({ tier: 7 });
+        // Desar la trajectòria amb el graó del mínim no infla el millor graó:
+        // una temporada d'abans, jugada per sota, encara acabarà pujant.
+        const saved = appCtx({ career: { tier: 2, bestTier: 2, seasons: [] } });
+        saved.ctx.saveLeagueCareer(saved.ctx.loadLeagueCareer());
+        expect(JSON.parse(saved.store.chess_leagueCareer)).toMatchObject({ tier: 9, bestTier: 2 });
+        expect(saved.ctx.loadLeagueCareer()).toMatchObject({ tier: 9, bestTier: 2 });
         const c2 = appCtx({ career: { level: 9, bestLevel: 2, home: { municipi: '' }, seasons: [] } }).ctx.loadLeagueCareer();
         // Només amb nivell (d'abans dels graons): la C del nivell.
         expect(c2).toMatchObject({ tier: 18, level: 6, bestLevel: 6, home: null });

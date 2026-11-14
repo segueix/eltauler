@@ -113,15 +113,28 @@ describe('rendiment (leaguePerformanceRating)', () => {
 });
 
 describe('escala de graons: C → B → A → C del nivell següent (LLIGA.md §6)', () => {
-    test('21 graons, tres per nivell en l\'ordre C, B, A; es comença a Municipal C', () => {
+    test('21 graons, tres per nivell en l\'ordre C, B, A; es comença com a mínim a la lliga del territori, C', () => {
         expect(Core.LEAGUE_TIER_COUNT).toBe(21);
-        expect(Core.LEAGUE_START_TIER).toBe(0);
+        expect(Core.LEAGUE_START_TIER).toBe(9);
+        expect(Core.leagueTierLevel(Core.LEAGUE_START_TIER)).toBe(3);
+        expect(Core.leagueTierGroup(Core.LEAGUE_START_TIER)).toBe('C');
+        expect(Core.leagueFullName(3, 'C', { territory: 'val', municipi: 'Gandia', comarca: 'la Safor' }))
+            .toBe('Lliga Valenciana · Grup C');
         const order = Array.from({ length: 21 }, (_, t) => Core.leagueTierGroup(t)).join('');
         expect(order).toBe('CBA'.repeat(7));
         expect([0, 2, 3, 20].map(Core.leagueTierLevel)).toEqual([0, 0, 1, 6]);
         expect(Core.leagueTierOf(1, 'B')).toBe(4);
         expect(Core.leagueTier(99)).toBe(20);
         expect(Core.leagueTier(-1)).toBe(0);
+    });
+
+    test('el mínim: qui no ha jugat mai a la lliga del territori hi puja; qui hi ha jugat, si baixa, baixa', () => {
+        expect(Core.leagueFloorTier(0, 0)).toBe(9);
+        expect(Core.leagueFloorTier(5, 5)).toBe(9);
+        expect(Core.leagueFloorTier(11, 0)).toBe(11);
+        expect(Core.leagueFloorTier(8, 9)).toBe(8);
+        expect(Core.leagueFloorTier(2, 12)).toBe(2);
+        expect(Core.leagueFloorTier(4, undefined)).toBe(9);
     });
 
     test('la graella es fa 12 punts més forta a cada graó, de −120 a +120', () => {
@@ -203,7 +216,37 @@ describe('escala de nivells (LLIGA.md §6)', () => {
         expect(Core.leagueFullName(1, 'B', vic)).toBe("Lliga Comarcal d'Osona · Grup B");
     });
 
+    test('fora de Catalunya, cap nivell no repeteix l\'àrea del de sota', () => {
+        const names = h => [0, 1, 2, 3].map(l => Core.leagueLevelName(l, h));
+        const shorts = h => [1, 2, 3].map(l => Core.leagueLevelShort(l, h));
+        const palma = { territory: 'bal', municipi: 'Palma', comarca: 'Mallorca', provincia: 'Illes Balears' };
+        expect(names(palma)).toEqual(['Lliga de Palma', 'Lliga Insular de Mallorca', 'Lliga de les Gimnèsies', 'Lliga Balear']);
+        expect(shorts(palma)).toEqual(['Insular', 'Gimnèsies', 'Balear']);
+        const castell = { territory: 'bal', municipi: 'es Castell', comarca: 'Menorca', provincia: 'Illes Balears' };
+        expect(names(castell)).toEqual(['Lliga des Castell', 'Lliga Insular de Menorca', 'Lliga de les Gimnèsies', 'Lliga Balear']);
+        expect(Core.leagueLevelName(2, { territory: 'bal', municipi: 'Eivissa', comarca: 'Eivissa' })).toBe('Lliga de les Pitiüses');
+        expect(Core.leagueLevelName(1, { territory: 'bal', municipi: 'Eivissa', comarca: 'Eivissa' })).toBe("Lliga Insular d'Eivissa");
+        const perpinya = { territory: 'nord', municipi: 'Perpinyà', comarca: 'el Rosselló', provincia: 'els Pirineus Orientals' };
+        expect(names(perpinya)).toEqual(['Lliga de Perpinyà', 'Lliga Comarcal del Rosselló', 'Lliga de la Catalunya Nord', 'Lliga Catalana']);
+        expect(shorts(perpinya)).toEqual(['Comarcal', 'Catalunya Nord', 'Catalana']);
+        const encamp = { territory: 'and', municipi: 'Encamp', comarca: 'Andorra', provincia: 'Andorra' };
+        expect(names(encamp)).toEqual(["Lliga d'Encamp", 'Tercera Divisió Andorrana', 'Segona Divisió Andorrana', 'Lliga Andorrana']);
+        expect(Core.leagueFullName(1, 'B', encamp)).toBe('Tercera Divisió Andorrana · Grup B');
+        const alguer = { territory: 'alguer', municipi: "l'Alguer", comarca: "l'Alguer", provincia: 'Sàsser' };
+        expect(names(alguer)).toEqual(["Lliga de l'Alguer", 'Lliga de la Nurra', 'Lliga Provincial de Sàsser', 'Lliga de Sardenya']);
+        expect(shorts(alguer)).toEqual(['Nurra', 'Provincial', 'Sardenya']);
+        const fraga = { territory: 'franja', municipi: 'Fraga', comarca: 'el Baix Cinca', provincia: 'Osca' };
+        expect(names(fraga)).toEqual(['Lliga de Fraga', 'Lliga Comarcal del Baix Cinca', "Lliga Provincial d'Osca", 'Lliga de la Franja']);
+        // A cap territori dos nivells seguits no es diuen igual.
+        [palma, castell, perpinya, encamp, alguer, fraga].forEach(h => {
+            const n = names(h);
+            for (let i = 1; i < n.length; i++) expect(n[i]).not.toBe(n[i - 1]);
+        });
+    });
+
     test('contraccions de «de»', () => {
+        expect(['es Castell', 'es Migjorn Gran', 'sa Pobla', 'ses Salines'].map(Core.catalanDe))
+            .toEqual(['des Castell', 'des Migjorn Gran', 'de sa Pobla', 'de ses Salines']);
         expect(['el Bages', 'els Ports', 'la Selva', "l'Anoia", 'les Garrigues', 'Osona', 'Igualada', 'Hostalric', 'Barcelona', 'Iàtova']
             .map(Core.catalanDe)).toEqual(['del Bages', 'dels Ports', 'de la Selva', "de l'Anoia", 'de les Garrigues',
             "d'Osona", "d'Igualada", "d'Hostalric", 'de Barcelona', 'de Iàtova']);
@@ -224,7 +267,10 @@ describe('escala de nivells (LLIGA.md §6)', () => {
 });
 
 describe('temporada sencera a l\'app (applyLeagueAfterGame + finalizeLeagueSeason)', () => {
-    function seasonCtx(myOutcome, { level = 2, group = 'B', legacy = false, oldLadder = false, career = null } = {}) {
+    // Per provar els graons de sota de la lliga del territori, per defecte la
+    // trajectòria ja hi ha jugat (millor graó 9) i hi ha baixat.
+    function seasonCtx(myOutcome, { level = 2, group = 'B', legacy = false, oldLadder = false,
+        career = legacy ? null : { bestTier: 9, seasons: [] } } = {}) {
         const store = career ? { chess_leagueCareer: JSON.stringify(career) } : {};
         const ids = ['me'].concat([1, 2, 3, 4, 5, 6, 7, 8, 9].map(i => 'bot' + i));
         const players = ids.map((id, i) => ({ id, name: id, elo: 1000 + i * 10, pj: 0, pg: 0, pp: 0, pe: 0, pts: 0 }));
@@ -272,7 +318,7 @@ describe('temporada sencera a l\'app (applyLeagueAfterGame + finalizeLeagueSeaso
         expect(ctx.currentLeague.final).toMatchObject({ rank: 1, pts: 9, level: 2, group: 'B', tier: 7,
             nextTier: 8, nextLevel: 2, nextGroup: 'A', movement: 'up' });
         const career = JSON.parse(store.chess_leagueCareer);
-        expect(career).toMatchObject({ tier: 8, level: 2, bestTier: 8, bestLevel: 2 });
+        expect(career).toMatchObject({ tier: 8, level: 2, bestTier: 9, bestLevel: 3 });
         expect(career.seasons).toHaveLength(1);
         expect(career.seasons[0]).toMatchObject({ name: 'Lliga de prova', rank: 1, timeControl: '1+0', level: 2, group: 'B',
             tier: 7, nextTier: 8, nextLevel: 2 });
@@ -309,13 +355,28 @@ describe('temporada sencera a l\'app (applyLeagueAfterGame + finalizeLeagueSeaso
         expect(JSON.parse(store.chess_leagueCareer)).toMatchObject({ tier: 9, level: 3 });
     });
 
-    test('una lliga de l\'antic sistema es tanca amb la divisió i l\'escalada comença al municipal', () => {
+    test('una lliga de l\'antic sistema es tanca amb la divisió i l\'escalada comença a la lliga del territori', () => {
         const { ctx, store } = seasonCtx('win', { legacy: true });
-        expect(ctx.currentLeague.final).toMatchObject({ rank: 1, division: 2, nextLevel: 0, movement: 'start' });
+        expect(ctx.currentLeague.final).toMatchObject({ rank: 1, division: 2, nextLevel: 3, movement: 'start' });
         const career = JSON.parse(store.chess_leagueCareer);
-        expect(career.level).toBe(0);
+        expect(career).toMatchObject({ tier: 9, level: 3 });
         expect(career.seasons[0]).toMatchObject({ division: 2 });
         expect(career.seasons[0].level).toBeUndefined();
+    });
+
+    test('la primera temporada (a la lliga del territori, C) ja compta: si es perd tot, es baixa a la provincial', () => {
+        const { ctx, store } = seasonCtx('loss', { level: 3, group: 'C', career: null });
+        expect(ctx.currentLeague.final).toMatchObject({ tier: 9, nextTier: 8, nextLevel: 2, nextGroup: 'A', movement: 'down' });
+        expect(JSON.parse(store.chess_leagueCareer)).toMatchObject({ tier: 8, bestTier: 9 });
+    });
+
+    test('una temporada d\'abans del mínim, jugada per sota de la lliga del territori, acaba pujant-hi', () => {
+        const old = { tier: 2, bestTier: 2, seasons: [] };
+        const lost = seasonCtx('loss', { level: 0, group: 'A', career: old });
+        expect(lost.ctx.currentLeague.final).toMatchObject({ tier: 2, nextTier: 9, nextLevel: 3, nextGroup: 'C' });
+        expect(JSON.parse(lost.store.chess_leagueCareer)).toMatchObject({ tier: 9, level: 3 });
+        const won = seasonCtx('win', { level: 0, group: 'A', career: old });
+        expect(won.ctx.currentLeague.final).toMatchObject({ nextTier: 9, movement: 'up' });
     });
 
     test('el graó nou es fa servir en crear la temporada següent', () => {

@@ -425,6 +425,9 @@
     // Proporció de rivals d'altres orígens als nivells de casa (municipal,
     // comarcal, provincial, territori) i als Països Catalans.
     const DIVERSITY_BY_LEVEL = [0, 0.12, 0.25, 0.4, 0.2];
+    // L'Alguer: proporció de noms italians a la Nurra, a la província de
+    // Sàsser i a Sardenya (comarcal, provincial i territori).
+    const ALGUER_ITALIAN_BY_LEVEL = [0, 0.5, 0.75, 0.85];
     // País (nom català de localitats.js) → cultura.
     const COUNTRY_CULTURE = {
         'França': 'fr', 'Itàlia': 'it', 'Alemanya': 'de', 'Països Baixos': 'nl', 'Noruega': 'no', 'Polònia': 'pl',
@@ -488,11 +491,17 @@
         const h = home || {};
         if (level >= 5) return countryCulture(origin) || pick(EUROPE_CULTURES, rnd);
         let territory = h.territory || 'cat';
-        if (level === 4) {
+        // Als Països Catalans, i a la Lliga Catalana de qui juga a la Catalunya
+        // Nord (rivals del Principat i del Nord), el nom va amb el territori
+        // d'on és el rival.
+        if (level === 4 || (level === 3 && territory === 'nord')) {
             const t = typeof opts.territoryOf === 'function' ? opts.territoryOf(origin) : null;
             territory = t || territory;
         }
         if (territory === 'fora') return countryCulture(h.pais) || pick(EUROPE_CULTURES, rnd);
+        // A l'Alguer, de la Nurra a Sardenya la majoria de rivals no són
+        // algueresos: noms italians (cada nivell, més).
+        if (territory === 'alguer' && level >= 1 && level <= 3 && rnd() < ALGUER_ITALIAN_BY_LEVEL[level]) return 'it';
         const base = TERRITORY_CULTURE[territory] || 'cat';
         const share = DIVERSITY_BY_LEVEL[Math.max(0, Math.min(4, level))] || 0;
         if (share > 0 && rnd() < share && DIVERSE[territory]) return pickWeighted(DIVERSE[territory], rnd);
