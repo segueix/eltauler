@@ -1,5 +1,5 @@
 // Inici net (2026-11-14): a la portada només hi ha Juga (Nova partida i la
-// lliga) i les partides col·lectives; la resta d'El Tauler és a «Més», en
+// lliga), les partides col·lectives i Stockfish vs Lozza TV; la resta d'El Tauler és a «Més», en
 // seccions de segon nivell que s'obren amb una rajola i tornen amb «Inici» o
 // amb el botó enrere.
 const fs = require('fs');
@@ -17,7 +17,7 @@ const VIEWS = {
     tactiques: ['home-sec--entrena', ['btn-entrena-today', 'btn-hieroglyphic-banner', 'btn-srs-review', 'btn-tria-banner', 'btn-tactics', 'btn-bullet-practice', 'btn-opening']],
     revisar: ['home-sec--revisar', ['btn-bundle-menu', 'btn-history', 'btn-stats', 'btn-explorer']],
     modes: ['home-sec--modes', ['btn-positional-game', 'btn-antidote-game']],
-    apren: ['home-sec--apren', ['btn-sftv-banner', 'btn-tutorial-banner', 'btn-guide-banner']],
+    apren: ['home-sec--apren', ['btn-tutorial-banner', 'btn-guide-banner']],
     ajustos: ['home-sec--final', ['btn-ranking', 'btn-settings']]
 };
 
@@ -25,12 +25,13 @@ describe('inici: la portada', () => {
     const main = between(home, '<div class="home-col home-col--main">', '<div class="home-col home-col--side">');
     const side = between(home, '<div class="home-col home-col--side">', '<!-- TASQUES I ENTRENADOR');
 
-    test('només Juga i les partides col·lectives, i «Més» al costat', () => {
-        expect((main.match(/<section /g) || []).length).toBe(2);
+    test('només Juga, les partides col·lectives i la TV, i «Més» al costat', () => {
+        expect((main.match(/<section /g) || []).length).toBe(3);
         expect(main).toContain('<section class="home-sec home-sec--juga"');
         expect(main).toContain('<section class="home-sec home-sec--comunitat"');
         expect(main).toContain('id="home-sec-comunitat">Partides col·lectives</h2>');
-        ['btn-new-game', 'league-hero', 'btn-league', 'btn-catalans', 'custom-banners', 'btn-create-custom', 'live-game-banner', 'daily-grid']
+        expect(main).toContain('<section class="home-sec home-sec--tv"');
+        ['btn-new-game', 'league-hero', 'btn-league', 'btn-catalans', 'custom-banners', 'btn-create-custom', 'live-game-banner', 'daily-grid', 'btn-sftv-banner']
             .forEach(id => expect(main).toContain(`id="${id}"`));
         ['btn-positional-game', 'btn-ranking', 'missions-list', 'btn-tactics', 'btn-history', 'btn-settings']
             .forEach(id => expect(main).not.toContain(`id="${id}"`));
@@ -43,6 +44,18 @@ describe('inici: la portada', () => {
         const opens = [...hub.matchAll(/data-home-open="([a-z]+)"/g)].map(m => m[1]);
         expect(opens).toEqual(Object.keys(VIEWS));
         expect(hub).toContain('id="hub-tasques-sub"');
+        // La TV ja és a la portada: la rajola d'Aprèn no l'anuncia.
+        expect(hub).not.toContain('Stockfish TV');
+    });
+
+    test('Stockfish vs Lozza TV, a la portada (una sola vegada) i no a Aprèn', () => {
+        const tv = sectionOf('home-sec--tv');
+        expect(tv).not.toContain('data-view=');
+        expect(tv).toContain('id="btn-sftv-banner"');
+        expect(html.split('id="btn-sftv-banner"').length - 1).toBe(1);
+        expect(sectionOf('home-sec--apren')).not.toContain('btn-sftv-banner');
+        expect(html).toContain('#start-screen .home-sec--tv { order: 3; }');
+        expect(html).toContain('#start-screen .home-sec--hub { order: 4; }');
     });
 
     test('de les missions, a la portada només hi ha la ratxa i les estrelles, que obren les tasques', () => {
