@@ -46,20 +46,42 @@
         val: {
             f: ['Fina', 'Pepa', 'Vicenta', 'Empar', 'Rosa', 'Neus', 'Llum', 'Carme', 'Remei', 'Imma', 'Xelo', 'Maria'],
             m: ['Vicent', 'Ximo', 'Pasqual', 'Toni', 'Xavi', 'Batiste', 'Joanjo', 'Quico', 'Rafel', 'Pau', 'Nelo', 'Cento'],
-            s: ['Ferrer', 'Peris', 'Climent', 'Llopis', 'Gisbert', 'Martí', 'Bataller', 'Fuster', 'Escrivà', 'Sanchis',
-                'Alemany', 'Monzó', 'Ballester', 'Mompó', 'Tormo', 'Boix', 'Cervera', 'Ribes', 'Sendra', 'Gil']
+            // Els cognoms catalans més estesos del País Valencià.
+            s: ['Ferrer', 'Martí', 'Sanchis', 'Soler', 'Llopis', 'Vidal', 'Climent', 'Peris', 'Ribes', 'Mas', 'Puig',
+                'Esteve', 'Domènech', 'Gisbert', 'Monzó', 'Ballester', 'Fuster', 'Tormo', 'Boix', 'Mompó', 'Sendra',
+                'Escrivà', 'Alemany', 'Bataller', 'Segarra', 'Carbonell', 'Castelló', 'Miralles', 'Vives', 'Simó',
+                'Moltó', 'Mira', 'Cervera', 'Pla', 'Gil']
         },
+        // Illes Balears: cada illa amb els seus cognoms (vegeu placeCulture).
+        // bal és Mallorca, i també la cultura del territori.
         bal: {
             f: ['Aina', 'Joana', 'Margalida', 'Catalina', 'Francina', 'Antònia', 'Maria', 'Bel', 'Xisca', 'Apol·lònia'],
             m: ['Biel', 'Tomeu', 'Xisco', 'Toni', 'Pep', 'Miquel', 'Jaume', 'Llorenç', 'Guillem', 'Joan'],
-            s: ['Bauzà', 'Oliver', 'Pons', 'Florit', 'Moll', 'Sastre', 'Mascaró', 'Vich', 'Riera', 'Bestard',
-                'Alzamora', 'Ramis', 'Coll', 'Mir', 'Fiol', 'Gelabert', 'Amengual', 'Febrer', 'Seguí', 'Vives']
+            s: ['Pons', 'Ferrer', 'Vidal', 'Coll', 'Riera', 'Oliver', 'Serra', 'Roig', 'Mas', 'Ramis', 'Bauzà',
+                'Sastre', 'Mir', 'Salvà', 'Vives', 'Amengual', 'Barceló', 'Bonet', 'Florit', 'Mascaró', 'Vich',
+                'Bestard', 'Alzamora', 'Fiol', 'Gelabert', 'Colom', 'Pou', 'Rosselló', 'Garau', 'Perelló', 'Socias',
+                'Nadal', 'Rigo', 'Mulet', 'Bover', 'Crespí', 'Ginard', 'Sureda', 'Vicens', 'Arbona']
+        },
+        menorca: {
+            f: ['Margalida', 'Joana', 'Catalina', 'Maria', 'Antònia', 'Francesca', 'Bel', 'Rosa'],
+            m: ['Biel', 'Tomeu', 'Pep', 'Toni', 'Miquel', 'Joan', 'Llorenç', 'Jaume', 'Sebastià'],
+            s: ['Pons', 'Seguí', 'Mercadal', 'Carreras', 'Moll', 'Camps', 'Bagur', 'Coll', 'Olives', 'Mesquida',
+                'Sintes', 'Taltavull', 'Febrer', 'Orfila', 'Marquès', 'Gomila', 'Florit', 'Allès', 'Riudavets']
+        },
+        pitiuses: {
+            f: ['Maria', 'Catalina', 'Antònia', 'Margalida', 'Vicenta', 'Eulària', 'Francina', 'Neus'],
+            m: ['Vicent', 'Toni', 'Pep', 'Joan', 'Jaume', 'Xicu', 'Bartomeu', 'Miquel', 'Marià'],
+            s: ['Marí', 'Tur', 'Ribas', 'Torres', 'Costa', 'Bonet', 'Prats', 'Planells', 'Guasch', 'Ferrer', 'Riera',
+                'Serra', 'Colomar', 'Escandell', 'Roig', 'Cardona', 'Ramon', 'Noguera', 'Clapés', 'Mayans', 'Boned']
         },
         nord: {
             f: ['Céline', 'Nathalie', 'Mireille', 'Montserrat', 'Anne', 'Marie', 'Laure', 'Sandrine', 'Núria'],
             m: ['Jordi', 'Pere', 'Laurent', 'Mathieu', 'Joan', 'Sébastien', 'Thierry', 'Julien', 'Miquel'],
-            s: ['Garrigue', 'Escudier', 'Sarda', 'Bosch', 'Vidal', 'Font', 'Pagès', 'Py', 'Roig', 'Batlle', 'Casals',
-                'Delonca', 'Bassole', 'Gual', 'Parès', 'Cases']
+            // Els cognoms catalans més estesos del Rosselló, el Conflent, el
+            // Vallespir, el Capcir, l'Alta Cerdanya i la Fenolleda, en català.
+            s: ['Vidal', 'Bosch', 'Pujol', 'Font', 'Roca', 'Ribes', 'Pons', 'Sicre', 'Bonet', 'Ferrer', 'Batlle',
+                'Pagès', 'Parès', 'Garriga', 'Cases', 'Calvet', 'Comes', 'Llobet', 'Trilles', 'Planes', 'Sala', 'Prats',
+                'Serra', 'Soler', 'Massot', 'Noell', 'Codina', 'Taurinya', 'Sardà', 'Escuder', 'Gual', 'Casals']
         },
         and: {
             f: ['Meritxell', 'Sílvia', 'Laia', 'Eva', 'Núria', 'Judit', 'Ariadna', 'Rita'],
@@ -73,10 +95,20 @@
             s: ['Ricart', 'Salvador', 'Pallarès', 'Arnau', 'Farré', 'Fontanet', 'Castell', 'Monclús', 'Gràcia',
                 'Llovet', 'Calvet', 'Esteve', 'Moliné', 'Abella']
         },
+        // L'Alguer: els cognoms catalans que s'hi conserven (Pons, Canelles,
+        // Galceran...; Garau, de Guerau, i Fois, de Foix, també estesos per
+        // Sardenya). Els cognoms sards, que avui hi són la majoria, van amb la
+        // gent de la resta de Sardenya (sard, a DIVERSE).
         alguer: {
             f: ['Maria', 'Antonella', 'Giovanna', 'Caterina', 'Rita', 'Paola', 'Margalida'],
             m: ['Antoni', 'Joan', 'Gavino', 'Francesc', 'Salvatore', 'Pietro', 'Miquel'],
-            s: ['Sechi', 'Piras', 'Mura', 'Carta', 'Pinna', 'Delogu', 'Scanu', 'Manca', 'Pais', 'Fois', 'Serra', 'Bardino']
+            s: ['Pons', 'Serra', 'Canelles', 'Garau', 'Fois', 'Galceran', 'Sanjust', 'Aymerich']
+        },
+        sard: {
+            f: ['Maria', 'Antonella', 'Giovanna', 'Caterina', 'Paola', 'Francesca', 'Giulia'],
+            m: ['Gavino', 'Salvatore', 'Pietro', 'Giovanni', 'Antonio', 'Francesco', 'Mario'],
+            s: ['Piras', 'Sanna', 'Meloni', 'Manca', 'Mura', 'Carboni', 'Canu', 'Nieddu', 'Chessa', 'Solinas', 'Salis',
+                'Pinna', 'Marras', 'Sechi', 'Delogu', 'Scanu']
         },
         // ── Gent d'altres orígens que viu als territoris ──
         // (els noms castellans i de l'Amèrica hispana ja no surten a les lligues
@@ -428,8 +460,15 @@
         and: [['pt', 45], ['fr', 10]],
         nord: [['fr', 85], ['ma', 15]],
         franja: [['ro', 15]],
-        alguer: [['it', 100]]
+        alguer: [['sard', 85], ['it', 15]]
     };
+    // Illes Balears: de quina illa és un lloc (Menorca i les Pitiüses; la
+    // resta, Mallorca), per als cognoms de cada illa.
+    const MENORCA_PLACES = ['Alaior', 'Ciutadella', 'Ciutadella de Menorca', 'es Castell', 'Ferreries', 'Maó',
+        'es Mercadal', 'es Migjorn Gran', 'Sant Lluís'];
+    const PITIUSES_PLACES = ['Eivissa', 'Sant Antoni de Portmany', 'Sant Joan de Labritja', 'Sant Josep de sa Talaia',
+        'Santa Eulària des Riu', 'Formentera', 'Sant Francesc Xavier', 'Sant Ferran de ses Roques', 'el Pilar de la Mola',
+        'la Savina', 'es Pujols', 'es Caló'];
     // Cultures del castellà: no surten mai a les lligues dels Països Catalans.
     const CASTILIAN_CULTURES = ['es', 'latam'];
     // Formes castellanes que hi havia entre els noms dels territoris, i la
@@ -442,9 +481,6 @@
     // Proporció de rivals d'altres orígens als nivells de casa (municipal,
     // comarcal, provincial, territori) i als Països Catalans.
     const DIVERSITY_BY_LEVEL = [0, 0.12, 0.25, 0.4, 0.2];
-    // L'Alguer: proporció de noms italians a la Nurra, a la província de
-    // Sàsser i a Sardenya (comarcal, provincial i territori).
-    const ALGUER_ITALIAN_BY_LEVEL = [0, 0.5, 0.75, 0.85];
     // País (nom català de localitats.js) → cultura.
     const COUNTRY_CULTURE = {
         'França': 'fr', 'Itàlia': 'it', 'Alemanya': 'de', 'Països Baixos': 'nl', 'Noruega': 'no', 'Polònia': 'pl',
@@ -499,9 +535,6 @@
         return { name: name, given: given, surname: surname, culture: code };
     }
 
-    // Cultura del nom d'un rival segons el nivell (0 municipal ... 6 mundial),
-    // la localitat del jugador i l'origen del rival. options.territoryOf: ciutat
-    // dels Països Catalans → territori (localitats.js).
     // Territori d'on surt el nom d'un rival dels nivells de casa i dels Països
     // Catalans (0-4): el del jugador o, als Països Catalans i a la Lliga
     // Catalana de qui juga a la Catalunya Nord (rivals del Principat i del
@@ -515,6 +548,29 @@
         return territory;
     }
 
+    // Cultura dels noms d'un territori dels Països Catalans per a un rival d'un
+    // lloc (origin) o, si no se'n sap el lloc, del lloc del jugador: a les
+    // Illes, la de cada illa (Mallorca, Menorca o les Pitiüses).
+    function placeCulture(territory, origin, home) {
+        if (territory !== 'bal') return TERRITORY_CULTURE[territory] || 'cat';
+        const inList = function (list, place) {
+            const f = fold(place);
+            return !!f && list.some(function (p) { return fold(p) === f; });
+        };
+        const where = origin || (home && home.municipi);
+        if (inList(MENORCA_PLACES, where)) return 'menorca';
+        if (inList(PITIUSES_PLACES, where)) return 'pitiuses';
+        if (!where) {
+            const island = fold(home && home.comarca);
+            if (island === 'menorca') return 'menorca';
+            if (island === 'eivissa' || island === 'formentera') return 'pitiuses';
+        }
+        return 'bal';
+    }
+
+    // Cultura del nom d'un rival segons el nivell (0 municipal ... 6 mundial),
+    // la localitat del jugador i l'origen del rival. options.territoryOf: ciutat
+    // dels Països Catalans → territori (localitats.js).
     function cultureFor(level, home, origin, options) {
         const opts = options || {};
         const rnd = typeof opts.random === 'function' ? opts.random : Math.random;
@@ -522,10 +578,7 @@
         if (level >= 5) return countryCulture(origin) || pick(EUROPE_CULTURES, rnd);
         const territory = territoryFor(level, h, origin, opts);
         if (territory === 'fora') return countryCulture(h.pais) || pick(EUROPE_CULTURES, rnd);
-        // A l'Alguer, de la Nurra a Sardenya la majoria de rivals no són
-        // algueresos: noms italians (cada nivell, més).
-        if (territory === 'alguer' && level >= 1 && level <= 3 && rnd() < ALGUER_ITALIAN_BY_LEVEL[level]) return 'it';
-        const base = TERRITORY_CULTURE[territory] || 'cat';
+        const base = placeCulture(territory, origin, h);
         const share = DIVERSITY_BY_LEVEL[Math.max(0, Math.min(4, level))] || 0;
         const others = DIVERSE[territory];
         if (share > 0 && others && rnd() < share) {
@@ -563,7 +616,7 @@
             return name.split(' ').map(function (w) { return CATALAN_FORMS[w] || w; }).join(' ');
         }
         const rnd = typeof opts.random === 'function' ? opts.random : Math.random;
-        const code = TERRITORY_CULTURE[territory] || 'cat';
+        const code = placeCulture(territory, origin, home);
         const taken = opts.taken instanceof Set ? opts.taken : new Set();
         // Com a rivalNames: un nom que no hi sigui i, si es pot, sense repetir
         // el nom de pila ni el cognom de cap altre rival de la lliga.
@@ -623,7 +676,9 @@
     const FAMOUS = new Set([
         'Xavier Sala', 'Albert Serra', 'Ferran Soler', 'Joan Font', 'Marco Rossi', 'Thiago Silva', 'Lucas Lima',
         'Rui Costa', 'Mads Pedersen', 'Sergio García', 'Javier Fernández', 'Arjun Reddy', 'Ahmed Hassan', 'Ali Karimi',
-        'Burak Yılmaz', 'Andrii Melnyk', 'Oleksandr Moroz', 'Wang Lei'
+        'Burak Yılmaz', 'Andrii Melnyk', 'Oleksandr Moroz', 'Wang Lei', 'Vicent Ferrer', 'Ximo Puig', 'Vicent Soler',
+        'Miquel Barceló', 'Toni Nadal', 'Joan Mascaró', 'Biel Mesquida', 'Joan Pons', 'Vicent Marí', 'Vicent Serra',
+        'Toni Costa', 'Jordi Pujol', 'Joan Pujol', 'Miquel Roca', 'Pere Pons'
     ].map(fold));
 
     return {
@@ -639,6 +694,7 @@
         countryCulture: countryCulture,
         makeName: makeName,
         cultureFor: cultureFor,
+        placeCulture: placeCulture,
         rivalNames: rivalNames,
         isCastilianName: isCastilianName,
         catalanRivalName: catalanRivalName
