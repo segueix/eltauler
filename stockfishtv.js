@@ -260,13 +260,18 @@
 
     // El text de cada torn és un fragment LITERAL del comentari verificat.
     // Les dues veus no expliquen dues vegades el mateix fet, ni inventen diàleg.
+    function tvReadingText(comment) {
+        if (comment.dialogue) return comment.dialogue.map(turn => turn.text).join(' ');
+        return comment.text + (comment.maxim ? ' ' + comment.maxim.text : '');
+    }
+
     function tvDialogueTurns(comment, enabled) {
         const c = comment || {};
         const speech = String(c.speech || '').trim();
         if (!speech) return [];
         const single = (voiceId, role) => [{ text: speech, voiceId: voiceId || null, role: role || 'presenter' }];
-        if (Array.isArray(c.dialogue) && c.dialogue.length === 2) {
-            return c.dialogue.map(t => ({ text: tvSpeechText(t.text),
+        if (Array.isArray(c.dialogue) && c.dialogue.length >= 2 && c.dialogue.length <= 3) {
+            return c.dialogue.map(t => ({ text: tvSpeechText(!enabled && t.solo ? t.solo : t.text),
                 voiceId: enabled ? (t.role === 'analyst' ? TV_DUO.analyst : TV_DUO.presenter) : null,
                 role: t.role }));
         }
@@ -923,7 +928,7 @@
             best: best,
             bestUci: bestUci || (first && first.pv[0]) || null,
             pv: first ? first.pv.slice(0, 8) : [],
-            second: second ? { score: tvScoreWhite(second, turn), uci: second.pv[0] || null, depth: second.depth } : null,
+            second: second ? { score: tvScoreWhite(second, turn), uci: second.pv[0] || null, depth: second.depth, pv: second.pv.slice(0, 8) } : null,
             reliable: !!(best && depth >= TV_CONFIG.MIN_RELIABLE_DEPTH)
         };
     }
@@ -1479,6 +1484,7 @@
             materialSig: '0,0,0,0,0', endgame: false, queensOff: false, castled: { w: false, b: false },
             // Fils narratius per partida: es restauren en desfer les jugades.
             story: { threads: [], lastNarrationPly: -100 },
+            conflicts: [], lastDialoguePly: -100, lastVariantPly: -100,
             art: null // memòria de màximes, inclosa als estats per desfer
         };
     }
@@ -2653,6 +2659,266 @@
             introId: introId };
     }
 
+    // Els fils observats s'actualitzen a cada jugada. La marca saidPly
+    // indica què ha aparegut en pantalla i permet reprendre només allò narrat.
+    function tvConflictSeeds(candidates, move) {
+        return candidates.flatMap(cand => {
+            const tags = cand.tags || {};
+            const squares = tags.squares || [];
+            if (cand.kind === 'pressure' && cand.payload && cand.payload.pressure) {
+                const p = cand.payload.pressure;
+                return [{ kind: 'pressure', color: p.color, square: p.targetSq, piece: p.targetType, candidate: cand.key, weight: 4 }];
+            }
+            if (['threat', 'threat-pawn'].includes(cand.kind) && cand.payload && cand.payload.threats) {
+                return cand.payload.threats.map(t => ({ kind: 'threat', color: t.attackerColor, square: t.targetSq, piece: t.targetType,
+                    attacker: t.attackerSq, attackerType: t.attackerType, mode: t.mode, candidate: cand.key, weight: 5 }));
+            }
+            if (['passed-new', 'passed-advance'].includes(cand.kind) && squares[0])
+                return [{ kind: 'passed', color: tags.color, square: squares[0], piece: 'p', candidate: cand.key, weight: 4 }];
+            if (['open-file', 'doubled-rooks'].includes(cand.kind))
+                return [{ kind: 'file', color: move.color, square: move.to[0], candidate: cand.key, weight: 3 }];
+            if (cand.kind === 'king-pressure' && squares[0])
+                return [{ kind: 'king', color: tags.color, square: squares[0], piece: move.piece, candidate: cand.key, weight: 3 }];
+            if (cand.kind === 'center') {
+                const targets = (cand.sig || '').split(',').filter(sq => CENTER_SQUARES.includes(sq));
+                const square = targets[0] || move.to;
+                if (CENTER_SQUARES.includes(square))
+                    return [{ kind: 'center', color: move.color, square: square, candidate: cand.key, weight: 2 }];
+            }
+            return [];
+        });
+    }
+
+    function tvConflictPosition(t, H, grid, fen, ChessCtor) {
+        const rival = other(t.color);
+        const piece = gridAt(grid, t.square);
+        if (t.kind === 'passed') {
+            if (!piece || piece.c !== t.color || piece.t !== 'p' || !pawnStructure(grid, t.color).passed.has(t.square)) return null;
+            const rank = Number(t.square[1]) + (t.color === 'w' ? 1 : -1);
+            const ahead = t.square[0] + rank;
+            const blocker = gridAt(grid, ahead);
+            return { blocker: blocker && blocker.c === rival ? blocker.t : null, ahead: ahead };
+        }
+        if (t.kind === 'file') {
+            const pawns = fileCounts(grid, 'abcdefgh'.indexOf(t.square));
+            const onFile = side => piecesOf(grid, side).filter(p => p.sq[0] === t.square && ['q', 'r'].includes(p.t));
+            const own = onFile(t.color);
+            const opposing = onFile(rival);
+            if (!own.length || pawns[t.color]) return null;
+            return { own: own, opposing: opposing, pawns: pawns[rival] };
+        }
+        if (t.kind === 'center') {
+            const hits = attackersAt(H, grid, t.square, t.color).length;
+            return hits || (piece && piece.c === t.color) ? { count: hits, owner: piece && piece.c } : null;
+        }
+        if (t.kind === 'king') {
+            const king = kingSq(grid, rival);
+            if (!king || !piece || piece.t !== t.piece || piece.c !== t.color) return null;
+            const count = targetsFrom(H, grid, t.square).filter(sq => sq !== king && chebyshev(sq, king) === 1).length;
+            return count ? { count: count, king: king } : null;
+        }
+        if (!piece || piece.t !== t.piece || piece.c !== rival) return null;
+        const attacks = attackersAt(H, grid, t.square, t.color).length;
+        const defenders = attackersAt(H, grid, t.square, rival).length;
+        if (t.kind === 'pressure') return { count: attacks, defenders: defenders };
+        const attacker = gridAt(grid, t.attacker);
+        if (!attacker || attacker.t !== t.attackerType || attacker.c !== t.color) return null;
+        const canCapture = fen.split(' ')[1] === t.color
+            ? !!applyUci(ChessCtor, fen, t.attacker + t.square) || (t.attackerType === 'p' && !!applyUci(ChessCtor, fen, t.attacker + t.square + 'q'))
+            : legalCaptureExists(ChessCtor, fen, t.attacker, t.square);
+        return { count: attacks, defenders: defenders, canCapture: canCapture };
+    }
+
+    function tvConflictTransition(t, next, before, after, move) {
+        const sq = t.square;
+        const victim = t.piece ? shortOn(t.piece, sq) : '';
+        const captured = move.captured && ((move.flags || '').includes('e') ? move.to[0] + move.from[1] : move.to);
+        const event = (kind, question, answer) => ({ kind: kind, question: question, answer: answer, topic: t.id, weight: t.weight });
+        const rivalMoved = move.color !== t.color;
+        if (t.kind === 'passed') {
+            if (rivalMoved && captured === sq)
+                return event('resolved', 'Com s’ha aturat el peó passat de ' + sq + '?', 'L’han capturat. Aquest peó ja no arribarà a coronar.');
+            if (after && after.blocker && (!before.blocker || sq !== next.square))
+                return event('defence', 'Què barra el pas al peó de ' + next.square + '?', capFirst(shortOn(after.blocker, after.ahead)) + ' ocupa la casella just al davant.');
+            if (after && sq !== next.square) {
+                const left = t.color === 'w' ? 8 - Number(next.square[1]) : Number(next.square[1]) - 1;
+                return event('reinforced', 'Què li falta al peó passat per coronar?', 'Des de ' + next.square + ', ' +
+                    (left === 1 ? 'li falta una casella.' : 'li falten ' + numWord(left, true) + ' caselles.'));
+            }
+        }
+        if (t.kind === 'file' && !after && move.piece === 'p' && move.color === t.color &&
+                move.to[0] === sq && move.from[0] !== sq)
+            return event('resolved', 'Continua semioberta la columna ' + sq + '?',
+                'Ara hi ha entrat un peó de ' + COLOR[t.color].pl + '. La columna ja té un peó propi.');
+        if (t.kind === 'file' && after) {
+            if (before.pawns && !after.pawns)
+                return event('transformed', 'Què deixa aquesta ruptura a la columna ' + sq + '?',
+                    'La columna queda oberta. La peça major de ' + COLOR[t.color].pl + ' ja no hi té cap peó al davant.');
+            if (!before.opposing.length && after.opposing.length)
+                return event('defence', 'Qui disputa ara la columna ' + sq + '?', capFirst(COLOR[other(t.color)].pl) + ' hi situen ' +
+                    pieceShort(after.opposing[0].t) + ' a ' + after.opposing[0].sq + '. Ara hi ha peces majors de tots dos bàndols.');
+            if (before.own.filter(p => p.t === 'r').length < 2 && after.own.filter(p => p.t === 'r').length >= 2)
+                return event('reinforced', 'Com concentren forces a la columna ' + sq + '?', 'Les dues torres del mateix bàndol queden alineades en aquesta columna.');
+        }
+        if (t.kind === 'king') {
+            if (rivalMoved && move.piece === 'k' && move.from === before.king && (!after || after.count < before.count))
+                return event('defence', 'Què canvia per al rei el rei movent-se a ' + move.to + '?',
+                    capFirst(shortOn(t.piece, t.square)) + (after ? ' controla menys caselles del seu voltant.'
+                        : ' ja no controla cap casella al voltant del rei.'));
+        }
+        if (t.kind === 'center' && rivalMoved && move.to === sq && before.owner !== move.color)
+            return event('transformed', 'Què canvia al centre?', capFirst(COLOR[move.color].pl) + ' ocupen la casella ' + sq +
+                (after && after.count ? ', que encara controlen peces de ' + COLOR[t.color].pl + '.' : '.'));
+        if (t.kind !== 'pressure' && t.kind !== 'threat') return null;
+        if (!rivalMoved && captured === sq)
+            return event('resolved', 'Com ha acabat la pressió sobre ' + victim + '?', 'La peça que seguíem ha caigut a ' + sq + '.');
+        if (rivalMoved && move.from === sq) {
+            const stillAttacked = next.targetStillAttacked;
+            return event('resolved', 'Què passa amb l’atac sobre ' + victim + '?',
+                stillAttacked ? 'La peça canvia de casella, però continua atacada a ' + move.to + '.'
+                    : 'La peça s’aparta de la pressió. Ara cap peça rival no l’apunta a ' + move.to + '.');
+        }
+        if (t.kind === 'threat' && rivalMoved && !after && captured === t.attacker)
+            return event('resolved', 'Com han tallat l’atac sobre ' + victim + '?', 'Han capturat la peça atacant a ' + captured + '.');
+        if (t.kind === 'threat' && rivalMoved && after && !after.canCapture)
+            return event('defence', 'Continua l’amenaça sobre ' + victim + '?',
+                'La captura des de ' + t.attacker + ' ja no és possible en aquesta posició.');
+        if (t.kind === 'pressure' && after && after.count < before.count) {
+            const answer = after.count === 0 ? 'Ara cap peça rival l’apunta.'
+                : after.count === 1 ? 'Ara només l’apunta una peça.'
+                : 'Ara l’apunten ' + numWord(after.count, true) + ' peces, menys que abans.';
+            return event(after.count === 0 ? 'resolved' : 'defence', 'Queda la mateixa pressió sobre ' + victim + '?', answer);
+        }
+        if (after && rivalMoved && after.defenders > before.defenders)
+            return event('defence', 'Com responen a la pressió sobre ' + victim + '?', 'Ara ' + piecePronoun(t.piece) + ' defensen ' + numWord(after.defenders, true) + ' peces. ' +
+                (before.defenders === 0 ? 'Abans no en tenia cap.' : 'Abans en tenia ' + numWord(before.defenders, true) + '.'));
+        if (after && !rivalMoved && after.count > before.count)
+            return event('reinforced', 'D’on ve la pressió sobre ' + victim + '?', 'Ara l’apunten ' +
+                numWord(after.count, true) + ' peces. Abans l’apuntaven ' + numWord(before.count, true) + '.');
+        return null;
+    }
+
+    function tvTrackConflicts(c, chosen, memory, candidates) {
+        const H = boardHelpers();
+        if (!H || !c.ChessCtor || !c.fenAfter || !c.move || !Number.isInteger(c.ply)) return null;
+        const move = c.move;
+        const grid = H.parse(c.fenAfter).grid;
+        const observe = thread => tvConflictPosition(thread, H, grid, c.fenAfter, c.ChessCtor);
+        const events = [];
+        const active = [];
+        for (const t of memory.conflicts || []) {
+            if (c.ply - t.changedPly > 20) continue;
+            const pieceMoved = t.piece && move.from === t.square && (['passed', 'king'].includes(t.kind) ? move.color === t.color : false);
+            const next = { ...t, priorSaidPly: t.saidPly, square: pieceMoved ? move.to : t.square };
+            const after = observe(next);
+            if ((t.kind === 'pressure' || t.kind === 'threat') && move.color !== t.color && move.from === t.square)
+                next.targetStillAttacked = attackersAt(H, grid, move.to, t.color).length > 0;
+            const change = tvConflictTransition(t, next, t.fact, after, move);
+            if (change && Number.isInteger(t.saidPly) && c.ply - t.saidPly <= 16 &&
+                    (t.lastEvent !== change.kind || c.ply - t.lastEventPly >= 8)) events.push(change);
+            if (!after || (next.kind === 'pressure' && after.count < 2) ||
+                    (next.kind === 'threat' && (!after.canCapture || (next.mode === 'loose' && after.defenders)))) continue;
+            if (JSON.stringify(after) !== JSON.stringify(t.fact) || next.square !== t.square) next.changedPly = c.ply;
+            active.push({ ...next, fact: after });
+        }
+        const said = thread => chosen && (chosen.key === thread.candidate ||
+            (chosen.secondary && chosen.secondary.key === thread.candidate));
+        for (const seed of tvConflictSeeds(candidates, move)) {
+            const match = active.find(t => t.kind === seed.kind && t.color === seed.color && t.square === seed.square &&
+                t.attacker === seed.attacker);
+            if (match) {
+                if (said(seed)) match.saidPly = c.ply;
+                continue;
+            }
+            const fact = observe(seed);
+            if (!fact || (seed.kind === 'pressure' && fact.count < 2) ||
+                    (seed.kind === 'threat' && (!fact.canCapture || (seed.mode === 'loose' && fact.defenders)))) continue;
+            const id = [seed.kind, seed.color, seed.square, seed.attacker || '', c.ply].join(':');
+            active.push({ ...seed, id: id, fact: fact, changedPly: c.ply, priorSaidPly: null, saidPly: said(seed) ? c.ply : null });
+        }
+        // Primer el fil explicat i actual. Un segon fil permet seguir el
+        // contrajoc encara que l'altre no s'hagi comentat en aquesta posició.
+        active.sort((a, b) => (b.weight + (b.saidPly !== null ? 2 : 0)) - (a.weight + (a.saidPly !== null ? 2 : 0)) ||
+            b.changedPly - a.changedPly);
+        memory.conflicts = active.slice(0, 2);
+        events.sort((a, b) => (b.kind === 'resolved') - (a.kind === 'resolved') || b.weight - a.weight);
+        return events[0] || null;
+    }
+
+    function tvCompareVariants(c) {
+        const a = c.before;
+        const b = a && a.second;
+        const m = c.move;
+        if (!a || !a.reliable || a.fen !== c.fenBefore || !b || b.depth !== a.depth ||
+                !a.best || a.best.type !== 'cp' || !b.score || b.score.type !== 'cp' ||
+                !isNum(a.best.value) || !isNum(b.score.value) || !Array.isArray(a.pv) || !Array.isArray(b.pv)) return null;
+        const first = a.pv[0], second = b.pv[0];
+        const played = m.from + m.to + (m.promotion || '');
+        if (!first || !second || first === second || a.bestUci !== first || b.uci !== second ||
+                (played !== first && played !== second)) return null;
+        const gap = (a.best.value - b.score.value) * (m.color === 'w' ? 1 : -1);
+        if (gap < 75) return null;
+        const walk = line => {
+            // Comprova l'arrencada i la resposta que es pot arribar a narrar.
+            const start = applyUci(c.ChessCtor, c.fenBefore, line[0]);
+            const reply = start && applyUci(c.ChessCtor, start.fen, line[1]);
+            return start && reply ? { start: start, reply: reply } : null;
+        };
+        const bestLine = walk(a.pv), otherLine = walk(b.pv);
+        if (!bestLine || !otherLine) return null;
+        function action(fen, uci, move) {
+            if (move.piece === 'p' && !move.captured && !move.promotion && !/[+#]$/.test(move.san))
+                return 'jugar el peó a ' + move.to;
+            return moveAction(c.ChessCtor, fen, uci);
+        }
+        const favoured = action(c.fenBefore, first, bestLine.start.move);
+        const alternative = action(c.fenBefore, second, otherLine.start.move);
+        if (!favoured || !alternative) return null;
+        const reply = otherLine.reply.move;
+        const counter = action(otherLine.start.fen, b.pv[1], reply);
+        if (!counter) return null;
+        const recapture = otherLine.start.move.captured && reply.captured && otherLine.start.move.to === reply.to;
+        const consequence = recapture ? 'El rival hi recapturaria a ' + reply.to + '.'
+            : 'La línia continua amb l’opció de ' + counter + ' per al rival.';
+        return { kind: 'variant', topic: 'variant:' + m.color,
+            question: played === first ? 'I l’opció de ' + alternative + '?' : 'Quina alternativa veu Stockfish?',
+            answer: played === first ? consequence + ' Stockfish prefereix la jugada feta.'
+                : 'Stockfish prefereix ' + favoured + '. ' + consequence };
+    }
+
+    function tvAddDialogue(c, chosen, memory, event, urgent) {
+        if (!chosen || !c.move || c.prepared || c.end || !Number.isInteger(c.ply) ||
+                c.move.promotion || /[+#]$/.test(c.move.san || '') ||
+                (urgent && chosen.kind !== 'reply')) return chosen;
+        const last = memory.lastDialoguePly ?? -100;
+        const squares = chosen.tags && chosen.tags.squares || [];
+        const conflict = event && (!urgent || squares.includes(event.topic.split(':')[2]));
+        let exchange = conflict && c.ply - last >= 4 ? event : null;
+        if (!exchange && !urgent && c.ply - last >= 8 && c.ply >= 8 && c.ply - (memory.lastVariantPly ?? -100) >= 16)
+            exchange = tvCompareVariants(c);
+        if (!exchange) return chosen;
+        const variants = describeMove(c.move, false).variants;
+        const move = exchange.kind === 'variant' ? variants.reduce((shorter, text) => text.length < shorter.length ? text : shorter) : variants[0];
+        const analystFirst = exchange.kind === 'reinforced' && c.ply % 2 === 1;
+        const dialogue = analystFirst
+            ? [{ role: 'analyst', text: exchange.answer }, { role: 'presenter', text: move }]
+            : [{ role: 'presenter', text: move + ' ' + exchange.question, solo: exchange.kind === 'variant' ? null : move },
+                { role: 'analyst', text: exchange.answer }];
+        if (dialogue.map(t => t.text).join(' ').split(/\s+/).length > 45) return chosen;
+        memory.lastDialoguePly = c.ply;
+        if (exchange.kind === 'variant') memory.lastVariantPly = c.ply;
+        const thread = (memory.conflicts || []).find(t => t.id === exchange.topic);
+        for (const active of memory.conflicts || []) {
+            if (active !== thread && active.saidPly === c.ply) active.saidPly = active.priorSaidPly;
+        }
+        if (thread) {
+            thread.saidPly = c.ply;
+            thread.lastEvent = exchange.kind;
+            thread.lastEventPly = c.ply;
+        }
+        return { ...chosen, dialogue: dialogue, dialogueEvent: exchange.kind };
+    }
+
     // Un pas complet de la retransmissió: candidats, selecció, resum
     // periòdic i memòria nova. El fan servir el controlador i les proves, de
     // manera que la cobertura que es mesura és la que veu l'espectador.
@@ -2674,7 +2940,9 @@
         }
         let chosen = tvSelectComment(candidates, memory, { ply: c.ply, color: c.move && c.move.color, tier: c.tier, prepared: c.prepared,
             isCheck: !!(c.move && /\+$/.test(c.move.san) && !c.end), quality: c.quality });
-        const urgent = chosen && KIND_PRIORITY[chosen.kind] >= 70;
+        const selected = chosen && candidates.find(cand => cand.key === chosen.key && cand.kind === chosen.kind);
+        const urgent = chosen && (chosen.kind === 'only-move' || KIND_PRIORITY[chosen.kind] >= 70 ||
+            (selected && selected.priority >= 70));
         const mvq = c.move || {};
         const quiet = !mvq.captured && !/[+#]/.test(mvq.san || '') && !mvq.promotion && (mvq.flags || '').indexOf('k') === -1 && (mvq.flags || '').indexOf('q') === -1;
         if (!urgent && quiet && !c.prepared && !c.end && isNum(c.ply) && c.ply - memory.lastSummaryPly >= TV_CONFIG.SUMMARY_EVERY_PLIES) {
@@ -2682,38 +2950,21 @@
             const summary = tvStrategicSummary(c, memory);
             if (summary) chosen = summary;
         }
+        const event = tvTrackConflicts(c, chosen, memory, candidates);
+        chosen = tvAddDialogue(c, chosen, memory, event, urgent);
         // Enllacem les explicacions amb temes COMENTATS abans. El mòdul
         // narratiu no interpreta el tauler: només reutilitza motius validats
         // i captures verificables. Si no carrega, el comentari no canvia.
         if (c.narrative && typeof c.narrative.apply === 'function') {
             try {
-                const connected = c.narrative.apply(memory.story, chosen, {
+                const connected = c.narrative.apply(memory.story, chosen && !chosen.dialogue ? chosen : null, {
                     ply: c.ply, move: c.move, candidates: candidates
                 });
                 if (connected && connected.story) {
                     memory.story = connected.story;
-                    chosen = connected.comment;
+                    if (!chosen || !chosen.dialogue) chosen = connected.comment;
                 }
             } catch (err) { /* reserva: comentari original i memòria intacta */ }
-        }
-        // Preguntes només per a fets que el selector ja ha certificat. La
-        // resposta és el comentari factual, no una inferència nova del motor.
-        const questions = {
-            'passed-new': 'Què ha canviat en l’estructura de peons?',
-            'passed-advance': 'Què passa amb el peó passat?',
-            'open-file': 'Què ha canviat en aquesta columna?',
-            'doubled-rooks': 'Com estan disposades les torres?',
-            'king-pressure': 'Quina peça apunta cap al rei?',
-            'pressure': 'On se centra la pressió?'
-        };
-        if (chosen && questions[chosen.kind] && !chosen.narrative && !c.prepared && !c.end
-                && Number.isInteger(c.ply) && c.ply % 8 === 0
-                && chosen.text.trim().split(/\s+/).length <= 30) {
-            const question = questions[chosen.kind];
-            chosen = Object.assign({}, chosen, { dialogue: [
-                { role: 'presenter', text: question },
-                { role: 'analyst', text: chosen.text }
-            ] });
         }
         const artStep = chosen && chosen.dialogue ? { comment: chosen, memory: memory } : tvArtStep(c, chosen, memory, candidates);
         chosen = artStep.comment;
@@ -2753,6 +3004,8 @@
                 key: step.comment ? step.comment.key : null, payload: step.comment ? step.comment.payload : null,
                 narrative: step.comment ? (step.comment.narrative || null) : null,
                 speech: step.comment ? tvSpeechText(step.comment.text) : null,
+                dialogue: step.comment ? step.comment.dialogue || null : null,
+                dialogueEvent: step.comment ? step.comment.dialogueEvent || null : null,
                 maxim: step.comment && step.comment.maxim ? step.comment.maxim : null,
                 candidates: step.candidates.map(x => x.kind) });
             prevMove = mv;
@@ -3458,7 +3711,7 @@
             if (!d.voice || !d.voice.isOn() || d.voice.status() === 'no-voice' || d.voice.status() === 'unsupported') return null;
             const started = now(), direction = tvSpeechDirection(comment);
             const turns = spokenTurns(comment);
-            // Com a màxim dos fragments per comentari. L'estat de partida
+            // L'estat de partida
             // s'examina ENTRE fragments per no parlar després d'aturar la TV.
             return (async () => {
                 let spoken = false, voiceDown = false, failedTurn = -1;
@@ -3689,8 +3942,7 @@
             if (!entry) return;
             const shownAt = now();
             let delay = tvMoveDelayMs(prefs.speed, { tier: g.tier, prepared: !!prepared, random: random(), decided: !!plan.decided });
-            if (g.comment) delay = Math.max(delay, tvReadingTimeMs(g.comment.text +
-                (g.comment.maxim ? ' ' + g.comment.maxim.text : ''), g.tier));
+            if (g.comment) delay = Math.max(delay, tvReadingTimeMs(tvReadingText(g.comment), g.tier));
             S.nextRevealAt = shownAt + delay;
             notify('move', { gameId: g.id, move: entry, comment: g.comment });
             if (g.comment) notify('comment', g.comment);
@@ -3725,6 +3977,7 @@
                 explanatory: !!chosen.explanatory, extended: !!chosen.extended, byUser: entry.byUser,
                 narrative: chosen.narrative || null,
                 dialogue: chosen.dialogue || null,
+                dialogueEvent: chosen.dialogueEvent || null,
                 maxim: chosen.maxim || null };
             g.comments.push({ ply: entry.ply, kind: chosen.kind, text: chosen.text, color: entry.color, key: chosen.key, sig: chosen.sig });
             entry.comment = chosen.text;
@@ -3753,8 +4006,7 @@
             let delay = TV_CONFIG.CONTROL_REPLY_DELAY_MS;
             if (step.comment) {
                 attachComment(g, entry, step.comment);
-                delay = clamp(tvReadingTimeMs(g.comment.text +
-                    (g.comment.maxim ? ' ' + g.comment.maxim.text : ''), g.tier),
+                delay = clamp(tvReadingTimeMs(tvReadingText(g.comment), g.tier),
                     delay, TV_CONFIG.CONTROL_REPLY_MAX_MS);
                 notify('comment', g.comment);
             }
@@ -4850,9 +5102,10 @@
         el.textContent = valid ? c.text : '';
         if (valid && Array.isArray(c.dialogue)) {
             el.textContent = '';
+            const duet = tvNormalizePrefs(loadPrefsRaw()).duo;
             c.dialogue.forEach(turn => {
                 const line = document.createElement('div');
-                line.textContent = (turn.role === 'analyst' ? 'Grau: ' : 'Elia: ') + turn.text;
+                    line.textContent = duet ? (turn.role === 'analyst' ? 'Grau: ' : 'Elia: ') + turn.text : (turn.solo || turn.text);
                 el.appendChild(line);
             });
         }

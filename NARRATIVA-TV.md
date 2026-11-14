@@ -77,6 +77,17 @@ La interfície mostra un discret resum de **fils comentats**; no els presenta co
 - Veu: si «Veu i ràdio» del tauler té la veu activada, les màximes es llegeixen en veu alta en sortir (`ElTaulerBoardExperience.say`), amb la mateixa veu que comenta les jugades. Només es llegeixen les frases.
 - Sense ritme de retransmissió: un rellotge sintètic salta la separació mínima de la TV, però la memòria de cada llibre i un historial dels 8 últims textos (clau local `tauler_maximes_exercici_v1`, no sincronitzada) eviten repeticions. Amb les partides de prova: tots els passos tenen màxima, unes 330 de les 408 frases diferents i cap text repetit abans de 8 màximes (a la pràctica, unes 70).
 
-## Diàlegs sobre fets verificats
+## Diàlegs i seguiment del conflicte
 
-En algunes jugades tranquil·les seleccionades, Elia pregunta per un motiu concret (peó passat, columna, torres o pressió) i Grau llegeix el comentari factual ja seleccionat. Els torns viatgen amb el comentari associat a la posició i fan servir el mateix mecanisme de cancel·lació i preparació de veu de la TV. No s'afegeix cap màxima al mateix comentari. Amb una sola veu es conserven tots dos torns. Aquesta primera ampliació no afegeix anàlisi de variants ni un seguiment independent de plans.
+La TV revalida fins a dos fils per jugada, fins i tot quan no hi ha comentari. Segueix peces sota pressió, amenaces amb una captura legal, peons passats, columnes, caselles centrals i la seguretat del rei. L'estat guarda què s'ha observat i què ja ha aparegut a la retransmissió. Un fil caduca quan deixa de complir les condicions o fa massa que no canvia.
+
+Un diàleg pot explicar el reforç d'una defensa, una amenaça neutralitzada, un peó bloquejat o l'obertura d'una columna. Elia sol presentar la jugada i formular la pregunta. Grau explica la conseqüència amb peces, caselles o línies concretes. Els torns de text i veu es preparen junts i comparteixen el límit de 45 paraules. Els escacs, els mats i les urgències tenen prioritat. La resposta directa a un atac es pot explicar en format de diàleg si conserva la mateixa incidència.
+
+Per exemple, en una seqüència de prova en què el cavall negre arriba a f6 i reforça el peó de d5:
+
+- Elia pregunta «Com responen a la pressió sobre el peó de d5?».
+- Grau respon «Ara el defensen dues peces. Abans en tenia una.».
+
+La comparació d'alternatives reutilitza les dues variants de l'anàlisi de Stockfish que ja es calcula. Cal que surtin de la mateixa posició i profunditat, que la jugada feta sigui una de les dues primeres opcions, que hi hagi una diferència clara de valoració i que es puguin jugar legalment la jugada i la resposta de totes dues línies. Grau explica la resposta prevista com una variant. Si falten dades, es comenta el que es veu al tauler.
+
+Els diàlegs alternen amb les intervencions individuals i les màximes. Amb el duet desactivat, la mateixa veu llegeix la narració i l'explicació. El controlador restaura la memòria en desfer jugades i talla els torns pendents en deixar la posició.
