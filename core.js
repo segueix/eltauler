@@ -4561,9 +4561,20 @@
     // 40 per nivell), repartit entre els tres grups.
     const LEAGUE_GROUP_IDS = ['C', 'B', 'A'];
     const LEAGUE_TIER_COUNT = LEAGUE_LEVELS.length * LEAGUE_GROUP_IDS.length;
-    const LEAGUE_START_TIER = 0;
+    // On comença l'escalada, com a mínim: la lliga del territori (Catalana,
+    // Valenciana, Balear...), Grup C. Les de sota (municipal, comarcal i
+    // provincial) hi són per a qui baixa, no per començar-hi.
+    const LEAGUE_START_TIER = 3 * LEAGUE_GROUP_IDS.length;
     function leagueTier(tier) {
         return Number.isFinite(tier) ? Math.max(0, Math.min(LEAGUE_TIER_COUNT - 1, Math.round(tier))) : LEAGUE_START_TIER;
+    }
+    // Graó on es juga tenint en compte el mínim: qui no ha jugat mai a la lliga
+    // del territori (el millor graó, per sota) hi puja, també les trajectòries
+    // d'abans; qui hi ha jugat i en baixa, baixa.
+    function leagueFloorTier(tier, bestTier) {
+        const t = leagueTier(tier);
+        const best = Number.isFinite(bestTier) ? bestTier : 0;
+        return best < LEAGUE_START_TIER ? Math.max(t, LEAGUE_START_TIER) : t;
     }
     // Nivell (0 municipal ... 6 mundial) i grup (C, B o A) d'un graó.
     function leagueTierLevel(tier) {
@@ -10652,6 +10663,7 @@
         LEAGUE_GROUP_IDS,
         LEAGUE_TIER_COUNT,
         LEAGUE_START_TIER,
+        leagueFloorTier,
         leagueTier,
         leagueTierLevel,
         leagueTierGroup,

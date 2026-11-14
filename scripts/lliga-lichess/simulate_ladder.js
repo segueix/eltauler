@@ -50,18 +50,20 @@ for (let t = 0; t < TIERS; t++) {
     console.log(`  ${name.padEnd(22)} ${String(Core.leagueTierShift(t)).padStart(5)}    ${pc(a[0])}    ${pc(a[1])}      ${pc(b[0])}       ${pc(b[1])}`);
 }
 
-// Carreres: CAREERS jugadors, SEASONS temporades cadascun, començant al
-// municipal. Temporades fins a arribar a cada nivell (mitjana dels qui hi
-// arriben, i quants hi arriben) i on es passa el temps.
+// Carreres: CAREERS jugadors, SEASONS temporades cadascun, començant on es
+// comença (LEAGUE_START_TIER: la lliga del territori, C). Temporades fins a
+// arribar a cada nivell (mitjana dels qui hi arriben, i quants hi arriben; als
+// de sota, quants hi baixen) i on es passa el temps.
 const CAREERS = Math.max(200, Math.round(N / 20));
 const SEASONS = 60;
-console.log(`\nCarreres: ${CAREERS} jugadors, ${SEASONS} temporades cadascun, des de Municipal C`);
+const START = Core.LEAGUE_START_TIER, START_LEVEL = Core.leagueTierLevel(START);
+console.log(`\nCarreres: ${CAREERS} jugadors, ${SEASONS} temporades cadascun, des de ${Core.leagueLevel(START_LEVEL).label} ${Core.leagueTierGroup(START)}`);
 for (const perf of [0, 50, 100]) {
     const reach = Array(LEVELS).fill(0), reachSum = Array(LEVELS).fill(0), time = Array(LEVELS).fill(0);
     for (let c = 0; c < CAREERS; c++) {
-        let t = 0;
+        let t = START;
         const seen = Array(LEVELS).fill(false);
-        seen[0] = true; reach[0]++;
+        seen[START_LEVEL] = true; reach[START_LEVEL]++;
         for (let s = 1; s <= SEASONS; s++) {
             time[Core.leagueTierLevel(t)]++;
             t = Core.leagueNextTier(t, season(t, perf), 10);
@@ -72,7 +74,8 @@ for (const perf of [0, 50, 100]) {
     console.log(`\n  rendiment ${perf >= 0 ? '+' : ''}${perf}:`);
     for (let lv = 0; lv < LEVELS; lv++) {
         const r = reach[lv] / CAREERS;
-        const when = lv === 0 ? '—' : (reach[lv] ? (reachSum[lv] / reach[lv]).toFixed(1) : '—');
-        console.log(`    ${Core.leagueLevel(lv).label.padEnd(17)} hi arriba ${pc(r)} · a la temporada ${String(when).padStart(5)} · temps ${pc(time[lv] / (CAREERS * SEASONS))}`);
+        const when = lv === START_LEVEL ? '—' : (reach[lv] ? (reachSum[lv] / reach[lv]).toFixed(1) : '—');
+        const verb = lv < START_LEVEL ? 'hi baixa ' : 'hi arriba';
+        console.log(`    ${Core.leagueLevel(lv).label.padEnd(17)} ${verb} ${pc(r)} · a la temporada ${String(when).padStart(5)} · temps ${pc(time[lv] / (CAREERS * SEASONS))}`);
     }
 }
