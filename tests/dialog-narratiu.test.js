@@ -50,6 +50,40 @@ test('Stockfish només compara dues variants legals de la mateixa posició i pro
     expect(row.dialogueEvent).toBe('variant');
     expect(row.dialogue[0].text).toContain('c4');
     expect(row.dialogue[1].text).toContain('d5');
-    expect(simulate({ depth: 13 }).dialogueEvent).toBeNull();
-    expect(simulate({ pv: ['c2c4', 'h7h6'] }).dialogueEvent).toBeNull();
+    expect(simulate({ depth: 13 }).dialogueEvent).not.toBe('variant');
+    expect(simulate({ pv: ['c2c4', 'h7h6'] }).dialogueEvent).not.toBe('variant');
+});
+
+
+test.each([
+    ['p', 'el peó blanc'], ['n', 'el cavall blanc'], ['b', "l'alfil blanc"],
+    ['r', 'la torre blanca'], ['q', 'la dama blanca'], ['k', 'el rei blanc']
+])('les deu preguntes anomenen la peça real (%s) i la casella de destí', (piece, label) => {
+    const move = { piece, color: 'w', to: 'd4', flags: 'n' };
+    const questions = Array.from({ length: 10 }, (_, index) => TV.tvMoveQuestion(move, index));
+    expect(new Set(questions).size).toBe(10);
+    for (const question of questions) {
+        expect(question.toLowerCase()).toContain(label);
+        expect(question).toContain('d4');
+        expect(question.endsWith('?')).toBe(true);
+    }
+});
+
+test('l’Èlia obre amb una pregunta sobre el moviment i en Grau explica el fet del tauler', () => {
+    const [row] = TV.tvSimulateCommentary(Chess, { moves: ['e2e4'], prepared: 1 });
+    expect(row.dialogueEvent).toBe('move');
+    const [presenter, analyst] = TV.tvDialogueTurns(row, true);
+    expect(presenter.voiceId).toBe('matxa:central:elia');
+    expect(presenter.text).toMatch(/peó blanc.*e 4.*\?/);
+    expect(analyst.voiceId).toBe('matxa:central:grau');
+    expect(analyst.text).toContain('centre');
+    expect(row.maxim).toBeNull();
+});
+
+test('un rei que es limita a canviar de lloc no provoca una pregunta sense resposta', () => {
+    const [row] = TV.tvSimulateCommentary(Chess, {
+        startFen: '6rk/8/8/8/8/8/6R1/K7 w - - 0 1', moves: ['a1a2']
+    });
+    expect(row.kind).toBe('describe');
+    expect(row.dialogue).toBeNull();
 });

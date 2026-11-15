@@ -1239,7 +1239,10 @@ describe('bucle de Stockfish TV', () => {
         expect(st.game.comment.text).not.toContain('Obertura Espanyola');
         expect(st.game.comment.text).not.toContain('Pressiona el cavall');
         expect(st.game.comment.text).not.toMatch(/\be4\b|\be5\b|\bNf3\b/);
-        await jest.advanceTimersByTimeAsync(30000 + 5 * C.MOVE_PREVIEW_MS);
+        // Les preguntes de l'obertura poden afegir temps de lectura.
+        for (let i = 0; i < 60 && ctl.state().game.moves.length < 5; i++) {
+            await jest.advanceTimersByTimeAsync(1000);
+        }
         const g = ctl.state().game;
         expect(g.moves.slice(0, 5).map(m => m.san)).toEqual(['e4', 'e5', 'Nf3', 'Nc6', 'Bb5']);
         expect(g.moves.slice(0, 5).every(m => m.prepared)).toBe(true);
@@ -1674,7 +1677,7 @@ describe('Integració de la retransmissió a dues veus', () => {
     test('la interfície ofereix un control per al duet Elia/Grau amb estat persistent', () => {
         const html=require('fs').readFileSync(require('path').join(__dirname,'../index.html'),'utf8');
         expect(html).toContain('id="sftv-duo"');
-        expect(html).toContain('Elia (narradora) i Grau (analista)');
+        expect(html).toContain('Dues veus Matxa: l’Èlia pregunta i en Grau explica');
         const js=require('fs').readFileSync(require.resolve('../stockfishtv'),'utf8');
         expect(js).toContain("on('sftv-duo', 'change'");
         expect(js).toContain('controller.setDuo(ev.target.checked)');
