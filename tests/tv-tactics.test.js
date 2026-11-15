@@ -37,6 +37,21 @@ describe('motius tàctics en la retransmissió', () => {
         expect(s.memory.tactics[0].front).toBe('c6');
     });
 
+    test.each([
+        ['p', false], ['q', false], ['n', true], ['r', true], ['b', true]
+    ])('la TV filtra la clavada segons la peça interposada (%s)', (piece, narrated) => {
+        const fen = '4k3/4' + piece + '3/8/8/8/8/8/R5K1 w - - 0 1';
+        const chess = new Chess(fen);
+        const move = chess.move('Re1');
+        const ctx = { ChessCtor: Chess, fenBefore: fen, fenAfter: chess.fen(), move, ply: 0 };
+        const patterns = require('../patrons');
+        const result = TV.tvBroadcastStep({ ...ctx, patterns, expression: require('../expressivitat') });
+        expect(result.candidates.some(c => c.kind === 'pin')).toBe(narrated);
+        expect(result.candidates.some(c => c.payload?.patternId === 'pin')).toBe(narrated);
+        expect(patterns.detect(ctx).some(hit => hit.id === 'pin')).toBe(true);
+        if (!narrated) expect(result.comment.text).not.toMatch(/clava/i);
+    });
+
     test('clavada relativa: no afirma que moure la peça sigui il·legal', () => {
         const pin = candidate(RELATIVE_PIN, 'Bb5', 'pin');
         expect(pin.text).toMatch(/cavall.*dama/);

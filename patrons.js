@@ -172,7 +172,7 @@
         return pieces(s,color,type).filter(p=> !wing||(wing==='rei'?FILE(p.sq)>=4:FILE(p.sq)<=3)).length;
     }
     function only(s,types) {return s.pieces.every(p => p.type==='k'||p.type==='p'||types.includes(p.type));}
-    function detect(ctx) {
+    function detect(ctx, options) {
         const c=ctx||{}, Chess=c.ChessCtor;
         if (typeof Chess!=='function'||typeof c.fenBefore!=='string'||typeof c.fenAfter!=='string'||!c.move)return [];
         try {
@@ -214,6 +214,8 @@
                 [x.id,x.slider,x.front,x.rear].join(':')));
             for(const x of xray(after,color)) {
                 if(priorRays.has([x.id,x.slider,x.front,x.rear].join(':'))) continue;
+                // El filtre és de la TV. Els exercicis continuen descrivint totes les clavades.
+                if(x.id==='pin'&&options?.tv&&!['n','r','b'].includes(after.at[x.front].type)) continue;
                 const evidence={attacker:x.slider,front:x.front,rear:x.rear,absolute:x.absolute};
                 if(x.id==='pin') add('pin',evidence,
                     x.absolute
@@ -387,7 +389,7 @@
     }
 
     function candidates(ctx) {
-        return detect(ctx).filter(hit=>!['mate','check','promotion','castling','fork','doubleAttack'].includes(hit.id))
+        return detect(ctx,{tv:true}).filter(hit=>!['mate','check','promotion','castling','fork','doubleAttack'].includes(hit.id))
             .slice(0,3).map(hit=>({
                 kind:'pattern',priority:hit.id==='passedPawn'?57:hit.id==='safeCapture'?39:43,
                 text:hit.text,variants:[hit.text],family:'patron:'+hit.id,

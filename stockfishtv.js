@@ -1421,7 +1421,7 @@
         return Core.antidotePinsAndSkewers(grid, color).filter(t => {
             const front = gridAt(grid, t.front), back = gridAt(grid, t.back);
             // Dues peces del mateix valor alineades no són una clavada.
-            if (t.kind === 'pin' && PIECE_VALUE[back.t] <= PIECE_VALUE[front.t]) return false;
+            if (t.kind === 'pin' && (!['n', 'r', 'b'].includes(front.t) || PIECE_VALUE[back.t] <= PIECE_VALUE[front.t])) return false;
             if (t.kind === 'skewer' && PIECE_VALUE[back.t] < 3) return false;
             return geometryOnly || front.t === 'k' || tacticalCapture(ChessCtor, fen, color, t.from, t.front);
         });
