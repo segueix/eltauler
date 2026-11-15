@@ -212,7 +212,7 @@ Catalans també hi ha llista de municipis (el País Valencià, la Catalunya Nord
 la Franja, les Balears, Andorra i l'Alguer), i si el municipi no hi és,
 s'escriu i la comarca (o l'illa) es tria d'una llista que dona la província.
 Fora dels Països Catalans tot s'escriu, i també el país. La finestra ensenya
-les set lligues que tocaran, amb «← hi comences» a la del territori (o «← hi
+les set lligues que tocaran, amb «← hi comences» a la local (o «← hi
 jugues» on es juga ara, si ja s'han fet temporades). Amb «Ara no» no torna a sortir en una setmana; el
 botó de la localitat de la capçalera la torna a obrir. La localitat es desa a la
 trajectòria (`chess_leagueCareer.home`) i se sincronitza; si la lliga encara
@@ -251,18 +251,10 @@ Divisió B»). Cada nivell té tres divisions, **Divisió C, Divisió B i Divisi
 (abans, «Grup C, B i A»): els noms desats d'abans s'actualitzen en llegir-los
 (`leagueRenameGroup`).
 
-**On es comença: com a mínim, a la lliga del territori.** Les trajectòries
-noves comencen a la Lliga Catalana C (o la Valenciana, la Balear, l'Andorrana,
-la de la Franja o la de Sardenya: graó 9,
-`LEAGUE_START_TIER`), amb la graella a −12. Abans es començava a la Lliga Local
-C i, jugant al nivell de la puntuació, s'arribava a la Lliga Catalana cap a la
-temporada 32. La provincial, la comarcal i la local hi són per a qui baixa:
-un cop s'ha jugat a la lliga del territori, l'escala mana i es pot baixar. Les
-trajectòries d'abans que no hi havien arribat mai (el millor graó, `bestTier`,
-per sota del 9) hi pugen (`leagueFloorTier`, a `loadLeagueCareer`); una
-temporada d'abans que es jugui per sota acaba pujant-hi
-(`finalizeLeagueSeason`). El millor graó desat continua essent el que s'ha
-jugat de debò, i els graons de sota no es pinten mai com a fets a l'escalada.
+**On es comença.** Les trajectòries noves comencen a la Lliga Local C
+(graó 0, `LEAGUE_START_TIER`), amb la graella a −120. Les trajectòries
+existents conserven el graó desat. A partir d'aquí, cada ascens o descens
+és d'un sol graó, també per a les temporades locals, comarcals i provincials.
 
 *Abans*, el grup sortia de l'ELO mitjà de la graella (`leagueLevelGroup`, amb
 llindars per nivell) i el podi pujava un nivell sencer: amb el mateix ELO, en
@@ -394,7 +386,7 @@ tornin a sortir. Sense el mòdul, la lliga fa servir els àlies d'abans
 (`LEAGUE_FALLBACK_NAMES`).
 
 **Simulat** (`simulate_ladder.js`, 4.000 temporades per graó, 3+2,
-referència 1200; carreres de 60 temporades des de la Lliga Catalana C):
+referència 1200; la simulació de carreres es va fer amb la Lliga Catalana C com a punt de partida):
 
 | graó | podi jugant al nivell | baixa jugant al nivell | podi amb +100 |
 |---|---|---|---|
@@ -444,9 +436,9 @@ les 10 darreres.
 **Les divisions d'abans.** Abans hi havia cinc divisions (Quarta a d'Honor,
 −100 a +100). Una lliga de divisions que encara no ha començat passa a
 l'escala en obrir-la (`upgradeLegacyLeague`); una de començada s'acaba amb la
-seva divisió i en tancar-la l'escalada comença a la lliga del territori
-(«L'escalada comença a la Lliga Catalana»). Les temporades velles del palmarès conserven el
-nom de la divisió.
+seva divisió i en tancar-la l'escalada segueix el graó de la trajectòria
+(Local C si encara no se n'ha desat cap). Les temporades velles del palmarès
+conserven el nom de la divisió.
 
 La finestra de revisió que surt en acabar la darrera jornada porta a dalt la
 **posició final, gran** («2n» de 10, `leagueFinalReviewHtml`), del color del
@@ -659,12 +651,8 @@ tothom) i el Sonneborn-Berger (que és al quadre i a la llegenda).
   els textos «Puges a la Divisió B de la Lliga de Vic» / «… · Divisió C», els
   noms d'abans («Grup») actualitzats, temporades senceres que pugen
   de la C a la B, de la B a la A i de la A a la C del nivell següent, campió del
-  món només a Mundial A, i trajectòries i lligues d'abans dels graons; el
-  mínim (`leagueFloorTier`): les trajectòries noves comencen a la lliga del
-  territori C (també la Valenciana), les d'abans que no hi havien arribat hi
-  pugen (també acabant una temporada començada per sota), i qui hi ha jugat
-  baixa a la provincial si perd (`league-season.test.js`,
-  `league-ladder.test.js`).
+  món només a Mundial A, inici a Local C i continuïtat de les trajectòries
+  i temporades desades (`league-season.test.js`, `league-ladder.test.js`).
 - `league-season.test.js` (§5-8): colors alternats i el color de la jornada a
   `startGame`; desempats (punts, directe només si tots s'han enfrontat,
   victòries, Sonneborn-Berger, lligues velles); rendiment (esperança igual a la
@@ -691,7 +679,7 @@ python3 -I scripts/lliga-lichess/analyze_results.py results.json
 python3 -I scripts/lliga-lichess/draw_table.py results.json   # → LEAGUE_DRAW_RATES
 # Temporades simulades amb el codi de core.js
 node scripts/lliga-lichess/simulate_league.js 30000 3+2 1200
-# L'escala: podi i descens per graó i carreres des de la lliga del territori
+# L'escala: podi i descens per graó i carreres des de la lliga local
 node scripts/lliga-lichess/simulate_ladder.js 20000 3+2 1200
 # Municipis de Catalunya (localitats.js): Idescat, codis territorials
 curl -sS "https://www.idescat.cat/codis/?id=50&n=9&f=ssv"

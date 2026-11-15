@@ -51,7 +51,7 @@ for (let t = 0; t < TIERS; t++) {
 }
 
 // Carreres: CAREERS jugadors, SEASONS temporades cadascun, començant on es
-// comença (LEAGUE_START_TIER: la lliga del territori, C). Temporades fins a
+// comença (LEAGUE_START_TIER: la lliga local, C). Temporades fins a
 // arribar a cada nivell (mitjana dels qui hi arriben, i quants hi arriben; als
 // de sota, quants hi baixen) i on es passa el temps.
 const CAREERS = Math.max(200, Math.round(N / 20));
