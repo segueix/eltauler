@@ -96,16 +96,23 @@ Els diàlegs alternen amb les intervencions individuals i les màximes. Amb el d
 
 `visiograu.js` (`ElTaulerVisioGrau`) fa que en Grau miri **endavant**. A cada jugada, la TV ja analitza amb Stockfish a plena força la posició nova (MultiPV 2, fins a profunditat 16). En Grau en llegeix la **línia principal** i explica què passarà en les properes dues o tres jugades i **per què**.
 
-### La veu d’en Grau: intencions, no caselles
+### Les veus: intencions, no caselles
 
-L’Èlia narra el fet de cada jugada, amb caselles. En Grau explica la **intenció**, sense dir mai cap casella:
+Ni l’Èlia ni en Grau no diuen mai cap casella; les caselles només són a la notació de la pantalla (llista de jugades i «Línia de Stockfish»). En Grau explica la **intenció** de les jugades:
 
 - **Accions**: «fer escac amb la dama», «fer una forquilla amb el cavall a la dama i a la torre», «clavar el cavall contra el rei», «fer fora l’alfil amb un peó», «guanyar el peó central», «canviar les torres», «posar la dama a recer i, de passada, atacar el cavall», «protegir un peó de l’enroc», «treure el cavall de la dama per controlar el centre», «enrocar curt per posar el rei a recer», «empènyer el peó passat», «doblar les torres a la columna», «entrar a la setena fila», «plantar el cavall en un lloc avançat», «fer el fianchetto amb l’alfil del rei», «obrir una sortida al rei», «activar el rei».
 - **Peces**: quan un bàndol en té dues del mateix tipus, es distingeixen pel nom de sempre: el cavall del rei, la torre de la dama i l’alfil del rei o de la dama (pel color de les caselles). Cavalls i torres es reconeixen des de la posició inicial i se segueixen jugada a jugada, enroc inclòs. Les peces rivals porten el color («el cavall del rei negre»), i la peça que acaba de jugar és «aquest cavall».
 - **Peons**, pel paper que fan: el peó passat, el peó central, un peó de l’enroc, el peó de torre, un peó del flanc de dama.
 - **Zones**: el centre, el flanc de rei o de dama, el camp rival, a prop del rei, la columna oberta, la setena fila, la gran diagonal.
 
-Els comentaris de cada jugada (amb caselles) els llegeix l’Èlia; en Grau parla als diàlegs i als resums, que tampoc no diuen caselles. També són sense caselles els seus seguiments dels fils de conflicte («Fora de perill: ja no l’ataca cap peça rival.») i la comparació de variants.
+Els comentaris de cada jugada els llegeix l’Èlia; en Grau parla als diàlegs i als resums. També són sense caselles els seguiments dels fils de conflicte («Fora de perill: ja no l’ataca cap peça rival.») i la comparació de variants.
+
+**L’Èlia** fa servir la mateixa lectura del tauler:
+
+- Quan comenta sola una jugada, la diu per la intenció: «Les blanques treuen el cavall del rei per controlar el centre», «Les negres fan fora l’alfil amb un peó», «Les blanques fan una forquilla amb l’alfil del rei al rei i a la torre del rei negre».
+- La resta de fets verificats (clavades, amenaces, peons passats, pressió, millors jugades…) es mantenen, però cada referència a una casella es diu amb el nom de la peça que hi ha al tauler: «el peó d’e5» → «un peó central», «el cavall de c6» → «el cavall de la dama negra»; les caselles de destinació desapareixen i les columnes van sense lletra. Les millors jugades es diuen per la intenció («l’anàlisi preferia fer fora el cavall del rei negre amb un peó»). Si una frase no es pot dir bé sense caselles, no es diu i l’Èlia en diu la intenció.
+- Als diàlegs, l’Èlia diu **què** s’ha jugat, sense caselles ni intenció («Les blanques avancen el peó de rei dues caselles.», «Les negres porten el cavall del rei cap al centre.»), i pregunta per què («Què hi busquen les negres?», «Per què ara?»). La intenció la respon en Grau; si en Grau només repetiria la frase de l’Èlia, no hi ha diàleg. Els peons sense un paper especial es diuen pel nom clàssic: el peó de rei, el peó d’alfil de dama, el peó de torre de rei.
+- El text verificat original es conserva intern (memòria, narrativa, màximes); la pantalla, la veu i l’historial de la TV fan servir el de l’Èlia.
 
 ### Com es construeix l’explicació
 

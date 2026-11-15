@@ -279,7 +279,8 @@ describe('integració amb la retransmissió', () => {
 
     test('en Grau parla d’escacs, clavades, forquilles, canvis i zones del tauler', () => {
         const all = grauTurns.join(' ');
-        ['escac', 'fer fora', 'a recer', 'el centre', 'del flanc de', 'peó passat', 'canvi'].forEach(w => expect(all).toContain(w));
+        ['escac', 'a recer', 'el centre', 'del flanc de', 'peó passat', 'canvi'].forEach(w => expect(all).toContain(w));
+        expect(all).toMatch(/\b(fer|fan|farien|facin|fessin) fora\b/);
         expect(all).toMatch(/(el cavall|la torre) (del rei|de la dama)|l’alfil (del rei|de la dama)/);
     });
 
@@ -349,6 +350,55 @@ describe('integració amb la retransmissió', () => {
             const logic = simulate(g, 'mid').filter(r => r.dialogueEvent === 'plan')
                 .map(r => r.dialogue.filter(t => t.role === 'analyst').slice(-1)[0].text.split('. ')[0]);
             for (let i = 1; i < logic.length; i++) expect(logic[i]).not.toBe(logic[i - 1]);
+        }
+    });
+});
+
+describe('la veu de l’Èlia, també sense caselles', () => {
+    test('l’Èlia anuncia la jugada per la intenció, i als diàlegs diu què s’ha jugat', () => {
+        const { ctx, memory } = ctxAfter(RUY.concat('b8c6', 'f1b5'), ['a7a6']);
+        expect(V.sayMove(ctx, memory)).toBe('Les blanques treuen l’alfil del rei.');
+        expect(V.describeMove(ctx, memory)).toBe('Les blanques treuen l’alfil del rei.');
+        const first = ctxAfter(['e2e4'], ['e7e5']);
+        expect(V.describeMove(first.ctx, first.memory)).toBe('Les blanques avancen el peó de rei dues caselles.');
+        expect(V.sayMove(first.ctx, first.memory)).toBe('Les blanques guanyen espai al centre.');
+    });
+
+    test('els fets amb caselles es diuen amb el nom de la peça que hi ha al tauler', () => {
+        const { ctx, memory } = ctxAfter(RUY.concat('b8c6', 'f1b5'), ['a7a6']);
+        const clean = t => V.clean(t, ctx, memory);
+        expect(clean('Les blanques pressionen el cavall de c6. Ara l\'ataquen dues peces.'))
+            .toBe('Les blanques pressionen el cavall de la dama negra. Ara l\'ataquen dues peces.');
+        expect(clean('El cavall negre defensa el peó d\'e5, que estava atacat.')).toBe('El cavall negre defensa un peó central, que estava atacat.');
+        expect(clean('Recordem la pressió sobre c6: més pressió.')).toBe('Recordem la pressió sobre el cavall de la dama negra: més pressió.');
+        expect(clean('La dama blanca s\'aparta de l\'atac cap a c1.')).toBe('La dama blanca s\'aparta de l\'atac.');
+        expect(clean('El peó passat negre avança fins a d2: li falta una casella per coronar.'))
+            .toBe('El peó passat negre avança: li falta una casella per coronar.');
+        expect(clean('Hi havia una jugada millor: avançar el peó de la columna h fins a h3.')).toBe('Hi havia una jugada millor: avançar el peó de torre.');
+        // Si no es pot dir bé sense caselles, no es diu.
+        expect(clean('Peó negre a a5.')).toBeNull();
+    });
+
+    test('a les partides reals, ni l’Èlia ni en Grau no diuen cap casella', () => {
+        let texts = 0;
+        for (const g of FIXTURES) for (const tier of ['basic', 'mid', 'advanced']) {
+            simulate(g, tier).forEach(r => {
+                const said = r.dialogue ? r.dialogue.map(t => t.text) : (r.say ? [r.say] : []);
+                said.forEach(t => { texts++; expect(t).not.toMatch(SQUARE); expect(t).toMatch(/[.?!:]$/); });
+                if (r.dialogue) r.dialogue.filter(t => t.solo).forEach(t => expect(t.solo).not.toMatch(SQUARE));
+                // El fet verificat continua intacte per a la resta del sistema.
+                if (r.comment && !r.dialogue) expect(r.speech).toBe(TV.tvSpeechText(r.say));
+            });
+        }
+        expect(texts).toBeGreaterThan(1200);
+    });
+
+    test('en Grau no repeteix el que acaba de dir l’Èlia', () => {
+        for (const g of FIXTURES) {
+            simulate(g, 'mid').filter(r => r.dialogueEvent === 'move').forEach(r => {
+                const elia = r.dialogue[0].text.split(/(?<=\.)\s/)[0].toLowerCase().replace(/\.$/, '');
+                expect(r.dialogue[1].text.toLowerCase().replace(/^[^:]*: /, '').replace(/\.$/, '')).not.toBe(elia);
+            });
         }
     });
 });

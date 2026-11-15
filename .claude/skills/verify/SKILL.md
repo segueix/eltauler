@@ -85,8 +85,9 @@ Conduir amb Playwright + Chromium preinstal·lat
     `tauler_tv_prefs = { voice: 'off', speed: 'quick' }` i Stockfish 19 real,
     el primer pla arriba en pocs minuts (just després de les 12 jugades
     preparades). Un navegador nou té nivell bàsic (una parella de jugades).
-    En Grau no diu caselles: els torns `role: 'analyst'` no han de casar amb
-    `/\b[a-h][1-8]\b/`. Per mesurar si es
+    Ni l'Èlia ni en Grau no diuen caselles: `game.comment.say` (el que es
+    mostra i es llegeix) i tots els torns del diàleg no han de casar amb
+    `/\b[a-h][1-8]\b/`; `game.comment.text` és el fet verificat intern. Per mesurar si es
     nota l'estil cal jugar partides senceres amb el motor des de Node
     (`TV.tvPickStyledMove` + `TV.tvMoveFeatures`), no n'hi ha prou amb una.
     **Motor de Stockfish** (`#sftv-engine`, `tauler_tv_prefs.engine`:

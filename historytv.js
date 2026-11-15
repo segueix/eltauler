@@ -101,7 +101,7 @@
         }
         function announce(step, e) {
             memory = step.memory;
-            comment = step.comment ? { text: step.comment.text, kind: step.comment.kind, fen: chess.fen() } : null;
+            comment = step.comment ? { text: step.comment.say || step.comment.text, kind: step.comment.kind, fen: chess.fen() } : null;
             nextAt = now() + Math.max(TV.tvMoveDelayMs(speed, { tier: tier(), random: random() }),
                 comment ? TV.tvReadingTimeMs(comment.text, tier()) : 0);
             render();
@@ -151,7 +151,7 @@
                 const after = afterPosition.game_over() ? null : await analyze(afterPosition, e);
                 if (!alive(e)) return;
                 const step = describe(beforePosition, afterPosition, move, before, after);
-                if (step.comment && voice() && voice().prefetch) voice().prefetch(TV.tvSpeechText(step.comment.text));
+                if (step.comment && voice() && voice().prefetch) voice().prefetch(TV.tvSpeechText(step.comment.say || step.comment.text));
                 if (!await previousDone(e) || chess.fen() !== fenBefore) return;
                 preview = { from: move.from, piece: move.piece, color: move.color }; render();
                 if (!await wait(C.MOVE_PREVIEW_MS, e) || chess.fen() !== fenBefore) return;

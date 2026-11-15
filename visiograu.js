@@ -2,8 +2,8 @@
 // visiograu.js — «La visió d'en Grau»: Stockfish vist dues o tres jugades
 // endavant i explicat amb intencions, sense caselles
 // ============================================================================
-// L'Èlia narra el fet de la jugada (amb caselles); en Grau explica la
-// INTENCIÓ: «fer escac amb la dama», «clavar el cavall del rei negre», «fer
+// Ni l'Èlia ni en Grau no diuen caselles. L'Èlia narra la jugada per la
+// intenció (i, als diàlegs, què s'ha jugat); en Grau n'explica la lògica: «fer escac amb la dama», «clavar el cavall del rei negre», «fer
 // fora l'alfil amb un peó», «guanyar espai al centre», «doblar les torres a
 // la columna oberta». Les peces es distingeixen pel nom de sempre (el cavall
 // del rei, l'alfil de la dama), els peons pel paper que fan (el peó passat,
@@ -41,7 +41,7 @@
 })(typeof self !== 'undefined' ? self : this, function (root) {
     'use strict';
 
-    const VERSION = '1.1.0';
+    const VERSION = '1.2.0';
 
     function getCore() {
         if (root && root.ElTaulerCore) return root.ElTaulerCore;
@@ -600,7 +600,7 @@
         if (f.defend) {
             const target = own(f.defend.type, f.defend.sq);
             if (f.develop) return res('develop', 'treure', mover, { inf: 'protegir ' + target });
-            return res('defend', 'protegir', target + ' amb ' + mover);
+            return res('defend', 'protegir', target + ' amb ' + (mv.piece === 'p' ? (f.defend.type === 'p' ? 'un altre peó' : 'un peó') : mover));
         }
         if (f.attack) {
             const target = rival(f.attack.type, f.attack.sq);
@@ -609,8 +609,9 @@
         }
         if (f.castle) return res('castle', 'enrocar', f.castle, { inf: 'posar el rei a recer' });
         if (f.seventh) return res('seventh', 'entrar', 'a la setena fila amb ' + mover);
-        if (f.double) return f.double.partner === 'r' && type === 'r' ? res('double', 'doblar', 'les torres a la columna')
-            : res('double', 'formar', 'una bateria de peces majors a la columna');
+        const column = 'a la columna ' + (f.file && f.file.open ? 'oberta' : 'semioberta');
+        if (f.double) return f.double.partner === 'r' && type === 'r' ? res('double', 'doblar', 'les torres ' + column)
+            : res('double', 'formar', 'una bateria de peces majors ' + column);
         if (f.file) return res('file', 'portar', mover + ' a la columna ' + (f.file.open ? 'oberta' : 'semioberta'));
         if (f.passed) return res('passed', 'empènyer', 'el peó passat',
             f.passed.left === 1 ? { join: ', ', inf: 'a una casella de coronar' } : null);
@@ -627,7 +628,8 @@
         if (f.kingActive) return res('king-active', 'activar', 'el rei');
         if (f.connect) return res('connect', 'connectar', 'les torres');
         if (f.retreat) return res('retreat', 'replegar', mover);
-        if (mv.piece === 'p') return res('pawn', 'avançar', pawnName(B, step.gridBefore, mv.from, c));
+        if (mv.piece === 'p') return res('pawn', 'avançar', PAWN_FILE[mv.from[0]] +
+            (Math.abs(Number(mv.to[1]) - Number(mv.from[1])) === 2 ? ' dues caselles' : ''));
         return res('move', 'portar', mover + ' ' + zoneOf(g, mv.to, c));
     }
     // Intencions que no expliquen res més enllà del moviment.
@@ -1490,6 +1492,115 @@
         return null;
     }
 
+    // ------------------------------------------------------------------
+    // La veu de l'Èlia: el fet de la jugada, també sense caselles
+    // ------------------------------------------------------------------
+    // L'Èlia anuncia la jugada amb la seva intenció: «Les blanques treuen el
+    // cavall del rei per controlar el centre.»
+    function sayMove(ctx, memory) {
+        const c = ctx || {};
+        const mem = normalize(memory);
+        if (!c.move || !c.ChessCtor || !c.fenBefore) return null;
+        const ph = intentAt(c.ChessCtor, c.fenBefore, moveUci(c.move), { prev: c.prevMove, ids: mem.prevIds, noDemo: true });
+        return ph ? tidy(capFirst(SIDE[c.move.color].pl) + ' ' + ph.pres + '.') : null;
+    }
+
+    // Què s'ha jugat, sense caselles ni intenció (per a les preguntes de
+    // l'Èlia als diàlegs: la intenció l'explica en Grau). Els peons, pels
+    // noms clàssics: el peó de rei, el peó d'alfil de dama...
+    const PAWN_FILE = { a: 'el peó de torre de dama', b: 'el peó de cavall de dama', c: 'el peó d’alfil de dama', d: 'el peó de dama',
+        e: 'el peó de rei', f: 'el peó d’alfil de rei', g: 'el peó de cavall de rei', h: 'el peó de torre de rei' };
+    function describeMove(ctx, memory) {
+        const c = ctx || {};
+        const B = board();
+        const mem = normalize(memory);
+        if (!B || !c.move || !c.ChessCtor || !c.fenBefore) return null;
+        const step = readStep(B, c.ChessCtor, c.fenBefore, moveUci(c.move), c.prevMove ? { move: c.prevMove } : null, mem.prevIds);
+        if (!step) return null;
+        const mv = step.move, f = step.facts, color = step.color, side = SIDE[color].Pl;
+        const type = mv.promotion || mv.piece;
+        const mover = mv.piece === 'p' ? 'un peó' : pieceName(B, type, color, mv.to, step.grid, step.ids);
+        const chk = step.mate ? ', amb escac i mat' : step.check ? ', amb escac' : '';
+        let text;
+        if (f.castle) text = side + ' enroquen ' + f.castle + chk;
+        else if (mv.promotion) text = side + ' coronen un peó' + chk;
+        else if (f.capture) {
+            const victim = pieceName(B, f.capture.type, other(color), f.capture.sq, step.gridBefore, step.idsBefore, { color: true });
+            text = side + ' capturen ' + victim + ' amb ' + mover + chk;
+        } else if (step.check) text = side + ' fan escac amb ' + mover;
+        else if (mv.piece === 'p') text = side + ' avancen ' + PAWN_FILE[mv.from[0]] +
+            (Math.abs(Number(mv.to[1]) - Number(mv.from[1])) === 2 ? ' dues caselles' : '');
+        else if (f.develop) text = side + ' treuen ' + mover;
+        else if (f.retreat && mv.piece !== 'k') text = side + ' repleguen ' + mover;
+        else text = side + ' porten ' + mover + ' ' + zoneOf(step.grid, mv.to, color);
+        return tidy(text + '.');
+    }
+
+    // Traducció dels fets verificats que porten caselles: cada peça es diu
+    // pel seu nom al tauler («el peó d'e5» → «el peó central negre»), les
+    // caselles de destinació desapareixen i les columnes van sense lletra.
+    // Retorna null si alguna casella no es pot treure amb seguretat.
+    const TYPE_OF = { 'peó': 'p', 'cavall': 'n', 'alfil': 'b', 'torre': 'r', 'dama': 'q', 'rei': 'k' };
+    const FILE_PAWN = { a: 'de torre', h: 'de torre', b: 'de cavall', g: 'de cavall', c: 'd’alfil', f: 'd’alfil', d: 'de dama', e: 'de rei' };
+    const SQ_RE = /\b[a-h][1-8]\b/;
+    function colorAdj(type, color) { return FEM[type] ? SIDE[color].adjF : SIDE[color].adj; }
+    function namedPiece(B, K, type, sq, colorHint) {
+        let grid = K.after, ids = K.ids, p = grid && at(grid, sq);
+        if (!p || (type && p.t !== type)) { grid = K.before; ids = K.prevIds; p = grid && at(grid, sq); }
+        if (!p || (type && p.t !== type)) return null;
+        const t = p.t, color = p.c;
+        if (t === 'p') {
+            const name = pawnName(B, grid, sq, color);
+            if (!colorHint) return name;
+            return /(passat|central)$/.test(name) ? name + ' ' + SIDE[color].adj : name.replace(/peó/, 'peó ' + SIDE[color].adj);
+        }
+        const name = pieceName(B, t, color, sq, grid, ids, { color: true });
+        return name === np(t) || name === 'el rei' ? (colorHint ? name + ' ' + colorAdj(t, color) : name) : name;
+    }
+    function withPrep(prep, name) {
+        const p = String(prep || '').toLowerCase().replace(/’/g, '\'');
+        if (/^(del |de la |de l')$/.test(p)) return de(name);
+        if (/^(al |a la |a l')$/.test(p)) return /^el /.test(name) ? 'al ' + name.slice(3) : 'a ' + name;
+        if (/^(pel |per la |per l')$/.test(p)) return /^el /.test(name) ? 'pel ' + name.slice(3) : 'per ' + name;
+        return name;
+    }
+    function clean(text, ctx, memory) {
+        const B = board();
+        const c = ctx || {};
+        if (!B || !text) return text ? String(text) : null;
+        const mem = normalize(memory);
+        const K = { after: c.fenAfter ? B.parse(c.fenAfter) : null, before: c.fenBefore ? B.parse(c.fenBefore) : null,
+            ids: mem.ids, prevIds: mem.prevIds };
+        let t = String(text);
+        const upper = s => /^[A-ZÀ-Ý]/.test(s);
+        t = t.replace(/\bpeó passat( (?:blanc|negre))? de la columna [a-h]\b/g, (m, adj) => 'peó passat' + (adj || ''));
+        t = t.replace(/\bpeó( (?:blanc|negre))? de la columna ([a-h])\b/g, (m, adj, f) => 'peó' + (adj || '') + ' ' + FILE_PAWN[f]);
+        t = t.replace(/\b(la|una) casella central [a-h][1-8]\b/gi, (m, art) => (upper(art) ? 'Una' : 'una') + ' casella central');
+        t = t.replace(/\b(les caselles centrals),?(?: [a-h][1-8],?)*(?: i [a-h][1-8]),?/gi, '$1');
+        t = t.replace(/ a ([a-h][1-8]), la casella de coronació/g, ' a la casella de coronació');
+        t = t.replace(/, que arriba a [a-h][1-8]/g, '');
+        t = t.replace(/\bpot capturar a ([a-h][1-8])\b/g, (m, sq) => { const n = namedPiece(B, K, null, sq, true); return n ? 'pot capturar ' + n : 'pot capturar'; });
+        t = t.replace(/(\b(?:del |al |pel |el |la |l['’]|de la |de l['’]|a la |a l['’]|per la |per l['’]))?\b(peó|cavall|alfil|torre|dama|rei)((?: (?:blanc|negre|blanca|negra|passat))*) (?:de |d['’])([a-h][1-8])\b/gi,
+            (m, prep, noun, adjs, sq) => {
+                const type = TYPE_OF[noun.toLowerCase()];
+                const hint = /blanc|negr/i.test(adjs || '') || null;
+                const name = namedPiece(B, K, type, sq, hint) || (np(type) + (adjs || ''));
+                const out = withPrep(prep, name);
+                return prep && upper(prep) ? capFirst(out) : out;
+            });
+        t = t.replace(/\bsobre ([a-h][1-8])\b/g, (m, sq) => { const n = namedPiece(B, K, null, sq, true); return n ? 'sobre ' + n : m; });
+        t = t.replace(/\b(?:fins a|cap a) [a-h][1-8]\b/g, '');
+        t = t.replace(/\bdes (?:de |d['’])[a-h][1-8]\b/g, '');
+        t = t.replace(/ a la columna [a-h]\b/g, '');
+        t = t.replace(/\bcolumna [a-h]\b/g, 'columna');
+        t = t.replace(/,? a [a-h][1-8]\b/g, '');
+        t = t.replace(/\s+([,.;:!?])/g, '$1').replace(/:\s*([.;])/g, '$1').replace(/,\s*,/g, ',').replace(/,\s*([.;:!?])/g, '$1')
+            .replace(/\s{2,}/g, ' ').trim();
+        // Una preposició òrfena o una frase de dues paraules: millor no dir-ho.
+        if (SQ_RE.test(t) || /(?:^|\s)(de|d['’]|a|al|del|amb)\s*[.,;:]/i.test(t) || wordCount(t) < 3) return null;
+        return t;
+    }
+
     return {
         VERSION: VERSION,
         CONFIG: CONFIG,
@@ -1506,6 +1617,9 @@
         follow: follow,
         tail: tail,
         explainMove: explainMove,
+        sayMove: sayMove,
+        describeMove: describeMove,
+        clean: clean,
         TEXTS: {
             PLAN_QUESTIONS: PLAN_QUESTIONS, WHY_QUESTIONS: WHY_QUESTIONS, SOLO_LEADS: SOLO_LEADS,
             LINE_OPENERS: LINE_OPENERS, LINE_SECOND: LINE_SECOND, LINE_COMPACT: LINE_COMPACT, LINE_THIRD: LINE_THIRD,

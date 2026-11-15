@@ -271,7 +271,7 @@
     // La lectura i els subtítols comparteixen els torns del comentari.
     function tvReadingText(comment) {
         if (comment.dialogue) return comment.dialogue.map(turn => turn.text).join(' ');
-        return comment.text + (comment.maxim ? ' ' + comment.maxim.text : '');
+        return (comment.say || comment.text) + (comment.maxim ? ' ' + comment.maxim.text : '');
     }
 
     function tvDialogueTurns(comment, enabled) {
@@ -2429,6 +2429,9 @@
         }
         const variantId = cand.variants.indexOf(text);
         const parts = leadFact ? [leadFact, text] : [text];
+        // Paper de cada tros (fet de la jugada, comentari, ampliació): la veu
+        // de l'Èlia en diu el fet de la jugada per la intenció.
+        const roles = leadFact ? ['lead', 'main'] : ['main'];
         // Si la jugada fa escac i el comentari no ho diu, s'afegeix a la frase.
         if (o.isCheck && !parts.some(p => /escac/i.test(p))) parts[0] = parts[0].replace(/\.$/, ', amb escac.');
         let extended = !!leadFact;
@@ -2436,9 +2439,11 @@
         // Definició bàsica: una sola vegada per partida i només si cal.
         if (canExtend && cand.define && o.tier !== 'advanced' && !mem.defined[cand.define.term] && !best.evolved) {
             parts.push(cand.define.text);
+            roles.push('extra');
             extended = true;
         } else if (canExtend && cand.extra && !best.evolved && o.tier !== 'basic') {
             parts.push(cand.extra);
+            roles.push('extra');
             extended = true;
         }
         // Explicació ampliada: un fet de captura o una descripció es completa
@@ -2450,10 +2455,11 @@
                 && ['recapture', 'capture-free', 'capture-recoverable'].indexOf(x.kind) === -1
                 && !(mem.ideas[x.key] && mem.ideas[x.key].sig === x.sig && ply - mem.ideas[x.key].ply < TV_CONFIG.IDEA_MEMORY_PLIES)
                 && !recentTexts.has(x.text) && wordCount(text) + wordCount(x.text) <= TV_CONFIG.EXTENDED_MAX_WORDS);
-            if (secondary) { parts.push(secondary.text); extended = true; }
+            if (secondary) { parts.push(secondary.text); roles.push('extra'); extended = true; }
         }
         return {
             kind: cand.kind, text: parts.join(' '), leadText: text, explanatory: cand.explanatory || !!secondary,
+            parts: parts.map((t, i) => ({ role: roles[i] || 'extra', text: t })),
             key: cand.key, sig: cand.sig, family: cand.family, variantId: variantId, extended: extended,
             defined: (parts.length > 1 && cand.define && parts[1] === cand.define.text) ? cand.define.term : null,
             tags: cand.tags, payload: cand.payload, evolved: best.evolved,
@@ -2776,11 +2782,12 @@
     function tvConflictTransition(t, next, before, after, move, seq) {
         const turn = isNum(seq) ? seq : tvHash(t.id + ':' + move.to);
         const sq = t.square;
-        const victim = t.piece ? shortOn(t.piece, sq) : '';
+        // Sense caselles: la peça amb el color del bàndol que la té.
+        const victim = t.piece ? pieceNP(t.piece, other(t.color)) : '';
         const captured = move.captured && ((move.flags || '').includes('e') ? move.to[0] + move.from[1] : move.to);
         const focus = {
-            passed: 'el peó passat de ' + sq,
-            file: 'la columna ' + sq,
+            passed: 'el peó passat ' + COLOR[t.color].adj,
+            file: 'la columna oberta',
             king: 'la seguretat del rei',
             center: 'la lluita pel centre',
             pressure: 'la pressió sobre ' + victim,
@@ -2931,14 +2938,15 @@
             const alt = vision.intentAt(c.ChessCtor, c.fenBefore, second, { prev: c.prevMove, ids: ids });
             const rep = vision.intentAt(c.ChessCtor, otherLine.start.fen, b.pv[1], { prev: otherLine.start.move });
             const altAction = moveAction(c.ChessCtor, c.fenBefore, second);
-            if (fav && alt && rep && altAction) {
+            // Sense caselles, dues opcions que es diuen igual no es poden comparar.
+            if (fav && alt && rep && altAction && fav.inf !== alt.inf) {
                 const rival = COLOR[other(m.color)].pl;
-                const then = 'Llavors ' + rival + ' ' + rep.cond + '.';
                 return { kind: 'variant', topic: 'variant:' + m.color,
-                    question: played === first ? 'I l’opció de ' + altAction + '?' : 'Quina alternativa veu Stockfish?',
-                    answer: played === first ? 'Amb aquella opció, ' + COLOR[m.color].pl + ' ' + alt.cond + '. ' + then + ' Stockfish prefereix la jugada feta.'
-                        : 'Stockfish preferia ' + fav.inf + '. Amb la jugada feta, ' + COLOR[m.color].pl + ' ' + alt.pres + ', i ' + rival + ' ' + rep.cond + '.' };
+                    question: played === first ? 'I si haguessin triat ' + alt.inf + '?' : 'Quina alternativa veu Stockfish?',
+                    answer: played === first ? 'Llavors ' + rival + ' ' + rep.cond + '. Stockfish prefereix la jugada feta.'
+                        : 'Stockfish preferia ' + fav.inf + '. Amb la jugada feta, ' + rival + ' ' + rep.cond + '.' };
             }
+            if (fav && alt && fav.inf === alt.inf) return null;
         }
         function action(fen, uci, move) {
             if (move.piece === 'p' && !move.captured && !move.promotion && !/[+#]$/.test(move.san))
@@ -2993,6 +3001,81 @@
         return prefix ? prefix + question[0].toLowerCase() + question.slice(1) : question;
     }
 
+    // ------------------------------------------------------------------
+    // La veu de l'Èlia: intencions, sense caselles (amb visiograu.js)
+    // ------------------------------------------------------------------
+    // Comentaris que només descriuen la jugada: l'Èlia en diu la intenció.
+    const ELIA_MOVE_KINDS = { describe: true, development: true, activation: true, castle: true, capture: true, recapture: true,
+        center: true, 'open-file': true, diagonal: true, seventh: true, 'doubled-rooks': true, 'king-activity': true,
+        'out-of-check': true, check: true };
+    function tvEliaSay(c, chosen, vision, memory) {
+        if (!chosen || !chosen.text) return chosen ? chosen.text : null;
+        if (!vision || typeof vision.clean !== 'function' || typeof vision.sayMove !== 'function') return chosen.text;
+        try {
+            const visio = memory && memory.visio;
+            const intent = c.move && !c.end ? vision.sayMove(c, visio) : null;
+            const clean = t => vision.clean(t, c, visio);
+            const out = [];
+            let usedIntent = false;
+            const useIntent = () => { if (!usedIntent && intent) { out.push(intent); usedIntent = true; } };
+            const parts = Array.isArray(chosen.parts) && chosen.parts.map(p => p.text).join(' ') === chosen.text
+                ? chosen.parts : [{ role: 'main', text: chosen.text }];
+            for (const part of parts) {
+                if (part.role === 'lead' || (part.role === 'main' && ELIA_MOVE_KINDS[chosen.kind])) { useIntent(); continue; }
+                // «Era la millor jugada»: primer, quina jugada.
+                if (part.role === 'main' && chosen.kind === 'only-move') useIntent();
+                // La forquilla o la clavada ja dites per la intenció no es repeteixen.
+                if (part.role === 'main' && usedIntent && ((/^fork/.test(chosen.kind) && /forquilla/.test(intent)) ||
+                        (chosen.kind === 'pin' && /\bclav/.test(intent)))) continue;
+                // La millor alternativa, també per la intenció.
+                if (part.role === 'main' && (chosen.kind === 'missed' || chosen.kind === 'missed-mate') && c.before && c.before.bestUci &&
+                        typeof vision.intentAt === 'function') {
+                    const alt = vision.intentAt(c.ChessCtor, c.fenBefore, c.before.bestUci,
+                        { prev: c.prevMove, ids: visio && visio.prevIds, noDemo: true });
+                    if (alt) {
+                        const side = COLOR[c.move.color].pl;
+                        const pawns = /cedeix uns ([\d,]+) peons/.exec(part.text);
+                        const mate = /mat en (\d+)/.exec(part.text);
+                        const tail = pawns ? ': segons el motor, la jugada feta cedeix uns ' + pawns[1] + ' peons.' : '.';
+                        out.push(mate ? 'L’anàlisi veia mat en ' + mate[1] + ' per a ' + side + ' amb una altra jugada: ' + alt.inf + '.'
+                            : tvVariant(['Per a ' + side + ', l’anàlisi preferia ' + alt.inf + tail, 'L’anàlisi recomanava ' + alt.inf + tail,
+                                'Segons l’anàlisi, era millor ' + alt.inf + tail, capFirst(side) + ' tenien una opció millor: ' + alt.inf + tail],
+                                isNum(chosen.variantId) ? chosen.variantId : c.ply || 0));
+                        continue;
+                    }
+                }
+                part.text.split(/(?<=[.!?])\s+(?=[A-ZÀ-ÝÈÉÍÒÓÚ«])/u).forEach(sentence => {
+                    const ok = clean(sentence);
+                    if (ok) out.push(ok);
+                });
+            }
+            if (!out.length) useIntent();
+            const say = out.join(' ').trim();
+            return say && !/\b[a-h][1-8]\b/.test(say) ? say : (intent || chosen.text);
+        } catch (err) { return chosen.text; }
+    }
+
+    // Preguntes de l'Èlia sobre el perquè. Abans, ella diu què s'ha jugat
+    // (sense caselles); la intenció la respon en Grau.
+    const TV_WHY_QUESTIONS = [
+        ({ side }) => 'Què hi busquen ' + side + '?',
+        () => 'Quin sentit té aquesta jugada?',
+        () => 'Què canvia amb aquesta jugada?',
+        () => 'Per què ara?',
+        () => 'Quina és la idea?',
+        ({ side }) => 'Què implica per a ' + side + '?',
+        () => 'Com l’hem d’entendre?',
+        () => 'En què ens hem de fixar?',
+        () => 'Quina conseqüència té?',
+        () => 'Quin efecte té en la posició?'
+    ];
+    function tvWhyQuestion(c, index, focus) {
+        const question = TV_WHY_QUESTIONS[index % TV_WHY_QUESTIONS.length]({ side: COLOR[c.move.color].pl });
+        const prefix = index % 4 === 0 ? 'Grau, ' : '';
+        if (focus) return prefix + (prefix ? 'pel' : 'Pel') + ' que fa ' + aNP(focus) + ', ' + question[0].toLowerCase() + question.slice(1);
+        return prefix ? prefix + question[0].toLowerCase() + question.slice(1) : question;
+    }
+
     // Ordre dels diàlegs: 1) un fil de conflicte que es resol; 2) el
     // seguiment d'una previsió d'en Grau (s'ha complert o un bàndol se n'ha
     // sortit); 3) els altres canvis dels fils de conflicte, amb la continuació
@@ -3009,14 +3092,20 @@
         const move = describeMove(c.move, false).variants
             .reduce((shorter, text) => text.length < shorter.length ? text : shorter);
         // L'Èlia obre amb el fet de la jugada si és breu; si no, amb la jugada.
-        const lead = chosen.kind !== 'summary' && wordCount(chosen.text) <= 12 && !/\?/.test(chosen.text) ? chosen.text : move;
+        // Amb la visió d'en Grau, tots dos per la intenció i sense caselles.
+        const said = vision ? tvEliaSay(c, chosen, vision, memory) : chosen.text;
+        const intentLead = vision && typeof vision.sayMove === 'function' ? vision.sayMove(c, memory.visio) : null;
+        const lead = chosen.kind !== 'summary' && said && wordCount(said) <= 14 && !/\?/.test(said) ? said : (intentLead || move);
+        // Què s'ha jugat, sense intenció: per a les preguntes que respon en Grau.
+        const neutral = (vision && typeof vision.describeMove === 'function' ? vision.describeMove(c, memory.visio) : null) || move;
         const vctx = Object.assign({}, c, { moveText: lead });
+        const vfollow = Object.assign({}, c, { moveText: neutral });
         const visio = () => (memory.visio && typeof memory.visio === 'object') ? memory.visio : null;
         let exchange = null;
         if (gap >= 1 && conflict && event.kind === 'resolved') exchange = event;
         if (!exchange && vision && visionEvent && !urgent && gap >= 1) {
             try {
-                const f = vision.follow(vctx, visionEvent, visio());
+                const f = vision.follow(vfollow, visionEvent, visio());
                 if (f && f.turns) exchange = { kind: f.kind, turns: f.turns, visio: f.memory };
             } catch (err) { /* sense seguiment: el comentari continua */ }
         }
@@ -3051,7 +3140,10 @@
             if (fact && vision && typeof vision.explainMove === 'function') {
                 try { intent = vision.explainMove(vctx, visio()); } catch (err) { intent = null; }
             }
-            if (fact && vision && intent) exchange = { kind: 'move', answer: intent.text, candidate: fact.key, visio: intent.memory };
+            // Si en Grau només repetiria el que ja diu l'Èlia, no hi ha diàleg.
+            const bare = t => String(t).replace(/^[^:]*: /, '').toLowerCase().replace(/\.$/, '');
+            const echo = intent && bare(intent.text) === bare(neutral);
+            if (fact && vision && intent && !echo) exchange = { kind: 'move', answer: intent.text, candidate: fact.key, visio: intent.memory };
             else if (fact && !vision) {
                 // Per respondre el perquè, preferim el detector concret a
                 // les variants expressives que poden ometre'n el detall.
@@ -3074,8 +3166,8 @@
             const questionIndex = Number.isInteger(memory.questionIndex)
                 ? memory.questionIndex : tvHash(c.gameId || '') % TV_MOVE_QUESTIONS.length;
             exchange.questionIndex = questionIndex;
-            const question = exchange.question
-                ? move + ' ' + exchange.question : tvMoveQuestion(c.move, questionIndex, exchange.focus);
+            const question = !vision ? (exchange.question ? move + ' ' + exchange.question : tvMoveQuestion(c.move, questionIndex, exchange.focus))
+                : neutral + ' ' + (exchange.question || tvWhyQuestion(c, questionIndex, exchange.focus));
             if (wordCount(question) + wordCount(exchange.answer) > (exchange.tail ? 52 : 45)) {
                 if (!exchange.tail) return chosen;
                 // Sense espai per a la continuació: el fil sense la cua.
@@ -3083,7 +3175,7 @@
                 if (wordCount(question) + wordCount(exchange.answer) > 45) return chosen;
                 exchange.questionIndex = questionIndex;
             }
-            const solo = exchange.kind === 'variant' ? null : move +
+            const solo = exchange.kind === 'variant' ? null : (vision ? neutral : move) +
                 (exchange.focus ? ' Seguim ' + exchange.focus + '.' : '');
             dialogue = [
                 { role: 'presenter', text: question, solo: solo },
@@ -3170,6 +3262,8 @@
         }
         const artStep = chosen && chosen.dialogue ? { comment: chosen, memory: memory } : tvArtStep(c, chosen, memory, candidates);
         chosen = artStep.comment;
+        // El que diu (i mostra) l'Èlia: intencions, sense caselles.
+        if (chosen && vision) chosen = Object.assign({}, chosen, { say: tvEliaSay(c, chosen, vision, artStep.memory) });
         const next = tvCommitComment(artStep.memory, chosen, { ply: c.ply, fenAfter: c.fenAfter, move: c.move, candidates: candidates });
         return { comment: chosen, memory: next, candidates: candidates };
     }
@@ -3202,10 +3296,11 @@
             });
             memory = step.memory;
             rows.push({ ply: i, san: mv.san, color: mv.color, fen: chess.fen(), comment: step.comment ? step.comment.text : null,
+                say: step.comment ? step.comment.say || step.comment.text : null,
                 kind: step.comment ? step.comment.kind : null, explanatory: !!(step.comment && step.comment.explanatory), extended: !!(step.comment && step.comment.extended),
                 key: step.comment ? step.comment.key : null, payload: step.comment ? step.comment.payload : null,
                 narrative: step.comment ? (step.comment.narrative || null) : null,
-                speech: step.comment ? tvSpeechText(step.comment.text) : null,
+                speech: step.comment ? tvSpeechText(step.comment.say || step.comment.text) : null,
                 dialogue: step.comment ? step.comment.dialogue || null : null,
                 dialogueEvent: step.comment ? step.comment.dialogueEvent || null : null,
                 forecast: step.comment ? step.comment.forecast || null : null,
@@ -4093,7 +4188,7 @@
                 const plan = planMove(g, uci, fenBefore, prepared, before, after, resign);
                 if (!plan) { fail('illegal'); return; }
                 if (plan.chosen && d.voice && typeof d.voice.prefetch === 'function') {
-                    const planned = { ...plan.chosen, speech: tvSpeechText(plan.chosen.text), ply };
+                    const planned = { ...plan.chosen, speech: tvSpeechText(plan.chosen.say || plan.chosen.text), ply };
                     const direction = tvSpeechDirection(planned);
                     for (const turn of spokenTurns(planned)) {
                         const tone = turn.role === 'maxim'
@@ -4198,7 +4293,8 @@
 
         function attachComment(g, entry, chosen) {
             // El comentari queda LLIGAT a aquesta posició (partida + ply + FEN).
-            g.comment = { kind: chosen.kind, text: chosen.text, speech: tvSpeechText(chosen.text), ply: entry.ply, fen: entry.fen, gameId: g.id,
+            g.comment = { kind: chosen.kind, text: chosen.text, say: chosen.say || chosen.text,
+                speech: tvSpeechText(chosen.say || chosen.text), ply: entry.ply, fen: entry.fen, gameId: g.id,
                 explanatory: !!chosen.explanatory, extended: !!chosen.extended, byUser: entry.byUser,
                 narrative: chosen.narrative || null,
                 dialogue: chosen.dialogue || null,
@@ -4206,7 +4302,7 @@
                 forecast: chosen.forecast || null,
                 maxim: chosen.maxim || null };
             g.comments.push({ ply: entry.ply, kind: chosen.kind, text: chosen.text, color: entry.color, key: chosen.key, sig: chosen.sig });
-            entry.comment = chosen.text;
+            entry.comment = chosen.say || chosen.text;
             entry.commentObj = g.comment;
         }
 
@@ -5354,7 +5450,7 @@
         const c = g && g.comment;
         // Només es mostra si és de la partida i la posició visibles.
         const valid = c && c.gameId === g.id && (c.kind === 'intro' || c.fen === g.fen);
-        el.textContent = valid ? c.text : '';
+        el.textContent = valid ? (c.say || c.text) : '';
         if (valid && Array.isArray(c.dialogue)) {
             el.textContent = '';
             const duet = tvNormalizePrefs(loadPrefsRaw()).duo;

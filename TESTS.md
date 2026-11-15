@@ -819,7 +819,11 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   irrellevants); a les partides de prova, línies legals, en Grau sense cap
   casella i parlant d'escacs, canvis i zones, comentaris de cada jugada amb la
   veu de l'Èlia, veus del duet, desactivació, memòria immutable, català i
-  varietat.
+  varietat. **La veu de l'Èlia**: anunci per la intenció i, als diàlegs, què
+  s'ha jugat (el peó de rei dues caselles); fets amb caselles dits pel nom de
+  la peça del tauler (el cavall de la dama negra, un peó central) o descartats;
+  cap casella en cap text de les partides de prova i en Grau sense repetir
+  l'Èlia.
 - **`maximesexercici.test.js`** — màximes de **l'Art de la Guerra** i de
   **Les 36 estratagemes** al botó «Màxima» dels exercicis de dues jugades
   (`maximesexercici.js`): fets del detector de la TV per jugada (atac doble,
