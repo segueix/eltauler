@@ -3213,9 +3213,9 @@
         }
         if (!exchange && !urgent && !c.prepared && gap >= 1 && c.ply >= 8 && c.ply - (memory.lastVariantPly ?? -100) >= 12)
             exchange = tvCompareVariants(c, vision, memory.visio && memory.visio.prevIds);
-        // Amb la visió d'en Grau, els plans i seguiments tenen prioritat absoluta:
-        // no intercalem preguntes addicionals que en desplacin la previsió.
-        if (!exchange && !vision && (gap >= 2 || chosen.kind === 'reply') && chosen.kind !== 'summary')
+        // Si no hi ha pla ni seguiment, en Grau encara pot respondre una
+        // pregunta que té una amenaça o una recaptura legal comprovada.
+        if (!exchange && (gap >= 2 || chosen.kind === 'reply') && chosen.kind !== 'summary')
             exchange = tvTacticalDialogue(c, chosen, candidates, event, urgent);
         if (!exchange) return chosen;
         const heard = memory.dialogueFacts || {};
@@ -4288,11 +4288,11 @@
                 if (plan.chosen && d.voice && typeof d.voice.prefetch === 'function') {
                     const planned = { ...plan.chosen, speech: tvSpeechText(plan.chosen.say || plan.chosen.text), ply };
                     const direction = tvSpeechDirection(planned);
-                    for (const turn of spokenTurns(planned)) {
-                        const tone = turn.role === 'maxim'
-                            ? tvSpeechDirection({ kind: 'summary' }) : direction;
-                        d.voice.prefetch(turn.text, { ...tone, voiceId: turn.voiceId });
-                    }
+                    // La sessió Matxa de l'Èlia i en Grau és compartida.
+                    // Si encuem tots els fragments alhora, el termini dels
+                    // últims ja corre mentre encara es prepara el primer.
+                    const [turn] = spokenTurns(planned);
+                    if (turn) d.voice.prefetch(turn.text, { ...direction, voiceId: turn.voiceId });
                 }
 
                 // Espera la visualització de la jugada anterior i la seva locució.
@@ -5719,8 +5719,9 @@
             getOpenings: () => { try { return typeof bridge.getCuratedOpenings === 'function' ? bridge.getCuratedOpenings() : []; } catch (e) { return []; } },
             getOpeningGraph: () => { try { return typeof bridge.getOpeningGraph === 'function' ? bridge.getOpeningGraph() : null; } catch (e) { return null; } },
             loadPrefs: loadPrefsRaw,
-            savePrefs: (p) => savePrefsRaw({ speed: p.speed, offsets: p.offsets, openingIndex: p.openingIndex, unequal: p.unequal,
-                profiles: p.profiles, recent: p.recent, untilMate: p.untilMate, mateSeries: p.mateSeries, mateRecent: p.mateRecent })
+            savePrefs: (p) => savePrefsRaw({ speed: p.speed, duo: p.duo, offsets: p.offsets, openingIndex: p.openingIndex,
+                unequal: p.unequal, profiles: p.profiles, recent: p.recent, untilMate: p.untilMate,
+                mateSeries: p.mateSeries, mateRecent: p.mateRecent })
         });
         return controller;
     }

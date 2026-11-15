@@ -49,9 +49,10 @@
     function questionMode(text) {
         if (!/\?[»”"’']*$/u.test(text.trim()) || questionParts(text).length !== 1) return '';
         const start = text.toLocaleLowerCase('ca').replace(/^[\s«“"¿]+/u, '')
-            .replace(/^(?:i ara|ara bé|doncs|bé|ara),\s*/u, '').replace(/^i\s+/u, '');
+            .replace(/^(?:(?:grau|i ara|ara bé|doncs|bé|ara),\s*)+/u, '')
+            .replace(/^pel que fa [^,]+,\s*/u, '').replace(/^i\s+/u, '');
         return /^(?:què|qui|quin(?:a|s|es)?|com|quan|on|quant(?:a|s|es)?|per què|que)(?=\s|[?!,]|$)/u.test(start) ||
-            /^(?:d['’]|de\s+|a\s+|amb\s+)(?:on|qui|què|quin(?:a|s|es)?|quan|quant(?:a|s|es)?)(?=\s|[?!,]|$)/u.test(start)
+            /^(?:d['’]|de\s+|a\s+|amb\s+|en\s+)(?:on|qui|què|quin(?:a|s|es)?|quan|quant(?:a|s|es)?)(?=\s|[?!,]|$)/u.test(start)
             ? 'fall' : 'rise';
     }
 

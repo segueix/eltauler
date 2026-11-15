@@ -1683,6 +1683,36 @@ describe('Integració de la retransmissió a dues veus', () => {
         expect(js).toContain('controller.setDuo(ev.target.checked)');
         expect(js).toContain('spokenTurns(planned)');
     });
+    test('es pot reactivar el duet si la preferència desada era desactivada', () => {
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+        let change;
+        let saved = JSON.stringify({ duo: false, voice: 'off' });
+        const checkbox = { checked: false, addEventListener(event, handler) { if (event === 'change') change = handler; } };
+        const screen = { style: { display: 'none' }, classList: { toggle() {} } };
+        const context = vm.createContext({
+            Chess, Audio: function Audio() {},
+            ElTaulerVeuNeural: require('../veuneural'),
+            Worker: class { addEventListener() {} postMessage() {} terminate() {} },
+            document: {
+                getElementById(id) { return { 'sftv-screen': screen, 'sftv-duo': checkbox }[id] || null; },
+                addEventListener() {}, visibilityState: 'visible'
+            },
+            localStorage: { getItem: () => saved, setItem: (key, value) => { saved = value; } },
+            setTimeout: () => 1, clearTimeout() {}
+        });
+        vm.runInContext(fs.readFileSync(require.resolve('../stockfishtv'), 'utf8'), context);
+        const tv = context.ElTaulerStockfishTV;
+        tv.init();
+        tv.open();
+        expect(checkbox.checked).toBe(false);
+        for (const checked of [true, false]) {
+            checkbox.checked = checked;
+            change({ target: checkbox });
+            expect(JSON.parse(saved).duo).toBe(checked);
+            expect(checkbox.checked).toBe(checked);
+        }
+    });
 });
 
 // ---------------------------------------------------------------------------
