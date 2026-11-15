@@ -269,9 +269,11 @@ describe('fets correctes i prudència', () => {
             simulateFixture(game).forEach((r) => {
                 if (!r.comment) return;
                 expect(r.comment).not.toMatch(forbidden);
-                // «Guanyar», «perdre» o «guanyadora» només quan ho diu l'anàlisi
-                // (o quan la partida ja ha acabat).
-                if (/guany|\bperd/.test(r.comment) && !/Guanyen les/.test(r.comment)) expect(r.comment).toMatch(/anàlisi/);
+                // Guanyar la qualitat després dels canvis descriu material
+                // que ja és al tauler. Les prediccions sí que demanen anàlisi.
+                const withoutMaterial = r.comment.replace(/han guanyat la qualitat \(torre per (?:alfil|cavall)\)/gi, '');
+                if (/guany|\bperd/.test(withoutMaterial) && !/Guanyen les/.test(r.comment))
+                    expect(r.comment).toMatch(/anàlisi/);
             });
         });
     });

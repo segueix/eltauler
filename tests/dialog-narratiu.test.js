@@ -28,20 +28,20 @@ test('el reforç defensiu respon al mateix peó anunciat a la jugada anterior', 
     expect(defence.dialogueEvent).toBe('defence');
     expect(defence.dialogue[0].text).toMatch(/pressió sobre el peó negre/);
     expect(defence.dialogue[0].text).not.toMatch(/\b[a-h][1-8]\b/);
-    expect(defence.dialogue[1].text).toMatch(/dues peces.*una/);
+    expect(defence.dialogue[1].text).toMatch(/hi pot recapturar/);
     const speech = TV.tvDialogueTurns({ ...defence, speech: defence.speech }, false);
     expect(speech[0].text).not.toContain('?');
-    expect(speech[1].text).toContain('dues peces');
+    expect(speech[1].text).toContain('hi pot recapturar');
 });
 
 test('Stockfish només compara dues variants legals de la mateixa posició i profunditat', () => {
     const startFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-    const moves = ['a2a3', 'a7a6', 'h2h3', 'h7h6', 'b2b3', 'b7b6', 'g2g3', 'g7g6', 'c2c3'];
+    const moves = ['a2a3', 'a7a6', 'h2h3', 'h7h6', 'b2b3', 'b7b5', 'g2g3', 'g7g6', 'c2c3'];
     const chess = new Chess(startFen);
     for (const uci of moves.slice(0, -1)) chess.move({ from: uci.slice(0, 2), to: uci.slice(2) });
     const fen = chess.fen();
     function simulate(change) {
-        const analysis = Object.assign({ depth: 14, type: 'cp', value: -70, pv: ['c2c4', 'd7d5'] }, change);
+        const analysis = Object.assign({ depth: 14, type: 'cp', value: -70, pv: ['c2c4', 'b5c4'] }, change);
         const analyses = { 8: { fen: fen, bestUci: 'c2c3', infos: {
             1: { depth: 14, type: 'cp', value: 50, pv: ['c2c3', 'd7d6'] }, 2: analysis
         } } };
@@ -54,7 +54,8 @@ test('Stockfish només compara dues variants legals de la mateixa posició i pro
     expect(row.dialogue[0].text).toMatch(/I si haguessin triat avançar el peó d’alfil de dama dues caselles\?/);
     // En Grau no diu caselles: explica la intenció de l'alternativa i de la resposta.
     expect(row.dialogue[1].text).not.toMatch(/\b[a-h][1-8]\b/);
-    expect(row.dialogue[1].text).toMatch(/espai al centre/);
+    expect(row.dialogue[1].text).toMatch(/captur/);
+    expect(simulate({ pv: ['c2c4', 'd7d5'] }).dialogueEvent).not.toBe('variant');
     expect(simulate({ depth: 13 }).dialogueEvent).not.toBe('variant');
     expect(simulate({ pv: ['c2c4', 'h7h6'] }).dialogueEvent).not.toBe('variant');
 });
@@ -74,15 +75,21 @@ test.each([
     }
 });
 
-test('l’Èlia obre amb una pregunta sobre el moviment i en Grau explica el fet del tauler', () => {
-    const [row] = TV.tvSimulateCommentary(Chess, { moves: ['e2e4'], prepared: 1 });
-    expect(row.dialogueEvent).toBe('move');
-    const [presenter, analyst] = TV.tvDialogueTurns(row, true);
-    expect(presenter.voiceId).toBe('matxa:central:elia');
-    expect(presenter.text).toMatch(/Les blanques avancen el peó de rei dues caselles\..*\?/);
-    expect(analyst.voiceId).toBe('matxa:central:grau');
-    expect(analyst.text).toContain('centre');
-    expect(row.maxim).toBeNull();
+test('només hi ha diàleg sobre una jugada quan en Grau hi pot explicar una conseqüència tàctica', () => {
+    const [opening] = TV.tvSimulateCommentary(Chess, { moves: ['e2e4'], prepared: 1 });
+    expect(opening.dialogue).toBeNull();
+    const [capture] = TV.tvSimulateCommentary(Chess, {
+        startFen: '3rk3/8/8/3n4/3R4/8/8/4K3 w - - 0 1', moves: ['d4d5']
+    });
+    expect(capture.dialogueEvent).toBe('move');
+    expect(capture.dialogue[0].text).not.toMatch(/\\b[a-h][1-8]\\b/);
+    expect(capture.dialogue[1].text).toMatch(/recaptura legal/);
+    expect(capture.dialogue[1].text).not.toMatch(/\\b[a-h][1-8]\\b/);
+    const [pinned] = TV.tvSimulateCommentary(Chess, {
+        startFen: '4r2k/8/8/8/8/2b1R3/3P4/4K3 w - - 0 1', moves: ['e3e2']
+    });
+    expect(pinned.candidates).toContain('defend');
+    expect(pinned.dialogue).toBeNull();
 });
 
 test('un rei que es limita a canviar de lloc no provoca una pregunta sense resposta', () => {
