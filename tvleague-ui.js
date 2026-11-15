@@ -63,7 +63,9 @@
         const baseSig = state.caps && tv && typeof tv.tvCapsSignature === 'function'
             ? tv.tvCapsSignature(state.caps) : null;
         const engineName = state.caps ? String(state.caps.engineName || 'Stockfish desconegut').slice(0, 55) : '';
-        const signature = baseSig ? (baseSig + '@' + engineName).slice(0, 80) : null;
+        const untilMate = !!(state.game && state.game.matchPlan && state.game.matchPlan.untilMate);
+        const mode = untilMate ? 'mat@' : '';
+        const signature = baseSig ? (mode + baseSig + '@' + engineName).slice(0, 80) : null;
         const duel = !!(state.game && state.game.matchPlan && !state.duelWarning && signature);
         panel.hidden = !signature || !!state.duelWarning;
         if (!signature) return;

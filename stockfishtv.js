@@ -196,6 +196,9 @@
         NEXT_GAME_DELAY_MS: 10000,
         // Límit de durada de la TV (en semijugades): taules si s'hi arriba.
         MAX_PLIES: 200,
+        MATE_MAX_PLIES: 300,
+        MATE_DEPTH: 6,
+        MATE_MOVETIME_MS: 70,
         // Abandonament, com en una partida humana: si l'anàlisi a força plena
         // dona aquest avantatge (o un mat) al mateix bàndol durant RESIGN_PLIES
         // semijugades seguides, a partir de RESIGN_MIN_PLY, el bàndol que perd
@@ -547,6 +550,35 @@
         return caps.mode + ':' + caps.min + '-' + caps.max;
     }
 
+    // Línies amb mat en totes dues assignacions de colors a la prova inicial.
+    const TV_MATE_OPENINGS = [
+        { eco: 'B33', name: 'Siciliana Sveshnikov', moves: ['e4', 'c5', 'Nf3', 'Nc6', 'd4', 'cxd4', 'Nxd4', 'Nf6', 'Nc3', 'e5'] },
+        { eco: 'C39', name: 'Gambit de rei acceptat', moves: ['e4', 'e5', 'f4', 'exf4', 'Nf3', 'g5', 'h4', 'g4', 'Ne5', 'Nf6'] },
+        { eco: 'E90', name: 'Defensa índia de rei', moves: ['d4', 'Nf6', 'c4', 'g6', 'Nc3', 'Bg7', 'e4', 'd6', 'Nf3', 'O-O'] }
+    ];
+
+    function tvMateSeries(value) {
+        const series = value || {};
+        return {
+            index: Number.isInteger(series.index) && series.index >= 0 ? series.index % TV_MATE_OPENINGS.length : 0,
+            returnColor: series.returnColor === 'w' || series.returnColor === 'b' ? series.returnColor : null
+        };
+    }
+
+    function tvMateMatch(series, random) {
+        const lozzaColor = series.returnColor || (random() < 0.5 ? 'w' : 'b');
+        return {
+            untilMate: true,
+            index: series.index,
+            rematch: !!series.returnColor,
+            lozzaColor: lozzaColor,
+            engines: { w: lozzaColor === 'w' ? 'lozza' : 'stockfish', b: lozzaColor === 'b' ? 'lozza' : 'stockfish' },
+            depth: TV_CONFIG.MATE_DEPTH,
+            movetime: TV_CONFIG.MATE_MOVETIME_MS,
+            reason: series.returnColor ? 'Fins al mat · Revenja amb els colors intercanviats.' : 'Fins al mat · Primera partida de la parella.'
+        };
+    }
+
     function tvNormalizePrefs(raw) {
         const p = (raw && typeof raw === 'object') ? raw : {};
         const voice = (p.voice === 'on' || p.voice === 'off') ? p.voice : null;
@@ -556,7 +588,8 @@
             Object.keys(p.offsets).forEach((k) => { if (isNum(p.offsets[k])) offsets[k] = Math.round(p.offsets[k]); });
         }
         const openingIndex = isNum(p.openingIndex) ? Math.max(0, Math.floor(p.openingIndex)) : null;
-        return { voice: voice, speed: speed, duo: p.duo !== false, offsets: offsets, openingIndex: openingIndex, unequal: p.unequal !== false, profiles: p.profiles !== false, engine: tvEngineId(p.engine), recent: tvRecentResults(p.recent) };
+        return { voice: voice, speed: speed, duo: p.duo !== false, offsets: offsets, openingIndex: openingIndex, unequal: p.unequal !== false, profiles: p.profiles !== false, engine: tvEngineId(p.engine), recent: tvRecentResults(p.recent),
+            untilMate: p.untilMate === true, mateSeries: tvMateSeries(p.mateSeries), mateRecent: tvRecentResults(p.mateRecent) };
     }
 
     function tvResolveTarget(caps, viewer, prefs) {
@@ -3569,7 +3602,10 @@
                 duo: prefs.duo,
                 unequal: prefs.unequal,
                 profiles: prefs.profiles,
-                recentResults: S.caps ? tvRivalryHistory(prefs.recent, S.caps) : prefs.recent.slice(),
+                untilMate: prefs.untilMate,
+                lozzaReady: S.lozzaReady,
+                recentResults: g && g.matchPlan && g.matchPlan.untilMate ? prefs.mateRecent.slice()
+                    : S.caps ? tvRivalryHistory(prefs.recent, S.caps) : prefs.recent.slice(),
                 duelWarning: S.duelWarning,
                 movePreview: S.movePreview ? Object.assign({}, S.movePreview) : null,
                 voiceHold: S.voiceHold ? Object.assign({}, S.voiceHold) : null,
@@ -3631,18 +3667,23 @@
             // aviat: les partides es decideixen abans sense tocar el nivell.
             const v = viewer();
             const target = tvResolveTarget(S.caps, v, prefs);
-            const duel = S.lozzaReady ? tvMatchPlan(tvRivalryHistory(prefs.recent, S.caps), {
+            const untilMate = S.lozzaReady && prefs.untilMate;
+            const duel = untilMate ? tvMateMatch(prefs.mateSeries, random)
+                : S.lozzaReady ? tvMatchPlan(tvRivalryHistory(prefs.recent, S.caps), {
                 caps: S.caps, target: target.value, unequal: prefs.unequal,
                 gameSeq: S.gameSeq, random: random
             }) : null;
-            const pick = tvPickOpening(typeof d.getOpenings === 'function' ? d.getOpenings() : [],
+            const pick = untilMate ? { opening: TV_MATE_OPENINGS[duel.index] }
+                : tvPickOpening(typeof d.getOpenings === 'function' ? d.getOpenings() : [],
                 prefs.openingIndex !== null ? prefs.openingIndex : Math.floor(random() * 1000),
                 { sharp: duel ? duel.sharp : S.gameSeq % 2 === 0 });
-            prefs = Object.assign({}, prefs, { openingIndex: pick.nextIndex });
-            savePrefs();
+            if (!untilMate) {
+                prefs = Object.assign({}, prefs, { openingIndex: pick.nextIndex });
+                savePrefs();
+            }
             S.control = null;
             const levels = duel ? null : tvGameLevels(S.caps, target.value, prefs.unequal, random);
-            const styles = prefs.profiles && S.caps && S.caps.mode !== 'none' ? tvPickStyles(random) : null;
+            const styles = !untilMate && prefs.profiles && S.caps && S.caps.mode !== 'none' ? tvPickStyles(random) : null;
             S.game = {
                 id: ++S.gameSeq,
                 chess: new d.ChessCtor(),
@@ -3652,8 +3693,9 @@
                 // triat; `sides`, el de cada jugador (diferents amb nivells desiguals).
                 level: { value: target.value, sides: levels && levels.stronger ? { w: levels.w, b: levels.b } : null,
                     stronger: levels ? levels.stronger : null,
-                    label: duel ? tvLevelLabel(S.caps, target.value) : tvGameLevelLabel(S.caps, levels, target.value),
-                    reveal: duel ? 'Stockfish: ' + tvLevelLabel(S.caps, duel.stockfishLevel).long
+                    label: untilMate ? { short: 'Fins al mat', long: 'Fins al mat' }
+                        : duel ? tvLevelLabel(S.caps, target.value) : tvGameLevelLabel(S.caps, levels, target.value),
+                    reveal: untilMate ? null : duel ? 'Stockfish: ' + tvLevelLabel(S.caps, duel.stockfishLevel).long
                         + '. Lozza: profunditat ' + duel.lozzaDepth + ' (no és un Elo comparable).' : tvLevelReveal(S.caps, levels),
                     mode: S.caps ? S.caps.mode : 'none', stockfish: duel ? duel.stockfishLevel : null },
                 engines: duel ? duel.engines : { w: 'stockfish', b: 'stockfish' },
@@ -3687,8 +3729,8 @@
                 const intro = I.scene({
                     gameSeq: S.game.id, duel: duel,
                     preparedPlies: S.game.prepared.length,
-                    sharpOpening: tvIsSharpOpening(pick.opening),
-                    strengthAdjusted: !!(prefs.unequal && S.caps &&
+                    sharpOpening: untilMate || tvIsSharpOpening(pick.opening),
+                    strengthAdjusted: !!(!untilMate && prefs.unequal && S.caps &&
                         (S.caps.mode === 'elo' || S.caps.mode === 'skill')),
                     styles: styles
                 });
@@ -3799,29 +3841,42 @@
             });
         }
 
-        function playerMove(g, uciMoves, ply, fen, epoch) {
+        async function playerMove(g, uciMoves, ply, fen, epoch) {
             const color = String(fen).split(' ')[1] === 'b' ? 'b' : 'w';
             const lozzaTurn = g.engines && g.engines[color] === 'lozza';
             const engine = lozzaTurn ? d.lozzaEngine : d.engine;
-            if (!engine) return Promise.resolve(null);
+            if (!engine) return null;
+            const mate = g.matchPlan && g.matchPlan.untilMate ? g.matchPlan : null;
             const mode = S.caps ? S.caps.mode : 'none';
-            const movetime = lozzaTurn ? g.matchPlan.lozzaMovetime : TV_CONFIG.PLAYER_MOVETIME_MS[mode] || 500;
+            const movetime = mate ? mate.movetime : lozzaTurn ? g.matchPlan.lozzaMovetime : TV_CONFIG.PLAYER_MOVETIME_MS[mode] || 500;
             const style = !lozzaTurn && g.styles ? g.styles[color] : null;
-            return engine.request({
+            const job = {
                 tag: { gameId: g.id, ply: ply, fen: fen, kind: 'move', engine: lozzaTurn ? 'lozza' : 'stockfish' },
                 position: tvPositionCommand(uciMoves),
-                strength: lozzaTurn ? [] : tvStrengthCommands(S.caps, 'player',
+                strength: lozzaTurn ? [] : tvStrengthCommands(S.caps, mate ? 'analysis' : 'player',
                     g.matchPlan ? g.matchPlan.stockfishLevel : tvSideLevel(g.level, fen)),
                 multipv: style ? TV_CONFIG.STYLE_MULTIPV : 1,
                 // Lozza no declara Skill Level ni UCI_Elo. La profunditat és un
                 // límit de càlcul, mai una valoració d'Elo equivalent.
-                go: lozzaTurn ? 'go depth ' + g.matchPlan.lozzaDepth + ' movetime ' + movetime
+                go: mate || lozzaTurn ? 'go depth ' + (mate ? mate.depth : g.matchPlan.lozzaDepth) + ' movetime ' + movetime
                     : 'go movetime ' + movetime,
                 movetime: movetime
-            }).then((res) => {
-                if (!res || !alive(epoch) || S.game !== g) return null;
-                return style ? tvPickStyledMove(d.ChessCtor, fen, res.infos, res.bestUci, style).uci : res.bestUci;
-            });
+            };
+            let res = await engine.request(job);
+            if (!alive(epoch) || S.game !== g) return null;
+            if (mate && res && !res.bestUci) {
+                // A movetime molt curt el motor pot retornar «bestmove NULL».
+                // Fem una segona cerca acotada en profunditat amb el mateix motor.
+                res = await engine.request({ ...job, go: 'go depth 4', movetime: 250 });
+                if (!alive(epoch) || S.game !== g) return null;
+                if (!res || !res.bestUci) { fail('engine'); return null; }
+            }
+            if (!res) return null;
+            return style ? tvPickStyledMove(d.ChessCtor, fen, res.infos, res.bestUci, style).uci : res.bestUci;
+        }
+
+        function gameEnd(g, chess) {
+            return tvGameEnd(chess, g.matchPlan && g.matchPlan.untilMate ? TV_CONFIG.MATE_MAX_PLIES : TV_CONFIG.MAX_PLIES);
         }
 
         async function runLoop(epoch) {
@@ -3868,7 +3923,7 @@
                 // l'espera) i així la veu es pot preparar mentre es veu la jugada
                 // anterior: quan surti la jugada, l'àudio ja hi és.
                 // Amb control manual l'usuari decideix quan s'acaba: el motor no abandona per ell.
-                const resign = S.control ? null : tvResignStep(g.resign, after, ply + 1, tvResignThresholdCp(S.caps, g.level.value));
+                const resign = S.control || (g.matchPlan && g.matchPlan.untilMate) ? null : tvResignStep(g.resign, after, ply + 1, tvResignThresholdCp(S.caps, g.level.value));
                 const plan = planMove(g, uci, fenBefore, prepared, before, after, resign);
                 if (!plan) { fail('illegal'); return; }
                 if (plan.chosen && d.voice && typeof d.voice.prefetch === 'function') {
@@ -3927,7 +3982,7 @@
             const mv = copy.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : 'q' });
             if (!mv) return null;
             const fenAfter = copy.fen();
-            const end = tvGameEnd(copy) || (resign && resign.end) || null;
+            const end = gameEnd(g, copy) || (resign && resign.end) || null;
             // La memòria de la retransmissió només s'actualitza quan la jugada
             // es mostra de debò (reveal): si una pausa descarta aquest pla, la
             // memòria visible continua intacta.
@@ -4027,10 +4082,15 @@
                 g.recorded = true;
                 const winningColor = g.end.result === '1-0' ? 'w' : g.end.result === '0-1' ? 'b' : null;
                 const winner = winningColor ? g.engines[winningColor] : 'draw';
-                prefs = Object.assign({}, prefs, { recent: tvRecentResults(prefs.recent.concat([{
-                    winner: winner, lozzaColor: g.matchPlan.lozzaColor, sig: tvCapsSignature(S.caps),
-                    plies: g.moves.length, reason: g.end.reason
-                }])) });
+                const plan = g.matchPlan;
+                const record = { winner: winner, lozzaColor: plan.lozzaColor, sig: tvCapsSignature(S.caps),
+                    plies: g.moves.length, reason: g.end.reason };
+                if (plan.untilMate) {
+                    const series = plan.rematch ? { index: plan.index + 1 } : { index: plan.index, returnColor: other(plan.lozzaColor) };
+                    prefs = Object.assign({}, prefs, { mateSeries: tvMateSeries(series), mateRecent: tvRecentResults(prefs.mateRecent.concat(record)) });
+                } else {
+                    prefs = Object.assign({}, prefs, { recent: tvRecentResults(prefs.recent.concat(record)) });
+                }
                 savePrefs();
             }
             if (S.speech) {
@@ -4162,6 +4222,11 @@
                 savePrefs();
                 render();
             },
+            setUntilMate(on) {
+                prefs = Object.assign({}, prefs, { untilMate: !!on });
+                savePrefs();
+                render();
+            },
             // Perfils de joc: s'aplica a la PARTIDA SEGÜENT.
             setProfiles(on) {
                 prefs = Object.assign({}, prefs, { profiles: !!on });
@@ -4249,7 +4314,7 @@
                 const entry = commitMove(g, uci, null, { ply: g.moves.length, end: null, chosen: null, memory: g.memory }, true);
                 if (!entry) return false;
                 // Final de partida amb tot l'historial (repetició inclosa).
-                g.end = tvGameEnd(g.chess);
+                g.end = gameEnd(g, g.chess);
                 S.pendingUser = true;
                 notify('move', { gameId: g.id, move: entry, comment: null });
                 render();
@@ -4807,9 +4872,11 @@
         const caps = state.caps;
         const g = state.game;
         const levelText = g ? g.level.label.short : '—';
+        const mate = g && g.matchPlan && g.matchPlan.untilMate ? g.matchPlan : null;
+        const nextMate = state.lozzaReady && state.untilMate;
         const mine = (color) => !!(state.control && state.control.color === color);
         // Amb nivells desiguals, el nivell de cada bàndol només es veu en acabar.
-        const sideText = (color) => g && g.matchPlan
+        const sideText = (color) => mate ? 'profunditat màxima ' + mate.depth : g && g.matchPlan
             ? (g.engines[color] === 'lozza' ? 'profunditat ' + g.matchPlan.lozzaDepth
                 : tvLevelLabel(caps, g.matchPlan.stockfishLevel).short)
             : g && g.end && g.level.sides ? tvLevelLabel(caps, g.level.sides[color]).short : levelText;
@@ -4844,16 +4911,28 @@
         const help = $id('sftv-level-help');
         const easy = $id('sftv-too-easy');
         const hard = $id('sftv-too-hard');
-        if (cur) cur.textContent = g
-            ? (g.matchPlan ? 'Objectiu Stockfish: ' + g.level.label.long + '. Lozza juga amb profunditat limitada, sense Elo equiparable.'
+        if (cur) cur.textContent = mate
+            ? 'Fins al mat · fins a ' + mate.depth + ' semijugades i ' + mate.movetime + ' ms de cerca per a cada motor.'
+            : g ? (g.matchPlan ? 'Objectiu Stockfish: ' + g.level.label.long + '. Lozza juga amb profunditat limitada, sense Elo equiparable.'
                 + (g.end && g.level.reveal ? ' ' + g.level.reveal : '')
                 : 'Aquesta partida: ' + g.level.label.long + (caps && caps.mode !== 'none' && !g.level.sides ? ' (tots dos jugadors)' : '')
                     + (g.end && g.level.reveal ? '. ' + g.level.reveal : ''))
             : 'Preparant els motors…';
+        const untilMate = $id('sftv-until-mate');
+        if (untilMate) {
+            untilMate.checked = state.untilMate;
+            untilMate.disabled = !state.lozzaReady;
+        }
         const unequal = $id('sftv-unequal');
-        if (unequal && document.activeElement !== unequal) unequal.checked = state.unequal !== false;
+        if (unequal) {
+            unequal.checked = state.unequal !== false;
+            unequal.disabled = !!nextMate;
+        }
         const profiles = $id('sftv-profiles');
-        if (profiles && document.activeElement !== profiles) profiles.checked = state.profiles !== false;
+        if (profiles) {
+            profiles.checked = state.profiles !== false;
+            profiles.disabled = !!nextMate;
+        }
         const stylesBox = $id('sftv-styles');
         if (stylesBox) {
             const st = g && g.styles;
@@ -4864,19 +4943,23 @@
             stylesBox.style.display = st ? '' : 'none';
         }
         if (next) {
-            const pending = caps && caps.mode !== 'none' && g && state.nextLevel !== null && state.nextLevel !== g.level.value;
+            const modeChanged = g && !!mate !== !!nextMate;
+            const levelChanged = !nextMate && caps && caps.mode !== 'none' && g && state.nextLevel !== null && state.nextLevel !== g.level.value;
             const nextText = $id('sftv-level-next-text');
-            if (nextText) nextText.textContent = pending ? 'Partida següent: ' + tvLevelLabel(caps, state.nextLevel).long + '.' : '';
-            next.style.display = pending ? '' : 'none';
+            if (nextText) nextText.textContent = modeChanged ? (nextMate ? 'Partida següent en mode Fins al mat.' : 'Partida següent en mode habitual.')
+                : levelChanged ? 'Partida següent: ' + tvLevelLabel(caps, state.nextLevel).long + '.' : '';
+            next.style.display = modeChanged || levelChanged ? '' : 'none';
         }
-        renderLadder(state);
+        renderLadder(state, nextMate);
         const rivalry = $id('sftv-rivalry');
         if (rivalry) {
             const recent = state.recentResults || [];
             const wins = { stockfish: 0, lozza: 0, draw: 0 };
             recent.forEach(x => { if (Object.prototype.hasOwnProperty.call(wins, x.winner)) wins[x.winner]++; });
+            const mats = recent.filter(result => result.reason === 'checkmate').length;
             rivalry.textContent = 'Últimes ' + recent.length + ' partides: Stockfish ' + wins.stockfish
                 + ' · Lozza ' + wins.lozza + ' · Taules ' + wins.draw + '.'
+                + (mate && recent.length ? ' Mats: ' + mats + ' de ' + recent.length + '.' : '')
                 + (g && g.matchPlan ? ' ' + g.matchPlan.reason : '');
             rivalry.style.display = state.duelWarning ? 'none' : '';
         }
@@ -4884,9 +4967,9 @@
             let text = '';
             if (caps && caps.mode === 'elo') text = 'És un objectiu de força configurat al motor (UCI_Elo ' + caps.min + '–' + caps.max + '). Stockfish el calibra amb l\'Elo CCRL de partides ràpides entre motors: no és una equivalència garantida amb l\'Elo FIDE.';
             else if (caps) text = tvCompatibilityNote(caps) || '';
-            help.textContent = text;
+            help.textContent = nextMate ? '' : text;
         }
-        const adjustable = !!(caps && caps.mode !== 'none');
+        const adjustable = !nextMate && !!(caps && caps.mode !== 'none');
         if (easy) easy.disabled = !adjustable || state.nextLevel === null || state.nextLevel >= caps.max;
         if (hard) hard.disabled = !adjustable || state.nextLevel === null || state.nextLevel <= caps.min;
         const viewerNote = $id('sftv-viewer-note');
@@ -4896,19 +4979,19 @@
             if (!v.known) t = 'Encara no tenim el teu nivell: comencem pel mínim de la TV, amb explicacions senzilles i ritme pausat.';
             else if (v.belowEngineMin) t = 'El motor no juga més fluix que aquest mínim: per això els comentaris són més senzills i el ritme més pausat.';
             viewerNote.textContent = t;
-            viewerNote.style.display = t ? '' : 'none';
+            viewerNote.style.display = t && !nextMate ? '' : 'none';
         }
     }
 
     let ladderSignature = null;
-    function renderLadder(state) {
+    function renderLadder(state, untilMate) {
         const caps = state.caps;
         const ladder = $id('sftv-ladder');
         const range = $id('sftv-level-range');
         const scaleBox = $id('sftv-ladder-scale');
         const value = $id('sftv-ladder-value');
         if (!ladder || !range || !scaleBox) return;
-        const scale = tvLevelScale(caps);
+        const scale = untilMate ? [] : tvLevelScale(caps);
         ladder.style.display = scale.length ? '' : 'none';
         if (!scale.length) return;
         const sig = tvCapsSignature(caps);
@@ -5087,7 +5170,8 @@
             el.innerHTML = '<div class="sftv-result-head">' + escapeHtml(tvResultHeadline(g.end)) + '</div>'
                 + '<div class="sftv-result-text">' + escapeHtml(g.end.text) + '</div>'
                 + (g.level && g.level.reveal ? '<div class="sftv-result-reveal">' + escapeHtml(g.level.reveal) + '</div>' : '')
-                + (g.matchPlan ? '<div class="sftv-result-reveal">Adaptació de la rivalitat: ' + escapeHtml(g.matchPlan.reason) + '</div>' : '')
+                + (g.matchPlan ? '<div class="sftv-result-reveal">' +
+                    (g.matchPlan.untilMate ? '' : 'Adaptació de la rivalitat: ') + escapeHtml(g.matchPlan.reason) + '</div>' : '')
                 + '<div class="sftv-result-next">' + (left !== null ? 'La partida següent comença d\'aquí a ' + left + ' s.'
                     : (state.control ? 'Control manual: tira enrere o torna el control al motor.' : (state.paused ? 'En pausa.' : ''))) + '</div>';
         };
@@ -5264,7 +5348,8 @@
             getOpenings: () => { try { return typeof bridge.getCuratedOpenings === 'function' ? bridge.getCuratedOpenings() : []; } catch (e) { return []; } },
             getOpeningGraph: () => { try { return typeof bridge.getOpeningGraph === 'function' ? bridge.getOpeningGraph() : null; } catch (e) { return null; } },
             loadPrefs: loadPrefsRaw,
-            savePrefs: (p) => savePrefsRaw({ speed: p.speed, offsets: p.offsets, openingIndex: p.openingIndex, unequal: p.unequal, profiles: p.profiles, recent: p.recent })
+            savePrefs: (p) => savePrefsRaw({ speed: p.speed, offsets: p.offsets, openingIndex: p.openingIndex, unequal: p.unequal,
+                profiles: p.profiles, recent: p.recent, untilMate: p.untilMate, mateSeries: p.mateSeries, mateRecent: p.mateRecent })
         });
         return controller;
     }
@@ -5344,6 +5429,7 @@
         on('sftv-board', 'click', onBoardClick);
         on('sftv-promo', 'click', onPromoClick);
         on('sftv-too-easy', 'click', () => { if (controller) controller.adjust('harder'); });
+        on('sftv-until-mate', 'change', ev => { if (controller) controller.setUntilMate(ev.target.checked); });
         on('sftv-unequal', 'change', (ev) => { if (controller) controller.setUnequal(ev.target.checked); });
         on('sftv-profiles', 'change', (ev) => { if (controller) controller.setProfiles(ev.target.checked); });
         on('sftv-level-range', 'input', (ev) => { if (controller) controller.setNextLevel(Number(ev.target.value)); });

@@ -100,6 +100,86 @@ describe('Stockfish vs Lozza TV · flux real del controlador', () => {
     expect(sf.destroyed).toBe(1);
     expect(lz.destroyed).toBe(1);
   });
+  test('Fins al mat aplica el mateix límit de cerca i completa la parella amb els colors intercanviats', async () => {
+    const sf = mockEngine('stockfish', []), lz = mockEngine('lozza', []);
+    const lozzaLookup = lz.request.bind(lz);
+    let retried = false;
+    lz.request = (job) => {
+      if (!retried && job.tag.kind === 'move' && job.go === 'go depth 6 movetime 70') {
+        retried = true;
+        lz.jobs.push(job);
+        return Promise.resolve({ bestUci: null, infos: {} });
+      }
+      return lozzaLookup(job);
+    };
+    const ctl = TV.createTvController({
+      ChessCtor: Chess, engine: sf, lozzaEngine: lz, random: () => 0.2,
+      loadPrefs: () => ({ speed: 'quick' }), getViewer: () => ({ calibrated: true, roc: 1400 })
+    });
+    await ctl.open();
+    ctl.setUntilMate(true);
+    expect(ctl.state().game.matchPlan.untilMate).toBeUndefined();
+    ctl.newGame();
+    const first = ctl.state().game;
+    expect(first.matchPlan).toEqual(expect.objectContaining({ untilMate: true, rematch: false, depth: 6, movetime: 70 }));
+    expect(first.styles).toBeNull();
+    const start = jest.now();
+    while (ctl.state().game.id === first.id && jest.now() - start < 1500000) {
+      await jest.advanceTimersByTimeAsync(1000);
+    }
+    const second = ctl.state().game;
+    expect(second.matchPlan).toEqual(expect.objectContaining({ untilMate: true, rematch: true, depth: 6, movetime: 70 }));
+    expect(second.opening).toEqual(first.opening);
+    expect(second.engines).toEqual({ w: first.engines.b, b: first.engines.w });
+    expect(ctl.prefs().recent).toHaveLength(0);
+    expect(ctl.prefs().mateRecent).toHaveLength(1);
+    const search = 'go depth 6 movetime 70';
+    for (const motor of [sf, lz]) {
+      expect(motor.jobs.some(j => j.tag.kind === 'move' && j.go === search && j.multipv === 1)).toBe(true);
+    }
+    expect(lz.jobs.some(j => j.go === 'go depth 4')).toBe(true);
+    expect(sf.jobs.filter(j => j.tag.kind === 'move' && j.go === search).every(j => j.strength.includes('setoption name Skill Level value 20'))).toBe(true);
+    ctl.close();
+  });
+
+  test('Fins al mat continua després del llindar d’abandonament amb una valoració decisiva', async () => {
+    const line = require('./fixtures/tv-games.json').games[0].moves;
+    const sf = mockEngine('stockfish', line), lz = mockEngine('lozza', line);
+    const baseRequest = sf.request.bind(sf);
+    sf.request = async job => {
+      const res = await baseRequest(job);
+      if (job.tag.kind === 'analysis' && res.infos[1]) {
+        const black = job.tag.fen.split(' ')[1] === 'b';
+        res.infos[1].value = black ? -1400 : 1400;
+      }
+      return res;
+    };
+    const ctl = TV.createTvController({
+      ChessCtor: Chess, engine: sf, lozzaEngine: lz, random: () => 0.2,
+      loadPrefs: () => ({ speed: 'quick', untilMate: true }), getViewer: () => ({ calibrated: true, roc: 1400 })
+    });
+    await ctl.open();
+    ctl.pause();
+    const g = ctl._internal.game;
+    const min = TV.TV_CONFIG.RESIGN_MIN_PLY;
+    const streak = TV.TV_CONFIG.RESIGN_PLIES;
+    const prior = line.slice(0, min);
+    g.uci = prior.slice();
+    g.moves = prior.map((u, ply) => {
+      const mv = g.chess.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] || 'q' });
+      expect(mv).not.toBeNull();
+      return { ply, verbose: mv };
+    });
+    g.resign = { side: 'w', plies: streak };
+    expect(TV.tvResignStep(g.resign, { reliable: true, best: { type: 'cp', value: 1400 } }, min + 1, 700).end.reason).toBe('resign');
+    ctl.resume();
+    await jest.advanceTimersByTimeAsync(12000);
+    expect(ctl.state().game.id).toBe(g.id);
+    expect(ctl.state().game.moves.length).toBeGreaterThan(min);
+    expect(ctl.state().game.end).toBeNull();
+    ctl.close();
+  });
+
   test('si Lozza falla, Stockfish és el motor dels dos bàndols i s’avisa', async () => {
     const sf = mockEngine('stockfish', fools);
     const lozza = mockEngine('lozza-offline', fools);

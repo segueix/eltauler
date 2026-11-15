@@ -67,7 +67,6 @@ describe('Campionat local Stockfish vs Lozza', () => {
         expect(js).toContain('ElTaulerTvLeagueUI.update(state)');
         expect(ui).toContain('game.end && game.recorded && !game.hadManualControl');
         expect(html).toContain('id="sftv-predict"');
-        expect(html).toContain('tvleague-ui.js?v=1.0.0');
         // Importa els mòduls abans de la TV sense fixar una versió de cache-busting.
         const leagueScript = html.indexOf('<script src="tvleague.js?v=');
         const leagueUiScript = html.indexOf('<script src="tvleague-ui.js?v=');
