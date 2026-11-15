@@ -78,7 +78,13 @@ Conduir amb Playwright + Chromium preinstal·lat
     (clicar l'etiqueta pare) i es desa a `tauler_tv_prefs.unequal`. **Perfils
     de joc**: `state().game.styles` (`{ w, b }` amb `attacker`, `wall`,
     `hunter` o `strategist`), els noms als xips dels jugadors i a `#sftv-styles`;
-    interruptor `#sftv-profiles` (`tauler_tv_prefs.profiles`). Per mesurar si es
+    interruptor `#sftv-profiles` (`tauler_tv_prefs.profiles`). **Visió d'en
+    Grau** (`visiograu.js`): els plans surten a `state().game.comment` amb
+    `dialogueEvent` `plan` (i `forecast.san`, la «Línia de Stockfish» de sota
+    el diàleg), i el seguiment amb `forecast-hit` / `forecast-miss`. Amb
+    `tauler_tv_prefs = { voice: 'off', speed: 'quick' }` i Stockfish 19 real,
+    el primer pla arriba en pocs minuts (just després de les 12 jugades
+    preparades). Un navegador nou té nivell bàsic (una parella de jugades). Per mesurar si es
     nota l'estil cal jugar partides senceres amb el motor des de Node
     (`TV.tvPickStyledMove` + `TV.tvMoveFeatures`), no n'hi ha prou amb una.
     **Motor de Stockfish** (`#sftv-engine`, `tauler_tv_prefs.engine`:

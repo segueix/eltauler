@@ -91,3 +91,42 @@ Per exemple, en una seqüència de prova en què el cavall negre arriba a f6 i r
 La comparació d'alternatives reutilitza les dues variants de l'anàlisi de Stockfish que ja es calcula. Cal que surtin de la mateixa posició i profunditat, que la jugada feta sigui una de les dues primeres opcions, que hi hagi una diferència clara de valoració i que es puguin jugar legalment la jugada i la resposta de totes dues línies. Grau explica la resposta prevista com una variant. Si falten dades, es comenta el que es veu al tauler.
 
 Els diàlegs alternen amb les intervencions individuals i les màximes. Amb el duet desactivat, la mateixa veu llegeix la narració i l'explicació. El controlador restaura la memòria en desfer jugades i talla els torns pendents en deixar la posició.
+
+## Fase 9 · La visió d’en Grau: dues o tres jugades endavant
+
+`visiograu.js` (`ElTaulerVisioGrau`) fa que en Grau miri **endavant**. A cada jugada, la TV ja analitza amb Stockfish a plena força la posició nova (MultiPV 2, fins a profunditat 16). En Grau en llegeix la **línia principal** i explica què passarà en les properes dues o tres jugades i **per què**.
+
+### Com es construeix l’explicació
+
+1. **Lectura de la línia.** Es juguen amb chess.js fins a sis semijugades de la variant principal (vuit si cal acabar un canvi de peces). La lectura s’atura a la primera jugada il·legal.
+2. **Fets de cada jugada**, comprovats al tauler *després* de jugar-la: defensa una peça atacada, ataca una peça més valuosa o sense defensa, posa una peça fora de perill, ocupa una columna oberta o semioberta, dobla peces majors, entra a la setena fila, avança un peó passat, apunta al rei, s’instal·la en un lloc avançat, enroca, obre una sortida al rei, ofereix un canvi, controla el centre (només peons i peces menors, i no als finals) o activa el rei als finals. Només aquests fets poden aparèixer com a finalitat («per defensar el peó d’e5»).
+3. **Tema estratègic** de les jugades que en Grau ha narrat (mai de les que no ha dit): material guanyat, sacrifici compensat, atac al rei, peó passat, columnes i setena fila, pressió sobre una peça, iniciativa, guanyar un temps, canvis (segons qui va per davant), oferir canvis, lloc avançat, maniobra, desenvolupament, centre, rei actiu, consolidació o tensió. Si cap bàndol no té cap tema, la fase és tranquil·la.
+4. **Valoració** de Stockfish al final de la línia (equilibrada, lleuger, clar o decisiu), amb els peons per als avançats.
+
+Garanties del material: es compara amb la posició d’abans de la jugada si aquesta era una captura (una recaptura no és cap guany), la línia narrada ha d’acabar quieta i el guany s’ha de mantenir fins al final de tota la línia llegida (una peça penjada a mitja línia no compta). Quan hi ha guany, se n’explica la causa comprovada: la peça queda sense defensa o té més atacants que defensors.
+
+### El diàleg
+
+- **L’Èlia** sempre diu primer la jugada (o el fet que s’hi ha vist, si és breu) i fa una de les 14 preguntes sobre el que ve («Grau, què veu Stockfish per a les properes jugades?», «Cap a on va la partida, Grau?»…).
+- **En Grau** narra la línia: la resposta del rival i la continuació, i una segona parella de jugades (una tercera per als avançats), amb 8 maneres d’obrir-la, 4 de continuar-la i 3 de compactes.
+- **L’Èlia** pregunta per la lògica («I per què aquest camí?», «Quina lògica hi ha darrere?»…) i **en Grau** l’explica amb el tema i la valoració. Si no hi cap, en Grau parla en dos torns seguits; al nivell bàsic, una sola parella de jugades i cap segona pregunta.
+- Amb el duet desactivat, la primera pregunta es converteix en presentació («Mirem què preveu Stockfish.») i la segona queda com a pregunta retòrica.
+- Sota el diàleg, la pantalla mostra la **línia de Stockfish** en notació (per exemple «14…Nf6 15.Re1 O-O 16.d4»), amb l’avís que la partida pot seguir un altre camí.
+
+### El seguiment
+
+La previsió es guarda a la memòria de la retransmissió (`memory.visio`) i es revisa a cada semijugada, encara que la jugada no tingui diàleg:
+
+- **Encert**: quan la partida arriba a la jugada clau del pla tal com s’havia anunciat, l’Èlia ho pregunta («Grau, és la jugada que anunciaves?») i en Grau ho confirma amb el fet comprovat, i hi afegeix la resposta que ara espera Stockfish.
+- **Desviació**: si un bàndol se n’aparta abans de la jugada clau, en Grau diu què esperava Stockfish i, amb les dues anàlisis fiables, què costa: res, una mica o clarament. Les desviacions sense importància només es comenten cada 10 semijugades com a molt.
+- Els fils de conflicte (pressió, amenaces, peons passats…) també miren endavant: si la línia de Stockfish torna a la mateixa casella, en Grau ho avança («Però Stockfish preveu que les blanques hi tornin amb la torre a d1.»).
+
+### Ritme i límits
+
+- Un pla com a molt cada 6 semijugades (8 si tornaria a ser del mateix bàndol), mai just després d’un altre diàleg, ni en jugades preparades, mats, urgències o posicions decidides (més de 6 peons de diferència).
+- Profunditat mínima de 12 i anàlisi de la mateixa posició.
+- Paraules de tot el diàleg: 72 (bàsic), 92 (mitjà), 100 (avançat). La narració de la línia té prioritat sobre la lògica i la valoració.
+- Prioritat dels diàlegs: un fil de conflicte que es resol, el seguiment d’una previsió, la resta de fils, el pla, la comparació de variants i el fet de la jugada.
+- La memòria es restaura en desfer jugades i es reinicia a cada partida. Si el fitxer no carrega, la TV continua amb els diàlegs d’abans; `visio: null` el desactiva.
+
+Proves: `tests/visiograu.test.js`.

@@ -140,6 +140,13 @@
             memory: { ...memory, art: output.memory } };
     }
 
+    // La visió d'en Grau: la línia de Stockfish dues o tres jugades endavant.
+    function getVisioGrau() {
+        if (root && root.ElTaulerVisioGrau) return root.ElTaulerVisioGrau;
+        try { if (typeof require === 'function') return require('./visiograu'); } catch (e) {}
+        return null;
+    }
+
     function getRedactor() {
         if (root && root.ElTaulerRedactor) return root.ElTaulerRedactor;
         try { if (typeof require === 'function') return require('./redactor'); } catch (e) {}
@@ -272,7 +279,7 @@
         const speech = String(c.speech || '').trim();
         if (!speech) return [];
         const single = (voiceId, role) => [{ text: speech, voiceId: voiceId || null, role: role || 'presenter' }];
-        if (Array.isArray(c.dialogue) && c.dialogue.length >= 2 && c.dialogue.length <= 3) {
+        if (Array.isArray(c.dialogue) && c.dialogue.length >= 2 && c.dialogue.length <= 4) {
             return c.dialogue.map(t => ({ text: tvSpeechText(!enabled && t.solo ? t.solo : t.text),
                 voiceId: enabled ? (t.role === 'analyst' ? TV_DUO.analyst : TV_DUO.presenter) : null,
                 role: t.role }));
@@ -906,7 +913,9 @@
     // Temps màxim d'espera d'una locució (si el navegador no avisa del final).
     function tvSpeechMaxWaitMs(text) {
         const words = String(text || '').trim().split(/\s+/).filter(Boolean).length;
-        return clamp(2500 + words * 600, 4000, 20000);
+        // Fins a 30 s: les explicacions d'en Grau sobre la línia de Stockfish
+        // poden passar de 40 paraules en un sol torn.
+        return clamp(2500 + words * 600, 4000, 30000);
     }
 
     // ------------------------------------------------------------------
@@ -1175,7 +1184,8 @@
         if (f.coronacio) return 'coronar el peó a ' + f.desti + check;
         if (f.captura) {
             const withPiece = f.peca === 'p' ? 'el peó de la columna ' + f.origen[0] : pieceShort(f.peca) + origin;
-            return 'capturar ' + pieceShort(f.captura) + ' a ' + f.desti + ' amb ' + withPiece + check;
+            // «amb l'alfil, amb escac»: dos «amb» seguits es llegeixen malament.
+            return 'capturar ' + pieceShort(f.captura) + ' a ' + f.desti + ' amb ' + withPiece + (check ? ',' + check : '');
         }
         if (f.peca === 'p') return 'avançar el peó de la columna ' + f.origen[0] + ' fins a ' + f.desti + check;
         return 'portar ' + pieceShort(f.peca) + origin + ' a ' + f.desti + check;
@@ -1517,6 +1527,8 @@
             // Fils narratius per partida: es restauren en desfer les jugades.
             story: { threads: [], lastNarrationPly: -100 },
             conflicts: [], lastDialoguePly: -100, lastVariantPly: -100, questionIndex: null,
+            // Previsions i plans d'en Grau (visiograu.js), també per desfer.
+            visio: null,
             art: null // memòria de màximes, inclosa als estats per desfer
         };
     }
@@ -2958,18 +2970,56 @@
         const question = template({ at: at, does: piece + ' ' + verb[0] + verb[2], action: action,
             subjunctive: piece + ' ' + verb[1] + verb[2] });
         const prefix = index % 4 === 0 ? 'Grau, ' : '';
-        if (focus) return prefix + (prefix ? 'pel' : 'Pel') + ' que fa a ' + focus + ', ' + question[0].toLowerCase() + question.slice(1);
+        // «Pel que fa al peó passat», no «a el peó passat».
+        if (focus) return prefix + (prefix ? 'pel' : 'Pel') + ' que fa ' + aNP(focus) + ', ' + question[0].toLowerCase() + question.slice(1);
         return prefix ? prefix + question[0].toLowerCase() + question.slice(1) : question;
     }
 
-    function tvAddDialogue(c, chosen, memory, event, urgent, candidates) {
+    // Ordre dels diàlegs: 1) un fil de conflicte que es resol; 2) el
+    // seguiment d'una previsió d'en Grau (s'ha complert o un bàndol se n'ha
+    // sortit); 3) els altres canvis dels fils de conflicte, amb la continuació
+    // que preveu Stockfish si hi torna; 4) el pla de les properes dues o tres
+    // jugades (visiograu.js); 5) la comparació de dues variants; 6) el fet de
+    // la jugada.
+    function tvAddDialogue(c, chosen, memory, event, urgent, candidates, vision, visionEvent) {
         if (!chosen || !c.move || c.end || !Number.isInteger(c.ply) ||
                 c.move.promotion || /[+#]$/.test(c.move.san || '') ||
                 (urgent && chosen.kind !== 'reply')) return chosen;
         const gap = c.ply - (memory.lastDialoguePly ?? -100);
         const squares = chosen.tags && chosen.tags.squares || [];
         const conflict = event && (!urgent || squares.includes(event.topic.split(':')[2]));
-        let exchange = gap >= 1 && conflict ? event : null;
+        const move = describeMove(c.move, false).variants
+            .reduce((shorter, text) => text.length < shorter.length ? text : shorter);
+        // L'Èlia obre amb el fet de la jugada si és breu; si no, amb la jugada.
+        const lead = chosen.kind !== 'summary' && wordCount(chosen.text) <= 12 && !/\?/.test(chosen.text) ? chosen.text : move;
+        const vctx = Object.assign({}, c, { moveText: lead });
+        const visio = () => (memory.visio && typeof memory.visio === 'object') ? memory.visio : null;
+        let exchange = null;
+        if (gap >= 1 && conflict && event.kind === 'resolved') exchange = event;
+        if (!exchange && vision && visionEvent && !urgent && gap >= 1) {
+            try {
+                const f = vision.follow(vctx, visionEvent, visio());
+                if (f && f.turns) exchange = { kind: f.kind, turns: f.turns, visio: f.memory };
+            } catch (err) { /* sense seguiment: el comentari continua */ }
+        }
+        if (!exchange && gap >= 1 && conflict) {
+            exchange = event;
+            // Si la línia de Stockfish torna a la mateixa casella, en Grau ho avança.
+            const square = String(event.topic || '').split(':')[2];
+            if (vision && square && /^[a-h][1-8]$/.test(square)) {
+                try {
+                    const t = vision.tail(vctx, square, visio());
+                    if (t && t.text && wordCount(event.answer + ' ' + t.text) <= 30)
+                        exchange = Object.assign({}, event, { answer: event.answer + ' ' + t.text, visio: t.memory, tail: true });
+                } catch (err) { /* el fil es comenta igualment */ }
+            }
+        }
+        if (!exchange && vision && !urgent && !c.prepared && gap >= 2 && chosen.kind !== 'summary') {
+            try {
+                const p = vision.plan(vctx, visio());
+                if (p && p.turns) exchange = { kind: 'plan', turns: p.turns, visio: p.memory, forecast: p.forecast, theme: p.theme };
+            } catch (err) { /* sense pla: es prova la resta de diàlegs */ }
+        }
         if (!exchange && !urgent && !c.prepared && gap >= 1 && c.ply >= 8 && c.ply - (memory.lastVariantPly ?? -100) >= 12)
             exchange = tvCompareVariants(c);
         if (!exchange && !urgent && gap >= (c.prepared ? 4 : 3) && chosen.kind !== 'summary') {
@@ -2992,23 +3042,34 @@
         }
         if (!exchange) return chosen;
 
-        const move = describeMove(c.move, false).variants
-            .reduce((shorter, text) => text.length < shorter.length ? text : shorter);
-        const questionIndex = Number.isInteger(memory.questionIndex)
-            ? memory.questionIndex : tvHash(c.gameId || '') % TV_MOVE_QUESTIONS.length;
-        const question = exchange.question
-            ? move + ' ' + exchange.question : tvMoveQuestion(c.move, questionIndex, exchange.focus);
-        if (wordCount(question) + wordCount(exchange.answer) > 45) return chosen;
-
-        const solo = exchange.kind === 'variant' ? null : move +
-            (exchange.focus ? ' Seguim ' + exchange.focus + '.' : '');
-        const dialogue = [
-            { role: 'presenter', text: question, solo: solo },
-            { role: 'analyst', text: exchange.answer }
-        ];
+        let dialogue;
+        if (exchange.turns) {
+            // Plans i seguiments: el mòdul ja n'ha controlat la llargada.
+            dialogue = exchange.turns.map(t => Object.assign({ role: t.role, text: t.text }, t.solo ? { solo: t.solo } : {}));
+        } else {
+            const questionIndex = Number.isInteger(memory.questionIndex)
+                ? memory.questionIndex : tvHash(c.gameId || '') % TV_MOVE_QUESTIONS.length;
+            exchange.questionIndex = questionIndex;
+            const question = exchange.question
+                ? move + ' ' + exchange.question : tvMoveQuestion(c.move, questionIndex, exchange.focus);
+            if (wordCount(question) + wordCount(exchange.answer) > (exchange.tail ? 52 : 45)) {
+                if (!exchange.tail) return chosen;
+                // Sense espai per a la continuació: el fil sense la cua.
+                exchange = Object.assign({}, event, { visio: undefined });
+                if (wordCount(question) + wordCount(exchange.answer) > 45) return chosen;
+                exchange.questionIndex = questionIndex;
+            }
+            const solo = exchange.kind === 'variant' ? null : move +
+                (exchange.focus ? ' Seguim ' + exchange.focus + '.' : '');
+            dialogue = [
+                { role: 'presenter', text: question, solo: solo },
+                { role: 'analyst', text: exchange.answer }
+            ];
+        }
         memory.lastDialoguePly = c.ply;
+        if (exchange.visio) memory.visio = exchange.visio;
         if (exchange.kind === 'variant') memory.lastVariantPly = c.ply;
-        else memory.questionIndex = (questionIndex + 1) % TV_MOVE_QUESTIONS.length;
+        else if (!exchange.turns) memory.questionIndex = (exchange.questionIndex + 1) % TV_MOVE_QUESTIONS.length;
         const thread = (memory.conflicts || []).find(t => t.id === exchange.topic);
         for (const active of memory.conflicts || []) {
             if (active !== thread && active.candidate !== exchange.candidate && active.saidPly === c.ply)
@@ -3019,7 +3080,8 @@
             thread.lastEvent = exchange.kind;
             thread.lastEventPly = c.ply;
         }
-        return { ...chosen, dialogue: dialogue, dialogueEvent: exchange.kind };
+        return Object.assign({}, chosen, { dialogue: dialogue, dialogueEvent: exchange.kind },
+            exchange.forecast ? { forecast: exchange.forecast, planTheme: exchange.theme } : {});
     }
 
     // Un pas complet de la retransmissió: candidats, selecció, resum
@@ -3055,7 +3117,18 @@
             if (summary) chosen = summary;
         }
         const event = tvTrackConflicts(c, chosen, memory, candidates);
-        chosen = tvAddDialogue(c, chosen, memory, event, urgent, facts);
+        // La visió d'en Grau segueix la previsió a cada semijugada, encara
+        // que aquesta jugada no tingui diàleg. `visio: null` la desactiva.
+        const vision = c.visio === null || c.visio === false ? null : (c.visio || getVisioGrau());
+        let visionEvent = null;
+        if (vision && typeof vision.track === 'function') {
+            try {
+                const tracked = vision.track(c, memory.visio);
+                memory.visio = tracked.memory;
+                visionEvent = tracked.event;
+            } catch (err) { /* sense seguiment, els comentaris continuen */ }
+        }
+        chosen = tvAddDialogue(c, chosen, memory, event, urgent, facts, vision, visionEvent);
         // Enllacem les explicacions amb temes COMENTATS abans. El mòdul
         // narratiu no interpreta el tauler: només reutilitza motius validats
         // i captures verificables. Si no carrega, el comentari no canvia.
@@ -3101,7 +3174,7 @@
                 before: prepared ? null : analysisAt(i), after: prepared ? null : analysisAt(i + 1),
                 tier: s.tier || 'mid', prepared: prepared, phrase: s.phrases ? s.phrases[i] : null, end: tvGameEnd(chess), ply: i, memory: memory,
                 expression: s.expression || null, narrative: s.narrative || null, quality: s.quality || null,
-                patterns: s.patterns || null, art: s.art || null, gameId: s.gameId || 'tv-simulacio'
+                patterns: s.patterns || null, art: s.art || null, gameId: s.gameId || 'tv-simulacio', visio: s.visio
             });
             memory = step.memory;
             rows.push({ ply: i, san: mv.san, color: mv.color, fen: chess.fen(), comment: step.comment ? step.comment.text : null,
@@ -3111,6 +3184,7 @@
                 speech: step.comment ? tvSpeechText(step.comment.text) : null,
                 dialogue: step.comment ? step.comment.dialogue || null : null,
                 dialogueEvent: step.comment ? step.comment.dialogueEvent || null : null,
+                forecast: step.comment ? step.comment.forecast || null : null,
                 maxim: step.comment && step.comment.maxim ? step.comment.maxim : null,
                 candidates: step.candidates.map(x => x.kind) });
             prevMove = mv;
@@ -4058,7 +4132,7 @@
                 ChessCtor: d.ChessCtor, fenBefore: fenBefore, fenAfter: fenAfter, move: mv, prevMove: prevMove,
                 before: before, after: after, tier: g.tier, prepared: !!prepared, phrase: prepared ? prepared.phrase : null,
                 end: end, ply: ply, memory: g.memory, expression: d.expression, narrative: d.narrative, quality: d.quality,
-                patterns: d.patterns, art: d.art, gameId: g.id
+                patterns: d.patterns, art: d.art, gameId: g.id, visio: d.visio
             });
             return { ply: ply, fenAfter: fenAfter, end: end, chosen: step.comment, memory: step.memory,
                 resign: resign ? resign.state : undefined, decided: tvIsDecided(after) };
@@ -4105,6 +4179,7 @@
                 narrative: chosen.narrative || null,
                 dialogue: chosen.dialogue || null,
                 dialogueEvent: chosen.dialogueEvent || null,
+                forecast: chosen.forecast || null,
                 maxim: chosen.maxim || null };
             g.comments.push({ ply: entry.ply, kind: chosen.kind, text: chosen.text, color: entry.color, key: chosen.key, sig: chosen.sig });
             entry.comment = chosen.text;
@@ -4126,7 +4201,7 @@
                 ChessCtor: d.ChessCtor, fenBefore: entry.undo.fenBefore, fenAfter: entry.fen, move: entry.verbose,
                 prevMove: ply ? g.moves[ply - 1].verbose : null, before: before, after: after, tier: g.tier, prepared: false, phrase: null,
                 end: g.end, ply: ply, memory: entry.undo.memory, expression: d.expression, narrative: d.narrative, quality: d.quality,
-                patterns: d.patterns, art: d.art, gameId: g.id
+                patterns: d.patterns, art: d.art, gameId: g.id, visio: d.visio
             });
             S.pendingUser = false;
             g.memory = step.memory;
@@ -5265,6 +5340,14 @@
                 el.appendChild(line);
             });
         }
+        // La línia de Stockfish que explica en Grau, en notació, sota el diàleg.
+        if (valid && c.forecast && c.forecast.san) {
+            const line = document.createElement('div');
+            line.className = 'sftv-forecast';
+            line.textContent = 'Línia de Stockfish: ' + c.forecast.san;
+            line.title = 'Les properes jugades que preveu l’anàlisi de Stockfish. La partida pot seguir un altre camí.';
+            el.appendChild(line);
+        }
         if (valid && c.maxim && c.maxim.text) {
             const line = document.createElement('div');
             line.className = 'sftv-art-maxim';
@@ -5410,6 +5493,8 @@
             patterns: root.ElTaulerPatrons || null,
             // L'Art de la Guerra i les 36 estratagemes, alternats.
             art: tvBookshelf([getArtDeLaGuerra(), getEstratagemes()]),
+            // La visió d'en Grau (si el fitxer no s'ha carregat, no hi ha plans).
+            visio: getVisioGrau(),
             voice: voice,
             view: viewApi,
             getViewer: () => { try { return typeof bridge.getViewer === 'function' ? bridge.getViewer() : null; } catch (e) { return null; } },
