@@ -729,7 +729,12 @@
                 if (c.facts.free) cause = 'free';
                 else if (B.attackers(prevGrid, c.facts.capture.sq, S).length > B.attackers(prevGrid, c.facts.capture.sq, opp).length) cause = 'outnumbered';
             }
-            add('material', 100 + gain, { word: word.word, cause: cause, victim: victim });
+            // Si tot el guany és la captura que s'acaba de fer (ja la diu l'Èlia)
+            // i la línia no canvia el material, no és el premi del pla.
+            const afterMove = material(reading.startGrid);
+            const lineGain = (m.end[S].pts - m.end[opp].pts) - (afterMove[S].pts - afterMove[opp].pts);
+            const onlyTheCapture = ctx.moveCaptured && ctx.mover === S && !caps.length && lineGain === 0;
+            if (!onlyTheCapture) add('material', 100 + gain, { word: word.word, cause: cause, victim: victim });
         }
         if (m.stable && gain <= -2 && evalSide === S) add('compensation', 90, { word: materialWord(m.end, m.start, S).word });
 
@@ -1267,7 +1272,7 @@
         const told = steps.slice(0, narrated);
         const baseGrid = c.move.captured && c.fenBefore ? B.parse(c.fenBefore) : null;
         const sub = subReading(reading, narrated, baseGrid);
-        const themeCtx = { band: band, ply: c.ply, moveCaptured: !!c.move.captured };
+        const themeCtx = { band: band, ply: c.ply, moveCaptured: !!c.move.captured, mover: me };
         const mineTheme = themeFor(B, sub, me, themeCtx);
         const theirTheme = themeFor(B, sub, opp, themeCtx);
         const theme = (theirTheme && (!mineTheme || theirTheme.score > mineTheme.score)) ? theirTheme
