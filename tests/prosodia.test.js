@@ -201,6 +201,8 @@ test('la TV detecta interrogatives directes, parcials i introduïdes amb que', a
     const turns = [
         ['I ara, les negres poden salvar la dama?', TV.TV_DUO.presenter, 'rise'],
         ['I d’on surt l’amenaça?', TV.TV_DUO.analyst, 'fall'],
+        ['Grau, quina conseqüència té?', TV.TV_DUO.presenter, 'fall'],
+        ['Grau, en què ens hem de fixar?', TV.TV_DUO.presenter, 'fall'],
         ['Que queda clavada la torre?', TV.TV_DUO.analyst, 'fall'],
         ['Les negres recuperen la dama.', TV.TV_DUO.analyst, undefined]
     ];
