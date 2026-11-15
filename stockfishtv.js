@@ -3507,6 +3507,15 @@
         const actualNeuralId = opts => (dualEnabled() && opts &&
             (opts.voiceId === TV_DUO.presenter || opts.voiceId === TV_DUO.analyst))
             ? opts.voiceId : neuralId();
+        function neuralOptions(text, id, opts) {
+            const options = { rate: clamp(neuralRate() * (isNum(opts.rate) ? opts.rate : 1), 0.75, 1.25) };
+            if (id === TV_DUO.presenter || id === TV_DUO.analyst) {
+                const P = getProsodia();
+                const mode = P && P.questionMode && P.questionMode(text);
+                if (mode) options.questionMode = mode;
+            }
+            return options;
+        }
         const synthSupported = e.allowSystemVoice !== false && !!(synth && typeof synth.speak === 'function' && typeof Utter === 'function');
         const supported = synthSupported || !!neural;
         let pref = typeof e.loadPref === 'function' ? e.loadPref() : null;
@@ -3556,7 +3565,12 @@
             const seq = speakSeq;
             const hold = holding();
             if (neuralReady() || (hold && o.force)) {
-                return neural.speak(neuralText(text), actualNeuralId(o), { rate: clamp(neuralRate() * (isNum(o.rate) ? o.rate : 1), 0.75, 1.25), effects: neuralEffects(), maxWaitMs: (isNum(o.maxWaitMs) ? o.maxWaitMs : tvSpeechMaxWaitMs(text)) + 9000, force: !!(hold && o.force) })
+                const prepared = neuralText(text), id = actualNeuralId(o);
+                return neural.speak(prepared, id, {
+                    ...neuralOptions(prepared, id, o), effects: neuralEffects(),
+                    maxWaitMs: (isNum(o.maxWaitMs) ? o.maxWaitMs : tvSpeechMaxWaitMs(text)) + 9000,
+                    force: !!(hold && o.force)
+                })
                     .then((r) => {
                         if (r && (r.spoken || r.reason === 'stopped' || seq !== speakSeq)) return r;
                         if (r && r.reason === 'not-allowed') { blocked = true; emit(); return r; }
@@ -3615,7 +3629,11 @@
             neuralUnavailable() { return !!(neuralId() && !neural.available()); },
             // Si Matxa falla, no es llegeix amb una altra veu: s'espera que torni.
             holdsForNeural() { return holding(); },
-            prefetch(text, opts) { if (pref === 'on' && text && neuralReady()) { const o = opts || {}; neural.prefetch(neuralText(text), actualNeuralId(o), { rate: clamp(neuralRate() * (isNum(o.rate) ? o.rate : 1), 0.75, 1.25) }); } },
+            prefetch(text, opts) {
+                if (pref !== 'on' || !text || !neuralReady()) return;
+                const prepared = neuralText(text), id = actualNeuralId(opts);
+                neural.prefetch(prepared, id, neuralOptions(prepared, id, opts || {}));
+            },
             supportsDual() { return dualEnabled() && (neuralReady() || holding()); },
             pref() { return pref; },
             isOn() { return pref === 'on'; },
@@ -4083,8 +4101,11 @@
         }
 
         function spokenTurns(comment) {
-            return tvDialogueTurns(comment, !!(d.voice && typeof d.voice.supportsDual === 'function' &&
+            const turns = tvDialogueTurns(comment, !!(d.voice && typeof d.voice.supportsDual === 'function' &&
                 d.voice.supportsDual()));
+            const P = getProsodia();
+            if (!P || !P.questionParts) return turns;
+            return turns.flatMap(turn => P.questionParts(turn.text).map(text => ({ ...turn, text })));
         }
 
         // opts = { fromTurn, force }: per reprendre un comentari a mitges
