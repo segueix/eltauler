@@ -446,7 +446,7 @@ describe('controlador amb la retransmissió nova (motor fals, temps simulat)', (
         });
         // La veu llegeix exactament el text parlat dels comentaris mostrats, en ordre.
         const expected = moves.filter(m => m.commentObj).flatMap(({ commentObj: c }) =>
-            c.dialogue ? c.dialogue.map(t => TV.tvSpeechText(t.solo || t.text)) : [TV.tvSpeechText(c.text)]);
+            c.dialogue ? c.dialogue.map(t => TV.tvSpeechText(t.solo || t.text)) : [TV.tvSpeechText(c.say || c.text)]);
         expect(spoken.slice(0, expected.length)).toEqual(expected);
         expect(maxActive).toBe(1);
         // No es demana mai anàlisi d'una posició acabada (el motor no hi respon).

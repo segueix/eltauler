@@ -91,3 +91,60 @@ Per exemple, en una seqüència de prova en què el cavall negre arriba a f6 i r
 La comparació d'alternatives reutilitza les dues variants de l'anàlisi de Stockfish que ja es calcula. Cal que surtin de la mateixa posició i profunditat, que la jugada feta sigui una de les dues primeres opcions, que hi hagi una diferència clara de valoració i que es puguin jugar legalment la jugada i la resposta de totes dues línies. Grau explica la resposta prevista com una variant. Si falten dades, es comenta el que es veu al tauler.
 
 Els diàlegs alternen amb les intervencions individuals i les màximes. Amb el duet desactivat, la mateixa veu llegeix la narració i l'explicació. El controlador restaura la memòria en desfer jugades i talla els torns pendents en deixar la posició.
+
+## Fase 9 · La visió d’en Grau: dues o tres jugades endavant
+
+`visiograu.js` (`ElTaulerVisioGrau`) fa que en Grau miri **endavant**. A cada jugada, la TV ja analitza amb Stockfish a plena força la posició nova (MultiPV 2, fins a profunditat 16). En Grau en llegeix la **línia principal** i explica què passarà en les properes dues o tres jugades i **per què**.
+
+### Les veus: intencions, no caselles
+
+Ni l’Èlia ni en Grau no diuen mai cap casella; les caselles només són a la notació de la pantalla (llista de jugades i «Línia de Stockfish»). En Grau explica la **intenció** de les jugades:
+
+- **Accions**: «fer escac amb la dama», «fer una forquilla amb el cavall a la dama i a la torre», «clavar el cavall contra el rei», «fer fora l’alfil amb un peó», «guanyar el peó central», «canviar les torres», «posar la dama a recer i, de passada, atacar el cavall», «protegir un peó de l’enroc», «treure el cavall de la dama per controlar el centre», «enrocar curt per posar el rei a recer», «empènyer el peó passat», «doblar les torres a la columna», «entrar a la setena fila», «plantar el cavall en un lloc avançat», «fer el fianchetto amb l’alfil del rei», «obrir una sortida al rei», «activar el rei».
+- **Peces**: quan un bàndol en té dues del mateix tipus, es distingeixen pel nom de sempre: el cavall del rei, la torre de la dama i l’alfil del rei o de la dama (pel color de les caselles). Cavalls i torres es reconeixen des de la posició inicial i se segueixen jugada a jugada, enroc inclòs. Les peces rivals porten el color («el cavall del rei negre»), i la peça que acaba de jugar és «aquest cavall».
+- **Peons**, pel paper que fan: el peó passat, el peó central, un peó de l’enroc, el peó de torre, un peó del flanc de dama.
+- **Zones**: el centre, el flanc de rei o de dama, el camp rival, a prop del rei, la columna oberta, la setena fila, la gran diagonal.
+
+Els comentaris de cada jugada els llegeix l’Èlia; en Grau parla als diàlegs i als resums. També són sense caselles els seguiments dels fils de conflicte («Fora de perill: ja no l’ataca cap peça rival.») i la comparació de variants.
+
+**L’Èlia** fa servir la mateixa lectura del tauler:
+
+- Quan comenta sola una jugada, la diu per la intenció: «Les blanques treuen el cavall del rei per controlar el centre», «Les negres fan fora l’alfil amb un peó», «Les blanques fan una forquilla amb l’alfil del rei al rei i a la torre del rei negre».
+- La resta de fets verificats (clavades, amenaces, peons passats, pressió, millors jugades…) es mantenen, però cada referència a una casella es diu amb el nom de la peça que hi ha al tauler: «el peó d’e5» → «un peó central», «el cavall de c6» → «el cavall de la dama negra»; les caselles de destinació desapareixen i les columnes van sense lletra. Les millors jugades es diuen per la intenció («l’anàlisi preferia fer fora el cavall del rei negre amb un peó»). Si una frase no es pot dir bé sense caselles, no es diu i l’Èlia en diu la intenció.
+- Als diàlegs, l’Èlia diu **què** s’ha jugat, sense caselles ni intenció («Les blanques avancen el peó de rei dues caselles.», «Les negres porten el cavall del rei cap al centre.»), i pregunta per què («Què hi busquen les negres?», «Per què ara?»). La intenció la respon en Grau; si en Grau només repetiria la frase de l’Èlia, no hi ha diàleg. Els peons sense un paper especial es diuen pel nom clàssic: el peó de rei, el peó d’alfil de dama, el peó de torre de rei.
+- El text verificat original es conserva intern (memòria, narrativa, màximes); la pantalla, la veu i l’historial de la TV fan servir el de l’Èlia.
+
+### Com es construeix l’explicació
+
+1. **Lectura de la línia.** Es juguen amb chess.js fins a sis semijugades de la variant principal (vuit si cal acabar un canvi de peces). La lectura s’atura a la primera jugada il·legal.
+2. **Intenció de cada jugada**, comprovada al tauler *després* de jugar-la i triada per importància: mat, coronació, forquilla, captura (guany, canvi o recuperació), escac, clavada, sortir de l’escac, posar una peça a recer, protegir, atacar o fer fora, enroc, setena fila, columnes, peó passat, rei rival, lloc avançat, fianchetto i gran diagonal, oferir un canvi, sortida al rei, desenvolupament, centre (només peons i peces menors, i no als finals) i rei actiu als finals. Si no n’hi ha cap, la jugada es diu per la zona on va.
+3. **Tema estratègic** de les jugades que en Grau ha narrat (mai de les que no ha dit): material guanyat i per què, sacrifici compensat, forquilla, clavada, atac al rei, peó passat, columnes i setena fila, pressió sobre una peça, iniciativa, guanyar un temps, canvis (segons qui va per davant), oferir canvis, lloc avançat, maniobra, desenvolupament, centre, gran diagonal, rei actiu, consolidació o tensió. Si cap bàndol no en té cap, la fase és tranquil·la.
+4. **Valoració** de Stockfish al final de la línia (equilibrada, lleuger, clar o decisiu), amb els peons per als avançats.
+
+Garanties del material: es compara amb la posició d’abans de la jugada si aquesta era una captura (una recaptura no és cap guany), la línia narrada ha d’acabar quieta i el guany s’ha de mantenir fins al final de tota la línia llegida (una peça penjada a mitja línia no compta). Quan hi ha guany, se n’explica la causa comprovada: la peça queda sense defensa o té més atacants que defensors.
+
+### El diàleg
+
+- **L’Èlia** sempre diu primer la jugada (o el fet que s’hi ha vist, si és breu) i fa una de les 14 preguntes sobre el que ve.
+- **En Grau** narra la línia: la resposta del rival i la continuació, i una segona parella de jugades (una tercera per als avançats). Si la mateixa intenció es repeteix, «tornarien a posar la dama a recer».
+- **L’Èlia** pregunta per la lògica i **en Grau** l’explica amb el tema i la valoració. Si no hi cap, en Grau parla en dos torns seguits; al nivell bàsic, una sola parella de jugades i cap segona pregunta.
+- Amb el duet desactivat, la primera pregunta es converteix en presentació i la segona queda com a pregunta retòrica.
+- Sota el diàleg, la pantalla mostra la **línia de Stockfish** en notació (per exemple «14…Nf6 15.Re1 O-O 16.d4»), per a qui vulgui el detall.
+
+### El seguiment
+
+La previsió es guarda a la memòria de la retransmissió (`memory.visio`) i es revisa a cada semijugada, encara que la jugada no tingui diàleg:
+
+- **Encert**: quan la partida arriba a la jugada clau del pla tal com s’havia anunciat, l’Èlia ho pregunta («Grau, és la jugada que anunciaves?») i en Grau ho confirma amb el fet comprovat, i hi afegeix la resposta que ara espera Stockfish.
+- **Desviació**: si un bàndol se n’aparta abans de la jugada clau, en Grau diu què esperava Stockfish i, amb les dues anàlisis fiables, què costa: res, una mica o clarament. Les desviacions sense importància només es comenten cada 10 semijugades com a molt.
+- Els fils de conflicte (pressió, amenaces, peons passats…) també miren endavant: si la línia de Stockfish torna a la mateixa casella, en Grau ho avança («Però Stockfish preveu que les blanques hi tornin amb la torre a d1.»).
+
+### Ritme i límits
+
+- Un pla com a molt cada 6 semijugades (8 si tornaria a ser del mateix bàndol), mai just després d’un altre diàleg, ni en jugades preparades, mats, urgències o posicions decidides (més de 6 peons de diferència).
+- Profunditat mínima de 12 i anàlisi de la mateixa posició.
+- Paraules de tot el diàleg: 66 (bàsic), 88 (mitjà), 96 (avançat). La narració de la línia té prioritat sobre la lògica i la valoració.
+- Prioritat dels diàlegs: un fil de conflicte que es resol, el seguiment d’una previsió, la resta de fils, el pla, la comparació de variants i el fet de la jugada.
+- La memòria es restaura en desfer jugades i es reinicia a cada partida. Si el fitxer no carrega, la TV continua amb els diàlegs d’abans; `visio: null` el desactiva.
+
+Proves: `tests/visiograu.test.js`.

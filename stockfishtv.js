@@ -140,6 +140,13 @@
             memory: { ...memory, art: output.memory } };
     }
 
+    // La visió d'en Grau: la línia de Stockfish dues o tres jugades endavant.
+    function getVisioGrau() {
+        if (root && root.ElTaulerVisioGrau) return root.ElTaulerVisioGrau;
+        try { if (typeof require === 'function') return require('./visiograu'); } catch (e) {}
+        return null;
+    }
+
     function getRedactor() {
         if (root && root.ElTaulerRedactor) return root.ElTaulerRedactor;
         try { if (typeof require === 'function') return require('./redactor'); } catch (e) {}
@@ -264,7 +271,7 @@
     // La lectura i els subtítols comparteixen els torns del comentari.
     function tvReadingText(comment) {
         if (comment.dialogue) return comment.dialogue.map(turn => turn.text).join(' ');
-        return comment.text + (comment.maxim ? ' ' + comment.maxim.text : '');
+        return (comment.say || comment.text) + (comment.maxim ? ' ' + comment.maxim.text : '');
     }
 
     function tvDialogueTurns(comment, enabled) {
@@ -272,7 +279,7 @@
         const speech = String(c.speech || '').trim();
         if (!speech) return [];
         const single = (voiceId, role) => [{ text: speech, voiceId: voiceId || null, role: role || 'presenter' }];
-        if (Array.isArray(c.dialogue) && c.dialogue.length >= 2 && c.dialogue.length <= 3) {
+        if (Array.isArray(c.dialogue) && c.dialogue.length >= 2 && c.dialogue.length <= 4) {
             return c.dialogue.map(t => ({ text: tvSpeechText(!enabled && t.solo ? t.solo : t.text),
                 voiceId: enabled ? (t.role === 'analyst' ? TV_DUO.analyst : TV_DUO.presenter) : null,
                 role: t.role }));
@@ -292,10 +299,10 @@
         const final = ['mate', 'end', 'resign', 'stalemate', 'intro'].includes(kind);
         if (final) return single(TV_DUO.presenter, 'presenter');
 
-        // Diàleg ocasional, només quan hi ha dues frases amb sentit propi.
-        // Limitar-ne la freqüència evita dues síntesis i latència a cada jugada.
-        const splitEligible = explanation && (kind === 'summary' ||
-            (c.extended && ply >= 0 && ply % 6 === 0));
+        // Diàleg ocasional en els resums, quan hi ha dues frases amb sentit
+        // propi. Els fets de les jugades (amb caselles) els narra l'Èlia; en
+        // Grau parla als diàlegs, sense caselles.
+        const splitEligible = explanation && kind === 'summary';
         if (splitEligible) {
             const parts = speech.split(/(?<=[.!?])\s+(?=[A-ZÀ-Ý])/u).filter(Boolean);
             const words = s => s.trim().split(/\s+/).length;
@@ -307,11 +314,8 @@
                 ];
             }
         }
-        // Grau interpreta els resums o certs comentaris pedagògics,
-        // mentre Èlia presenta la resta de jugades i les incidències urgents.
-        const analyst = kind === 'summary' || (explanation &&
-            (c.extended || (ply >= 0 && ply % 3 === 0)) &&
-            !['check', 'allows-mate', 'mate-threat', 'missed'].includes(kind));
+        // Grau interpreta els resums; l'Èlia presenta la resta de jugades.
+        const analyst = kind === 'summary';
         return single(analyst ? TV_DUO.analyst : TV_DUO.presenter,
             analyst ? 'analyst' : 'presenter');
     }
@@ -906,7 +910,9 @@
     // Temps màxim d'espera d'una locució (si el navegador no avisa del final).
     function tvSpeechMaxWaitMs(text) {
         const words = String(text || '').trim().split(/\s+/).filter(Boolean).length;
-        return clamp(2500 + words * 600, 4000, 20000);
+        // Fins a 30 s: les explicacions d'en Grau sobre la línia de Stockfish
+        // poden passar de 40 paraules en un sol torn.
+        return clamp(2500 + words * 600, 4000, 30000);
     }
 
     // ------------------------------------------------------------------
@@ -1175,7 +1181,8 @@
         if (f.coronacio) return 'coronar el peó a ' + f.desti + check;
         if (f.captura) {
             const withPiece = f.peca === 'p' ? 'el peó de la columna ' + f.origen[0] : pieceShort(f.peca) + origin;
-            return 'capturar ' + pieceShort(f.captura) + ' a ' + f.desti + ' amb ' + withPiece + check;
+            // «amb l'alfil, amb escac»: dos «amb» seguits es llegeixen malament.
+            return 'capturar ' + pieceShort(f.captura) + ' a ' + f.desti + ' amb ' + withPiece + (check ? ',' + check : '');
         }
         if (f.peca === 'p') return 'avançar el peó de la columna ' + f.origen[0] + ' fins a ' + f.desti + check;
         return 'portar ' + pieceShort(f.peca) + origin + ' a ' + f.desti + check;
@@ -1516,7 +1523,9 @@
             materialSig: '0,0,0,0,0', endgame: false, queensOff: false, castled: { w: false, b: false },
             // Fils narratius per partida: es restauren en desfer les jugades.
             story: { threads: [], lastNarrationPly: -100 },
-            conflicts: [], lastDialoguePly: -100, lastVariantPly: -100, questionIndex: null,
+            conflicts: [], lastDialoguePly: -100, lastVariantPly: -100, questionIndex: null, conflictSeq: 0,
+            // Previsions i plans d'en Grau (visiograu.js), també per desfer.
+            visio: null,
             art: null // memòria de màximes, inclosa als estats per desfer
         };
     }
@@ -2420,6 +2429,9 @@
         }
         const variantId = cand.variants.indexOf(text);
         const parts = leadFact ? [leadFact, text] : [text];
+        // Paper de cada tros (fet de la jugada, comentari, ampliació): la veu
+        // de l'Èlia en diu el fet de la jugada per la intenció.
+        const roles = leadFact ? ['lead', 'main'] : ['main'];
         // Si la jugada fa escac i el comentari no ho diu, s'afegeix a la frase.
         if (o.isCheck && !parts.some(p => /escac/i.test(p))) parts[0] = parts[0].replace(/\.$/, ', amb escac.');
         let extended = !!leadFact;
@@ -2427,9 +2439,11 @@
         // Definició bàsica: una sola vegada per partida i només si cal.
         if (canExtend && cand.define && o.tier !== 'advanced' && !mem.defined[cand.define.term] && !best.evolved) {
             parts.push(cand.define.text);
+            roles.push('extra');
             extended = true;
         } else if (canExtend && cand.extra && !best.evolved && o.tier !== 'basic') {
             parts.push(cand.extra);
+            roles.push('extra');
             extended = true;
         }
         // Explicació ampliada: un fet de captura o una descripció es completa
@@ -2441,10 +2455,11 @@
                 && ['recapture', 'capture-free', 'capture-recoverable'].indexOf(x.kind) === -1
                 && !(mem.ideas[x.key] && mem.ideas[x.key].sig === x.sig && ply - mem.ideas[x.key].ply < TV_CONFIG.IDEA_MEMORY_PLIES)
                 && !recentTexts.has(x.text) && wordCount(text) + wordCount(x.text) <= TV_CONFIG.EXTENDED_MAX_WORDS);
-            if (secondary) { parts.push(secondary.text); extended = true; }
+            if (secondary) { parts.push(secondary.text); roles.push('extra'); extended = true; }
         }
         return {
             kind: cand.kind, text: parts.join(' '), leadText: text, explanatory: cand.explanatory || !!secondary,
+            parts: parts.map((t, i) => ({ role: roles[i] || 'extra', text: t })),
             key: cand.key, sig: cand.sig, family: cand.family, variantId: variantId, extended: extended,
             defined: (parts.length > 1 && cand.define && parts[1] === cand.define.text) ? cand.define.term : null,
             tags: cand.tags, payload: cand.payload, evolved: best.evolved,
@@ -2657,9 +2672,11 @@
             let options = [];
             if (passed.length === 1) {
                 const sq = passed[0];
-                options = [COLOR[side].pl + ' tenen un peó passat a ' + sq,
-                    'hi ha un peó passat ' + COLOR[side].adj + ' a ' + sq,
-                    'el peó ' + COLOR[side].adj + ' de ' + sq + ' és passat: cap peó ' + COLOR[other(side)].adj + ' no li pot barrar el pas'];
+                // Sense caselles: el resum el llegeix en Grau.
+                const zone = 'abc'.indexOf(sq[0]) !== -1 ? 'al flanc de dama' : 'de'.indexOf(sq[0]) !== -1 ? 'al centre' : 'al flanc de rei';
+                options = [COLOR[side].pl + ' tenen un peó passat ' + zone,
+                    'hi ha un peó passat ' + COLOR[side].adj + ' ' + zone,
+                    'el peó passat ' + COLOR[side].adj + ' no té cap peó ' + COLOR[other(side)].adj + ' que li barri el pas'];
                 sigParts.push(side + sq);
             } else if (passed.length > 1) {
                 options = [COLOR[side].pl + ' tenen ' + numWord(passed.length) + ' peons passats',
@@ -2761,13 +2778,16 @@
         return { count: attacks, defenders: defenders, canCapture: canCapture };
     }
 
-    function tvConflictTransition(t, next, before, after, move) {
+    // seq: comptador de la partida perquè les variants vagin rotant.
+    function tvConflictTransition(t, next, before, after, move, seq) {
+        const turn = isNum(seq) ? seq : tvHash(t.id + ':' + move.to);
         const sq = t.square;
-        const victim = t.piece ? shortOn(t.piece, sq) : '';
+        // Sense caselles: la peça amb el color del bàndol que la té.
+        const victim = t.piece ? pieceNP(t.piece, other(t.color)) : '';
         const captured = move.captured && ((move.flags || '').includes('e') ? move.to[0] + move.from[1] : move.to);
         const focus = {
-            passed: 'el peó passat de ' + sq,
-            file: 'la columna ' + sq,
+            passed: 'el peó passat ' + COLOR[t.color].adj,
+            file: 'la columna oberta',
             king: 'la seguretat del rei',
             center: 'la lluita pel centre',
             pressure: 'la pressió sobre ' + victim,
@@ -2779,11 +2799,11 @@
             if (rivalMoved && captured === sq)
                 return event('resolved', 'L’han capturat. Aquest peó ja no arribarà a coronar.');
             if (after && after.blocker && (!before.blocker || sq !== next.square))
-                return event('defence', capFirst(shortOn(after.blocker, after.ahead)) + ' ocupa la casella just al davant.');
+                return event('defence', 'Ara ' + pieceNP(after.blocker, other(t.color)) + ' se li planta just al davant i el bloqueja.');
             if (after && sq !== next.square) {
                 const left = t.color === 'w' ? 8 - Number(next.square[1]) : Number(next.square[1]) - 1;
-                return event('reinforced', 'Des de ' + next.square + ', ' +
-                    (left === 1 ? 'li falta una casella.' : 'li falten ' + numWord(left, true) + ' caselles.'));
+                return event('reinforced', 'Fa un pas més: ' +
+                    (left === 1 ? 'ja només li falta una casella per coronar.' : 'li falten ' + numWord(left, true) + ' caselles per coronar.'));
             }
         }
         if (t.kind === 'file' && !after && move.piece === 'p' && move.color === t.color &&
@@ -2795,34 +2815,35 @@
                 return event('transformed',
                     'La columna queda oberta. La peça major de ' + COLOR[t.color].pl + ' ja no hi té cap peó al davant.');
             if (!before.opposing.length && after.opposing.length)
-                return event('defence', capFirst(COLOR[other(t.color)].pl) + ' hi situen ' +
-                    pieceShort(after.opposing[0].t) + ' a ' + after.opposing[0].sq + '. Ara hi ha peces majors de tots dos bàndols.');
+                return event('defence', capFirst(COLOR[other(t.color)].pl) + ' hi planten ' +
+                    pieceShort(after.opposing[0].t) + ' per disputar-la. Ara hi ha peces majors de tots dos bàndols.');
             if (before.own.filter(p => p.t === 'r').length < 2 && after.own.filter(p => p.t === 'r').length >= 2)
                 return event('reinforced', 'Les dues torres del mateix bàndol queden alineades en aquesta columna.');
         }
         if (t.kind === 'king') {
             if (rivalMoved && move.piece === 'k' && move.from === before.king && (!after || after.count < before.count))
                 return event('defence',
-                    capFirst(shortOn(t.piece, t.square)) + (after ? ' controla menys caselles del seu voltant.'
+                    capFirst(pieceNP(t.piece, t.color)) + (after ? ' ja controla menys caselles al voltant del rei.'
                         : ' ja no controla cap casella al voltant del rei.'));
         }
         if (t.kind === 'center' && rivalMoved && move.to === sq && before.owner !== move.color)
-            return event('transformed', capFirst(COLOR[move.color].pl) + ' ocupen la casella ' + sq +
-                (after && after.count ? ', que encara controlen peces de ' + COLOR[t.color].pl + '.' : '.'));
+            return event('transformed', capFirst(COLOR[move.color].pl) + ' entren al centre' +
+                (after && after.count ? ', en una casella que encara vigilen ' + COLOR[t.color].pl + '.' : '.'));
         if (t.kind !== 'pressure' && t.kind !== 'threat') return null;
         if (!rivalMoved && captured === sq)
-            return event('resolved', 'La peça que seguíem ha caigut a ' + sq + '.');
+            return event('resolved', tvVariant(['La peça que seguíem ha caigut.', 'La pressió ha donat fruit: la peça ha caigut.',
+                'Final de la història: la peça ha caigut.'], turn));
         if (rivalMoved && move.from === sq) {
             const stillAttacked = next.targetStillAttacked;
             return event('resolved',
-                stillAttacked ? 'La peça canvia de casella, però continua atacada a ' + move.to + '.'
-                    : 'La peça s’aparta de la pressió. Ara cap peça rival no l’apunta a ' + move.to + '.');
+                stillAttacked ? tvVariant(['La peça s’aparta, però continua atacada.', 'Fuig, però no del tot: encara és sota atac.'], turn)
+                    : tvVariant(['La peça s’aparta de la pressió i ja no l’apunta cap peça rival.', 'Fora de perill: ja no l’ataca cap peça rival.',
+                        'S’escapa de l’atac. Ara ningú no l’amenaça.', 'Problema resolt: la peça ja és a recer.'], turn));
         }
         if (t.kind === 'threat' && rivalMoved && !after && captured === t.attacker)
-            return event('resolved', 'Han capturat la peça atacant a ' + captured + '.');
+            return event('resolved', 'Han eliminat la peça atacant.');
         if (t.kind === 'threat' && rivalMoved && after && !after.canCapture)
-            return event('defence',
-                'La captura des de ' + t.attacker + ' ja no és possible en aquesta posició.');
+            return event('defence', 'L’atacant ja no la pot capturar.');
         if (t.kind === 'pressure' && after && after.count < before.count) {
             const answer = after.count === 0 ? 'Ara cap peça rival l’apunta.'
                 : after.count === 1 ? 'Ara només l’apunta una peça.'
@@ -2857,7 +2878,7 @@
             const after = observe(next);
             if ((t.kind === 'pressure' || t.kind === 'threat') && move.color !== t.color && move.from === t.square)
                 next.targetStillAttacked = attackersAt(H, grid, move.to, t.color).length > 0;
-            const change = tvConflictTransition(t, next, t.fact, after, move);
+            const change = tvConflictTransition(t, next, t.fact, after, move, memory.conflictSeq);
             if (change && Number.isInteger(t.saidPly) && c.ply - t.saidPly <= 16 &&
                     (t.lastEvent !== change.kind || c.ply - t.lastEventPly >= 8)) events.push(change);
             if (!after || (next.kind === 'pressure' && after.count < 2) ||
@@ -2886,10 +2907,12 @@
             b.changedPly - a.changedPly);
         memory.conflicts = active.slice(0, 2);
         events.sort((a, b) => (b.kind === 'resolved') - (a.kind === 'resolved') || b.weight - a.weight);
+        if (events.length) memory.conflictSeq = (isNum(memory.conflictSeq) ? memory.conflictSeq : 0) + 1;
         return events[0] || null;
     }
 
-    function tvCompareVariants(c) {
+    // Amb la visió d'en Grau, la resposta parla d'intencions i no de caselles.
+    function tvCompareVariants(c, vision, ids) {
         const a = c.before;
         const b = a && a.second;
         const m = c.move;
@@ -2910,6 +2933,21 @@
         };
         const bestLine = walk(a.pv), otherLine = walk(b.pv);
         if (!bestLine || !otherLine) return null;
+        if (vision && typeof vision.intentAt === 'function') {
+            const fav = vision.intentAt(c.ChessCtor, c.fenBefore, first, { prev: c.prevMove, ids: ids });
+            const alt = vision.intentAt(c.ChessCtor, c.fenBefore, second, { prev: c.prevMove, ids: ids });
+            const rep = vision.intentAt(c.ChessCtor, otherLine.start.fen, b.pv[1], { prev: otherLine.start.move });
+            const altAction = moveAction(c.ChessCtor, c.fenBefore, second);
+            // Sense caselles, dues opcions que es diuen igual no es poden comparar.
+            if (fav && alt && rep && altAction && fav.inf !== alt.inf) {
+                const rival = COLOR[other(m.color)].pl;
+                return { kind: 'variant', topic: 'variant:' + m.color,
+                    question: played === first ? 'I si haguessin triat ' + alt.inf + '?' : 'Quina alternativa veu Stockfish?',
+                    answer: played === first ? 'Llavors ' + rival + ' ' + rep.cond + '. Stockfish prefereix la jugada feta.'
+                        : 'Stockfish preferia ' + fav.inf + '. Amb la jugada feta, ' + rival + ' ' + rep.cond + '.' };
+            }
+            if (fav && alt && fav.inf === alt.inf) return null;
+        }
         function action(fen, uci, move) {
             if (move.piece === 'p' && !move.captured && !move.promotion && !/[+#]$/.test(move.san))
                 return 'jugar el peó a ' + move.to;
@@ -2958,27 +2996,155 @@
         const question = template({ at: at, does: piece + ' ' + verb[0] + verb[2], action: action,
             subjunctive: piece + ' ' + verb[1] + verb[2] });
         const prefix = index % 4 === 0 ? 'Grau, ' : '';
-        if (focus) return prefix + (prefix ? 'pel' : 'Pel') + ' que fa a ' + focus + ', ' + question[0].toLowerCase() + question.slice(1);
+        // «Pel que fa al peó passat», no «a el peó passat».
+        if (focus) return prefix + (prefix ? 'pel' : 'Pel') + ' que fa ' + aNP(focus) + ', ' + question[0].toLowerCase() + question.slice(1);
         return prefix ? prefix + question[0].toLowerCase() + question.slice(1) : question;
     }
 
-    function tvAddDialogue(c, chosen, memory, event, urgent, candidates) {
+    // ------------------------------------------------------------------
+    // La veu de l'Èlia: intencions, sense caselles (amb visiograu.js)
+    // ------------------------------------------------------------------
+    // Comentaris que només descriuen la jugada: l'Èlia en diu la intenció.
+    const ELIA_MOVE_KINDS = { describe: true, development: true, activation: true, castle: true, capture: true, recapture: true,
+        center: true, 'open-file': true, diagonal: true, seventh: true, 'doubled-rooks': true, 'king-activity': true,
+        'out-of-check': true, check: true };
+    function tvEliaSay(c, chosen, vision, memory) {
+        if (!chosen || !chosen.text) return chosen ? chosen.text : null;
+        if (!vision || typeof vision.clean !== 'function' || typeof vision.sayMove !== 'function') return chosen.text;
+        try {
+            const visio = memory && memory.visio;
+            const intent = c.move && !c.end ? vision.sayMove(c, visio) : null;
+            const clean = t => vision.clean(t, c, visio);
+            const out = [];
+            let usedIntent = false;
+            const useIntent = () => { if (!usedIntent && intent) { out.push(intent); usedIntent = true; } };
+            const parts = Array.isArray(chosen.parts) && chosen.parts.map(p => p.text).join(' ') === chosen.text
+                ? chosen.parts : [{ role: 'main', text: chosen.text }];
+            for (const part of parts) {
+                if (part.role === 'lead' || (part.role === 'main' && ELIA_MOVE_KINDS[chosen.kind])) { useIntent(); continue; }
+                // «Era la millor jugada»: primer, quina jugada.
+                if (part.role === 'main' && chosen.kind === 'only-move') useIntent();
+                // La forquilla o la clavada ja dites per la intenció no es repeteixen.
+                if (part.role === 'main' && usedIntent && ((/^fork/.test(chosen.kind) && /forquilla/.test(intent)) ||
+                        (chosen.kind === 'pin' && /\bclav/.test(intent)))) continue;
+                // La millor alternativa, també per la intenció.
+                if (part.role === 'main' && (chosen.kind === 'missed' || chosen.kind === 'missed-mate') && c.before && c.before.bestUci &&
+                        typeof vision.intentAt === 'function') {
+                    const alt = vision.intentAt(c.ChessCtor, c.fenBefore, c.before.bestUci,
+                        { prev: c.prevMove, ids: visio && visio.prevIds, noDemo: true });
+                    if (alt) {
+                        const side = COLOR[c.move.color].pl;
+                        const pawns = /cedeix uns ([\d,]+) peons/.exec(part.text);
+                        const mate = /mat en (\d+)/.exec(part.text);
+                        const tail = pawns ? ': segons el motor, la jugada feta cedeix uns ' + pawns[1] + ' peons.' : '.';
+                        out.push(mate ? 'L’anàlisi veia mat en ' + mate[1] + ' per a ' + side + ' amb una altra jugada: ' + alt.inf + '.'
+                            : tvVariant(['Per a ' + side + ', l’anàlisi preferia ' + alt.inf + tail, 'L’anàlisi recomanava ' + alt.inf + tail,
+                                'Segons l’anàlisi, era millor ' + alt.inf + tail, capFirst(side) + ' tenien una opció millor: ' + alt.inf + tail],
+                                isNum(chosen.variantId) ? chosen.variantId : c.ply || 0));
+                        continue;
+                    }
+                }
+                part.text.split(/(?<=[.!?])\s+(?=[A-ZÀ-ÝÈÉÍÒÓÚ«])/u).forEach(sentence => {
+                    const ok = clean(sentence);
+                    if (ok) out.push(ok);
+                });
+            }
+            if (!out.length) useIntent();
+            const say = out.join(' ').trim();
+            return say && !/\b[a-h][1-8]\b/.test(say) ? say : (intent || chosen.text);
+        } catch (err) { return chosen.text; }
+    }
+
+    // Preguntes de l'Èlia sobre el perquè. Abans, ella diu què s'ha jugat
+    // (sense caselles); la intenció la respon en Grau.
+    const TV_WHY_QUESTIONS = [
+        ({ side }) => 'Què hi busquen ' + side + '?',
+        () => 'Quin sentit té aquesta jugada?',
+        () => 'Què canvia amb aquesta jugada?',
+        () => 'Per què ara?',
+        () => 'Quina és la idea?',
+        ({ side }) => 'Què implica per a ' + side + '?',
+        () => 'Com l’hem d’entendre?',
+        () => 'En què ens hem de fixar?',
+        () => 'Quina conseqüència té?',
+        () => 'Quin efecte té en la posició?'
+    ];
+    function tvWhyQuestion(c, index, focus) {
+        const question = TV_WHY_QUESTIONS[index % TV_WHY_QUESTIONS.length]({ side: COLOR[c.move.color].pl });
+        const prefix = index % 4 === 0 ? 'Grau, ' : '';
+        if (focus) return prefix + (prefix ? 'pel' : 'Pel') + ' que fa ' + aNP(focus) + ', ' + question[0].toLowerCase() + question.slice(1);
+        return prefix ? prefix + question[0].toLowerCase() + question.slice(1) : question;
+    }
+
+    // Ordre dels diàlegs: 1) un fil de conflicte que es resol; 2) el
+    // seguiment d'una previsió d'en Grau (s'ha complert o un bàndol se n'ha
+    // sortit); 3) els altres canvis dels fils de conflicte, amb la continuació
+    // que preveu Stockfish si hi torna; 4) el pla de les properes dues o tres
+    // jugades (visiograu.js); 5) la comparació de dues variants; 6) el fet de
+    // la jugada.
+    function tvAddDialogue(c, chosen, memory, event, urgent, candidates, vision, visionEvent) {
         if (!chosen || !c.move || c.end || !Number.isInteger(c.ply) ||
                 c.move.promotion || /[+#]$/.test(c.move.san || '') ||
                 (urgent && chosen.kind !== 'reply')) return chosen;
         const gap = c.ply - (memory.lastDialoguePly ?? -100);
         const squares = chosen.tags && chosen.tags.squares || [];
         const conflict = event && (!urgent || squares.includes(event.topic.split(':')[2]));
-        let exchange = gap >= 1 && conflict ? event : null;
+        const move = describeMove(c.move, false).variants
+            .reduce((shorter, text) => text.length < shorter.length ? text : shorter);
+        // L'Èlia obre amb el fet de la jugada si és breu; si no, amb la jugada.
+        // Amb la visió d'en Grau, tots dos per la intenció i sense caselles.
+        const said = vision ? tvEliaSay(c, chosen, vision, memory) : chosen.text;
+        const intentLead = vision && typeof vision.sayMove === 'function' ? vision.sayMove(c, memory.visio) : null;
+        const lead = chosen.kind !== 'summary' && said && wordCount(said) <= 14 && !/\?/.test(said) ? said : (intentLead || move);
+        // Què s'ha jugat, sense intenció: per a les preguntes que respon en Grau.
+        const neutral = (vision && typeof vision.describeMove === 'function' ? vision.describeMove(c, memory.visio) : null) || move;
+        const vctx = Object.assign({}, c, { moveText: lead });
+        const vfollow = Object.assign({}, c, { moveText: neutral });
+        const visio = () => (memory.visio && typeof memory.visio === 'object') ? memory.visio : null;
+        let exchange = null;
+        if (gap >= 1 && conflict && event.kind === 'resolved') exchange = event;
+        if (!exchange && vision && visionEvent && !urgent && gap >= 1) {
+            try {
+                const f = vision.follow(vfollow, visionEvent, visio());
+                if (f && f.turns) exchange = { kind: f.kind, turns: f.turns, visio: f.memory };
+            } catch (err) { /* sense seguiment: el comentari continua */ }
+        }
+        if (!exchange && gap >= 1 && conflict) {
+            exchange = event;
+            // Si la línia de Stockfish torna a la mateixa casella, en Grau ho avança.
+            const square = String(event.topic || '').split(':')[2];
+            if (vision && square && /^[a-h][1-8]$/.test(square)) {
+                try {
+                    const t = vision.tail(vctx, square, visio());
+                    if (t && t.text && wordCount(event.answer + ' ' + t.text) <= 30)
+                        exchange = Object.assign({}, event, { answer: event.answer + ' ' + t.text, visio: t.memory, tail: true });
+                } catch (err) { /* el fil es comenta igualment */ }
+            }
+        }
+        if (!exchange && vision && !urgent && !c.prepared && gap >= 2 && chosen.kind !== 'summary') {
+            try {
+                const p = vision.plan(vctx, visio());
+                if (p && p.turns) exchange = { kind: 'plan', turns: p.turns, visio: p.memory, forecast: p.forecast, theme: p.theme };
+            } catch (err) { /* sense pla: es prova la resta de diàlegs */ }
+        }
         if (!exchange && !urgent && !c.prepared && gap >= 1 && c.ply >= 8 && c.ply - (memory.lastVariantPly ?? -100) >= 12)
-            exchange = tvCompareVariants(c);
+            exchange = tvCompareVariants(c, vision, memory.visio && memory.visio.prevIds);
         if (!exchange && !urgent && gap >= (c.prepared ? 4 : 3) && chosen.kind !== 'summary') {
             // Les descripcions nues no aporten cap resposta. Si el selector
             // hi ha afegit un fet secundari, és aquest el que explica en Grau.
             const plain = ['describe', 'capture', 'activation', 'opening-phrase'].includes(chosen.kind);
             const key = plain ? chosen.secondary && chosen.secondary.key : chosen.key;
             const fact = candidates.find(cand => cand.key === key && cand.explanatory);
-            if (fact) {
+            // En Grau no diu caselles: explica la intenció de la jugada.
+            let intent = null;
+            if (fact && vision && typeof vision.explainMove === 'function') {
+                try { intent = vision.explainMove(vctx, visio()); } catch (err) { intent = null; }
+            }
+            // Si en Grau només repetiria el que ja diu l'Èlia, no hi ha diàleg.
+            const bare = t => String(t).replace(/^[^:]*: /, '').toLowerCase().replace(/\.$/, '');
+            const echo = intent && bare(intent.text) === bare(neutral);
+            if (fact && vision && intent && !echo) exchange = { kind: 'move', answer: intent.text, candidate: fact.key, visio: intent.memory };
+            else if (fact && !vision) {
                 // Per respondre el perquè, preferim el detector concret a
                 // les variants expressives que poden ometre'n el detall.
                 let answer = fact.text;
@@ -2992,23 +3158,34 @@
         }
         if (!exchange) return chosen;
 
-        const move = describeMove(c.move, false).variants
-            .reduce((shorter, text) => text.length < shorter.length ? text : shorter);
-        const questionIndex = Number.isInteger(memory.questionIndex)
-            ? memory.questionIndex : tvHash(c.gameId || '') % TV_MOVE_QUESTIONS.length;
-        const question = exchange.question
-            ? move + ' ' + exchange.question : tvMoveQuestion(c.move, questionIndex, exchange.focus);
-        if (wordCount(question) + wordCount(exchange.answer) > 45) return chosen;
-
-        const solo = exchange.kind === 'variant' ? null : move +
-            (exchange.focus ? ' Seguim ' + exchange.focus + '.' : '');
-        const dialogue = [
-            { role: 'presenter', text: question, solo: solo },
-            { role: 'analyst', text: exchange.answer }
-        ];
+        let dialogue;
+        if (exchange.turns) {
+            // Plans i seguiments: el mòdul ja n'ha controlat la llargada.
+            dialogue = exchange.turns.map(t => Object.assign({ role: t.role, text: t.text }, t.solo ? { solo: t.solo } : {}));
+        } else {
+            const questionIndex = Number.isInteger(memory.questionIndex)
+                ? memory.questionIndex : tvHash(c.gameId || '') % TV_MOVE_QUESTIONS.length;
+            exchange.questionIndex = questionIndex;
+            const question = !vision ? (exchange.question ? move + ' ' + exchange.question : tvMoveQuestion(c.move, questionIndex, exchange.focus))
+                : neutral + ' ' + (exchange.question || tvWhyQuestion(c, questionIndex, exchange.focus));
+            if (wordCount(question) + wordCount(exchange.answer) > (exchange.tail ? 52 : 45)) {
+                if (!exchange.tail) return chosen;
+                // Sense espai per a la continuació: el fil sense la cua.
+                exchange = Object.assign({}, event, { visio: undefined });
+                if (wordCount(question) + wordCount(exchange.answer) > 45) return chosen;
+                exchange.questionIndex = questionIndex;
+            }
+            const solo = exchange.kind === 'variant' ? null : (vision ? neutral : move) +
+                (exchange.focus ? ' Seguim ' + exchange.focus + '.' : '');
+            dialogue = [
+                { role: 'presenter', text: question, solo: solo },
+                { role: 'analyst', text: exchange.answer }
+            ];
+        }
         memory.lastDialoguePly = c.ply;
+        if (exchange.visio) memory.visio = exchange.visio;
         if (exchange.kind === 'variant') memory.lastVariantPly = c.ply;
-        else memory.questionIndex = (questionIndex + 1) % TV_MOVE_QUESTIONS.length;
+        else if (!exchange.turns) memory.questionIndex = (exchange.questionIndex + 1) % TV_MOVE_QUESTIONS.length;
         const thread = (memory.conflicts || []).find(t => t.id === exchange.topic);
         for (const active of memory.conflicts || []) {
             if (active !== thread && active.candidate !== exchange.candidate && active.saidPly === c.ply)
@@ -3019,7 +3196,8 @@
             thread.lastEvent = exchange.kind;
             thread.lastEventPly = c.ply;
         }
-        return { ...chosen, dialogue: dialogue, dialogueEvent: exchange.kind };
+        return Object.assign({}, chosen, { dialogue: dialogue, dialogueEvent: exchange.kind },
+            exchange.forecast ? { forecast: exchange.forecast, planTheme: exchange.theme } : {});
     }
 
     // Un pas complet de la retransmissió: candidats, selecció, resum
@@ -3055,7 +3233,18 @@
             if (summary) chosen = summary;
         }
         const event = tvTrackConflicts(c, chosen, memory, candidates);
-        chosen = tvAddDialogue(c, chosen, memory, event, urgent, facts);
+        // La visió d'en Grau segueix la previsió a cada semijugada, encara
+        // que aquesta jugada no tingui diàleg. `visio: null` la desactiva.
+        const vision = c.visio === null || c.visio === false ? null : (c.visio || getVisioGrau());
+        let visionEvent = null;
+        if (vision && typeof vision.track === 'function') {
+            try {
+                const tracked = vision.track(c, memory.visio);
+                memory.visio = tracked.memory;
+                visionEvent = tracked.event;
+            } catch (err) { /* sense seguiment, els comentaris continuen */ }
+        }
+        chosen = tvAddDialogue(c, chosen, memory, event, urgent, facts, vision, visionEvent);
         // Enllacem les explicacions amb temes COMENTATS abans. El mòdul
         // narratiu no interpreta el tauler: només reutilitza motius validats
         // i captures verificables. Si no carrega, el comentari no canvia.
@@ -3073,6 +3262,8 @@
         }
         const artStep = chosen && chosen.dialogue ? { comment: chosen, memory: memory } : tvArtStep(c, chosen, memory, candidates);
         chosen = artStep.comment;
+        // El que diu (i mostra) l'Èlia: intencions, sense caselles.
+        if (chosen && vision) chosen = Object.assign({}, chosen, { say: tvEliaSay(c, chosen, vision, artStep.memory) });
         const next = tvCommitComment(artStep.memory, chosen, { ply: c.ply, fenAfter: c.fenAfter, move: c.move, candidates: candidates });
         return { comment: chosen, memory: next, candidates: candidates };
     }
@@ -3101,16 +3292,18 @@
                 before: prepared ? null : analysisAt(i), after: prepared ? null : analysisAt(i + 1),
                 tier: s.tier || 'mid', prepared: prepared, phrase: s.phrases ? s.phrases[i] : null, end: tvGameEnd(chess), ply: i, memory: memory,
                 expression: s.expression || null, narrative: s.narrative || null, quality: s.quality || null,
-                patterns: s.patterns || null, art: s.art || null, gameId: s.gameId || 'tv-simulacio'
+                patterns: s.patterns || null, art: s.art || null, gameId: s.gameId || 'tv-simulacio', visio: s.visio
             });
             memory = step.memory;
             rows.push({ ply: i, san: mv.san, color: mv.color, fen: chess.fen(), comment: step.comment ? step.comment.text : null,
+                say: step.comment ? step.comment.say || step.comment.text : null,
                 kind: step.comment ? step.comment.kind : null, explanatory: !!(step.comment && step.comment.explanatory), extended: !!(step.comment && step.comment.extended),
                 key: step.comment ? step.comment.key : null, payload: step.comment ? step.comment.payload : null,
                 narrative: step.comment ? (step.comment.narrative || null) : null,
-                speech: step.comment ? tvSpeechText(step.comment.text) : null,
+                speech: step.comment ? tvSpeechText(step.comment.say || step.comment.text) : null,
                 dialogue: step.comment ? step.comment.dialogue || null : null,
                 dialogueEvent: step.comment ? step.comment.dialogueEvent || null : null,
+                forecast: step.comment ? step.comment.forecast || null : null,
                 maxim: step.comment && step.comment.maxim ? step.comment.maxim : null,
                 candidates: step.candidates.map(x => x.kind) });
             prevMove = mv;
@@ -3995,7 +4188,7 @@
                 const plan = planMove(g, uci, fenBefore, prepared, before, after, resign);
                 if (!plan) { fail('illegal'); return; }
                 if (plan.chosen && d.voice && typeof d.voice.prefetch === 'function') {
-                    const planned = { ...plan.chosen, speech: tvSpeechText(plan.chosen.text), ply };
+                    const planned = { ...plan.chosen, speech: tvSpeechText(plan.chosen.say || plan.chosen.text), ply };
                     const direction = tvSpeechDirection(planned);
                     for (const turn of spokenTurns(planned)) {
                         const tone = turn.role === 'maxim'
@@ -4058,7 +4251,7 @@
                 ChessCtor: d.ChessCtor, fenBefore: fenBefore, fenAfter: fenAfter, move: mv, prevMove: prevMove,
                 before: before, after: after, tier: g.tier, prepared: !!prepared, phrase: prepared ? prepared.phrase : null,
                 end: end, ply: ply, memory: g.memory, expression: d.expression, narrative: d.narrative, quality: d.quality,
-                patterns: d.patterns, art: d.art, gameId: g.id
+                patterns: d.patterns, art: d.art, gameId: g.id, visio: d.visio
             });
             return { ply: ply, fenAfter: fenAfter, end: end, chosen: step.comment, memory: step.memory,
                 resign: resign ? resign.state : undefined, decided: tvIsDecided(after) };
@@ -4100,14 +4293,16 @@
 
         function attachComment(g, entry, chosen) {
             // El comentari queda LLIGAT a aquesta posició (partida + ply + FEN).
-            g.comment = { kind: chosen.kind, text: chosen.text, speech: tvSpeechText(chosen.text), ply: entry.ply, fen: entry.fen, gameId: g.id,
+            g.comment = { kind: chosen.kind, text: chosen.text, say: chosen.say || chosen.text,
+                speech: tvSpeechText(chosen.say || chosen.text), ply: entry.ply, fen: entry.fen, gameId: g.id,
                 explanatory: !!chosen.explanatory, extended: !!chosen.extended, byUser: entry.byUser,
                 narrative: chosen.narrative || null,
                 dialogue: chosen.dialogue || null,
                 dialogueEvent: chosen.dialogueEvent || null,
+                forecast: chosen.forecast || null,
                 maxim: chosen.maxim || null };
             g.comments.push({ ply: entry.ply, kind: chosen.kind, text: chosen.text, color: entry.color, key: chosen.key, sig: chosen.sig });
-            entry.comment = chosen.text;
+            entry.comment = chosen.say || chosen.text;
             entry.commentObj = g.comment;
         }
 
@@ -4126,7 +4321,7 @@
                 ChessCtor: d.ChessCtor, fenBefore: entry.undo.fenBefore, fenAfter: entry.fen, move: entry.verbose,
                 prevMove: ply ? g.moves[ply - 1].verbose : null, before: before, after: after, tier: g.tier, prepared: false, phrase: null,
                 end: g.end, ply: ply, memory: entry.undo.memory, expression: d.expression, narrative: d.narrative, quality: d.quality,
-                patterns: d.patterns, art: d.art, gameId: g.id
+                patterns: d.patterns, art: d.art, gameId: g.id, visio: d.visio
             });
             S.pendingUser = false;
             g.memory = step.memory;
@@ -5255,7 +5450,7 @@
         const c = g && g.comment;
         // Només es mostra si és de la partida i la posició visibles.
         const valid = c && c.gameId === g.id && (c.kind === 'intro' || c.fen === g.fen);
-        el.textContent = valid ? c.text : '';
+        el.textContent = valid ? (c.say || c.text) : '';
         if (valid && Array.isArray(c.dialogue)) {
             el.textContent = '';
             const duet = tvNormalizePrefs(loadPrefsRaw()).duo;
@@ -5264,6 +5459,14 @@
                     line.textContent = duet ? (turn.role === 'analyst' ? 'Grau: ' : 'Èlia: ') + turn.text : (turn.solo || turn.text);
                 el.appendChild(line);
             });
+        }
+        // La línia de Stockfish que explica en Grau, en notació, sota el diàleg.
+        if (valid && c.forecast && c.forecast.san) {
+            const line = document.createElement('div');
+            line.className = 'sftv-forecast';
+            line.textContent = 'Línia de Stockfish: ' + c.forecast.san;
+            line.title = 'Les properes jugades que preveu l’anàlisi de Stockfish. La partida pot seguir un altre camí.';
+            el.appendChild(line);
         }
         if (valid && c.maxim && c.maxim.text) {
             const line = document.createElement('div');
@@ -5410,6 +5613,8 @@
             patterns: root.ElTaulerPatrons || null,
             // L'Art de la Guerra i les 36 estratagemes, alternats.
             art: tvBookshelf([getArtDeLaGuerra(), getEstratagemes()]),
+            // La visió d'en Grau (si el fitxer no s'ha carregat, no hi ha plans).
+            visio: getVisioGrau(),
             voice: voice,
             view: viewApi,
             getViewer: () => { try { return typeof bridge.getViewer === 'function' ? bridge.getViewer() : null; } catch (e) { return null; } },

@@ -26,7 +26,8 @@ test('el reforç defensiu respon al mateix peó anunciat a la jugada anterior', 
     const [attack, defence] = pressurePosition();
     expect(attack.kind).toBe('pressure');
     expect(defence.dialogueEvent).toBe('defence');
-    expect(defence.dialogue[0].text).toMatch(/pressió sobre el peó de d5/);
+    expect(defence.dialogue[0].text).toMatch(/pressió sobre el peó negre/);
+    expect(defence.dialogue[0].text).not.toMatch(/\b[a-h][1-8]\b/);
     expect(defence.dialogue[1].text).toMatch(/dues peces.*una/);
     const speech = TV.tvDialogueTurns({ ...defence, speech: defence.speech }, false);
     expect(speech[0].text).not.toContain('?');
@@ -48,8 +49,12 @@ test('Stockfish només compara dues variants legals de la mateixa posició i pro
     }
     const row = simulate({});
     expect(row.dialogueEvent).toBe('variant');
-    expect(row.dialogue[0].text).toContain('c4');
-    expect(row.dialogue[1].text).toContain('d5');
+    // Ni l'Èlia ni en Grau no diuen caselles: l'alternativa es diu per la intenció.
+    expect(row.dialogue[0].text).not.toMatch(/\b[a-h][1-8]\b/);
+    expect(row.dialogue[0].text).toMatch(/I si haguessin triat avançar el peó d’alfil de dama dues caselles\?/);
+    // En Grau no diu caselles: explica la intenció de l'alternativa i de la resposta.
+    expect(row.dialogue[1].text).not.toMatch(/\b[a-h][1-8]\b/);
+    expect(row.dialogue[1].text).toMatch(/espai al centre/);
     expect(simulate({ depth: 13 }).dialogueEvent).not.toBe('variant');
     expect(simulate({ pv: ['c2c4', 'h7h6'] }).dialogueEvent).not.toBe('variant');
 });
@@ -74,7 +79,7 @@ test('l’Èlia obre amb una pregunta sobre el moviment i en Grau explica el fet
     expect(row.dialogueEvent).toBe('move');
     const [presenter, analyst] = TV.tvDialogueTurns(row, true);
     expect(presenter.voiceId).toBe('matxa:central:elia');
-    expect(presenter.text).toMatch(/peó blanc.*e 4.*\?/);
+    expect(presenter.text).toMatch(/Les blanques avancen el peó de rei dues caselles\..*\?/);
     expect(analyst.voiceId).toBe('matxa:central:grau');
     expect(analyst.text).toContain('centre');
     expect(row.maxim).toBeNull();
