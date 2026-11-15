@@ -1428,7 +1428,7 @@
         return Core.antidotePinsAndSkewers(grid, color).filter(t => {
             const front = gridAt(grid, t.front), back = gridAt(grid, t.back);
             // Dues peces del mateix valor alineades no són una clavada.
-            if (t.kind === 'pin' && PIECE_VALUE[back.t] <= PIECE_VALUE[front.t]) return false;
+            if (t.kind === 'pin' && (!['n', 'r', 'b'].includes(front.t) || PIECE_VALUE[back.t] <= PIECE_VALUE[front.t])) return false;
             if (t.kind === 'skewer' && PIECE_VALUE[back.t] < 3) return false;
             return geometryOnly || front.t === 'k' || tacticalCapture(ChessCtor, fen, color, t.from, t.front);
         });
@@ -1523,7 +1523,7 @@
             materialSig: '0,0,0,0,0', endgame: false, queensOff: false, castled: { w: false, b: false },
             // Fils narratius per partida: es restauren en desfer les jugades.
             story: { threads: [], lastNarrationPly: -100 },
-            conflicts: [], lastDialoguePly: -100, lastVariantPly: -100, questionIndex: null, conflictSeq: 0,
+            conflicts: [], lastDialoguePly: -100, lastVariantPly: -100, questionIndex: null, conflictSeq: 0, dialogueFacts: {},
             // Previsions i plans d'en Grau (visiograu.js), també per desfer.
             visio: null,
             art: null // memòria de màximes, inclosa als estats per desfer
@@ -2933,6 +2933,10 @@
         };
         const bestLine = walk(a.pv), otherLine = walk(b.pv);
         if (!bestLine || !otherLine) return null;
+        // Només preguntem per una alternativa quan la resposta prevista té una conseqüència tàctica.
+        const tacticalReply = move => !!(move.captured || move.promotion || /[+#]$/.test(move.san || ''));
+        if (!tacticalReply(otherLine.reply.move) ||
+                (tacticalReply(bestLine.reply.move) && bestLine.reply.move.san === otherLine.reply.move.san)) return null;
         if (vision && typeof vision.intentAt === 'function') {
             const fav = vision.intentAt(c.ChessCtor, c.fenBefore, first, { prev: c.prevMove, ids: ids });
             const alt = vision.intentAt(c.ChessCtor, c.fenBefore, second, { prev: c.prevMove, ids: ids });
@@ -2941,7 +2945,7 @@
             // Sense caselles, dues opcions que es diuen igual no es poden comparar.
             if (fav && alt && rep && altAction && fav.inf !== alt.inf) {
                 const rival = COLOR[other(m.color)].pl;
-                return { kind: 'variant', topic: 'variant:' + m.color,
+                return { kind: 'variant', key: 'variant:' + second + ':' + b.pv[1], topic: 'variant:' + m.color,
                     question: played === first ? 'I si haguessin triat ' + alt.inf + '?' : 'Quina alternativa veu Stockfish?',
                     answer: played === first ? 'Llavors ' + rival + ' ' + rep.cond + '. Stockfish prefereix la jugada feta.'
                         : 'Stockfish preferia ' + fav.inf + '. Amb la jugada feta, ' + rival + ' ' + rep.cond + '.' };
@@ -2959,13 +2963,90 @@
         const reply = otherLine.reply.move;
         const counter = action(otherLine.start.fen, b.pv[1], reply);
         if (!counter) return null;
-        const recapture = otherLine.start.move.captured && reply.captured && otherLine.start.move.to === reply.to;
-        const consequence = recapture ? 'El rival hi recapturaria a ' + reply.to + '.'
-            : 'La línia continua amb l’opció de ' + counter + ' per al rival.';
-        return { kind: 'variant', topic: 'variant:' + m.color,
-            question: played === first ? 'I l’opció de ' + alternative + '?' : 'Quina alternativa veu Stockfish?',
-            answer: played === first ? consequence + ' Stockfish prefereix la jugada feta.'
-                : 'Stockfish prefereix ' + favoured + '. ' + consequence };
+        return { kind: 'variant', key: 'variant:' + second + ':' + b.pv[1], topic: 'variant:' + m.color,
+            question: played === first ? 'Com podria respondre el rival a l’opció de ' + alternative + '?'
+                : 'Quina resposta tàctica preveu Stockfish a la jugada feta?',
+            answer: 'En aquesta variant, el rival té l’opció de ' + counter + '.' +
+                (played === second ? ' Stockfish prefereix ' + favoured + '.' : '') };
+    }
+
+    // Comprovem la captura concreta i el torn posterior. Una peça que
+    // geomètricament apunta una casella pot estar clavada i no defensar-la.
+    function tvDefenceProof(c, target) {
+        const move = c.move;
+        const before = new c.ChessCtor(c.fenBefore);
+        const after = new c.ChessCtor(c.fenAfter);
+        const victim = after.get(target);
+        if (!victim || victim.color !== move.color || target === move.to) return null;
+        const previous = before.get(target);
+        if (!previous || previous.type !== victim.type || previous.color !== victim.color) return null;
+        const attackers = after.moves({ verbose: true }).filter(m => m.to === target && m.captured);
+        for (const attacker of attackers) {
+            const fields = c.fenBefore.split(' ');
+            fields[1] = attacker.color;
+            fields[3] = '-';
+            const old = new c.ChessCtor(fields.join(' '));
+            const original = old.moves({ square: attacker.from, verbose: true })
+                .find(m => m.to === target && m.captured && m.promotion === attacker.promotion);
+            if (!original) continue;
+            old.move(original);
+            const prior = old.moves({ square: move.from, verbose: true }).some(m => m.to === target && m.captured);
+            if (prior) continue;
+
+            after.move(attacker);
+            const recapture = after.moves({ square: move.to, verbose: true }).some(m => m.to === target && m.captured);
+            after.undo();
+            if (recapture) return { target: target, victim: victim.type, attacker: attacker };
+        }
+        return null;
+    }
+
+    function tvTacticalDialogue(c, chosen, candidates, event, urgent) {
+        const move = c.move;
+        const fact = (kind, key, focus, answer, candidate) =>
+            ({ kind: kind, key: [kind, move.color, key].join(':'), focus: focus, answer: answer, candidate: candidate });
+        const selected = candidates.find(item => item.key === chosen.key && item.kind === chosen.kind);
+        const secondary = chosen.secondary && candidates.find(item => item.key === chosen.secondary.key);
+        const useful = [selected, secondary].filter(Boolean);
+        if (!urgent) useful.push(...candidates.filter(item => !useful.includes(item) &&
+            ['defend', 'threat-pawn', 'pressure'].includes(item.kind)));
+
+        for (const candidate of useful) {
+            const threat = (candidate.payload && candidate.payload.threats || []).filter(t =>
+                t.attackerSq === move.to && !tacticalCapture(c.ChessCtor, c.fenBefore, move.color, move.from, t.targetSq));
+            if (threat.length && ['fork', 'threat', 'threat-pawn'].includes(candidate.kind)) {
+                const targets = threat.map(t => shortOn(t.targetType, t.targetSq));
+                const subject = capFirst(pieceNP(move.piece, move.color));
+                const answer = subject + ' amenaça de capturar ' + targets.join(' i també ') + '.';
+                // «I també» enumera dues captures possibles, no una captura doble.
+                return fact('move', 'atac:' + move.piece + ':' + threat.map(t => t.targetSq).sort().join(','), null, answer, candidate.key);
+            }
+            if (['reply', 'defend'].includes(candidate.kind)) {
+                for (const square of candidate.tags?.squares || []) {
+                    const proof = tvDefenceProof(c, square);
+                    if (!proof) continue;
+                    const victim = shortOn(proof.victim, square);
+                    const attacker = shortOn(proof.attacker.piece, proof.attacker.from);
+                    const answer = 'Si ' + attacker + ' captura a ' + square + ', ' +
+                        pieceNP(move.piece, move.color) + ' hi pot recapturar.';
+                    const defence = fact('defence', 'recaptura:' + square + ':' + proof.attacker.from + ':' + move.piece,
+                        'la pressió sobre ' + victim, answer, candidate.key);
+                    if (event && event.topic.split(':')[2] === square) defence.topic = event.topic;
+                    return defence;
+                }
+            }
+        }
+
+        const exposedCapture = chosen.kind === 'hanging' && chosen.tags?.squares?.includes(move.to);
+        if (!move.captured || (urgent && !exposedCapture)) return null;
+        const board = new c.ChessCtor(c.fenAfter);
+        const replies = board.moves({ verbose: true }).filter(m => m.captured &&
+            ((m.flags || '').includes('e') ? m.to[0] + m.from[1] : m.to) === move.to);
+        const reply = replies[0];
+        if (!reply && (exposedCapture || PIECE_VALUE[move.captured] < 3)) return null;
+        const answer = reply ? 'El rival té una recaptura legal amb ' + shortOn(reply.piece, reply.from) + ', a ' + reply.to + '.'
+            : 'Cap peça rival no pot recapturar immediatament a ' + move.to + '.';
+        return fact('move', 'canvi:' + move.to + ':' + (reply ? reply.from : '-'), null, answer, chosen.key);
     }
 
     // Deu maneres de preguntar pel mateix fet. L'acció i el subjecte es
@@ -3083,9 +3164,9 @@
     // jugades (visiograu.js); 5) la comparació de dues variants; 6) el fet de
     // la jugada.
     function tvAddDialogue(c, chosen, memory, event, urgent, candidates, vision, visionEvent) {
-        if (!chosen || !c.move || c.end || !Number.isInteger(c.ply) ||
+        if (!chosen || !c.move || !c.ChessCtor || c.end || !Number.isInteger(c.ply) ||
                 c.move.promotion || /[+#]$/.test(c.move.san || '') ||
-                (urgent && chosen.kind !== 'reply')) return chosen;
+                (urgent && !['reply', 'threat', 'fork', 'hanging'].includes(chosen.kind))) return chosen;
         const gap = c.ply - (memory.lastDialoguePly ?? -100);
         const squares = chosen.tags && chosen.tags.squares || [];
         const conflict = event && (!urgent || squares.includes(event.topic.split(':')[2]));
@@ -3110,7 +3191,10 @@
             } catch (err) { /* sense seguiment: el comentari continua */ }
         }
         if (!exchange && gap >= 1 && conflict) {
-            exchange = event;
+            // Una defensa es pot explicar amb la recaptura legal concreta, si existeix.
+            const proof = event.kind === 'defence' ? tvTacticalDialogue(c, chosen, candidates, event, urgent) : null;
+            exchange = proof && proof.kind === 'defence'
+                ? Object.assign({}, event, { answer: proof.answer, key: proof.key }) : event;
             // Si la línia de Stockfish torna a la mateixa casella, en Grau ho avança.
             const square = String(event.topic || '').split(':')[2];
             if (vision && square && /^[a-h][1-8]$/.test(square)) {
@@ -3129,34 +3213,20 @@
         }
         if (!exchange && !urgent && !c.prepared && gap >= 1 && c.ply >= 8 && c.ply - (memory.lastVariantPly ?? -100) >= 12)
             exchange = tvCompareVariants(c, vision, memory.visio && memory.visio.prevIds);
-        if (!exchange && !urgent && gap >= (c.prepared ? 4 : 3) && chosen.kind !== 'summary') {
-            // Les descripcions nues no aporten cap resposta. Si el selector
-            // hi ha afegit un fet secundari, és aquest el que explica en Grau.
-            const plain = ['describe', 'capture', 'activation', 'opening-phrase'].includes(chosen.kind);
-            const key = plain ? chosen.secondary && chosen.secondary.key : chosen.key;
-            const fact = candidates.find(cand => cand.key === key && cand.explanatory);
-            // En Grau no diu caselles: explica la intenció de la jugada.
-            let intent = null;
-            if (fact && vision && typeof vision.explainMove === 'function') {
-                try { intent = vision.explainMove(vctx, visio()); } catch (err) { intent = null; }
-            }
-            // Si en Grau només repetiria el que ja diu l'Èlia, no hi ha diàleg.
-            const bare = t => String(t).replace(/^[^:]*: /, '').toLowerCase().replace(/\.$/, '');
-            const echo = intent && bare(intent.text) === bare(neutral);
-            if (fact && vision && intent && !echo) exchange = { kind: 'move', answer: intent.text, candidate: fact.key, visio: intent.memory };
-            else if (fact && !vision) {
-                // Per respondre el perquè, preferim el detector concret a
-                // les variants expressives que poden ometre'n el detall.
-                let answer = fact.text;
-                if (fact.extra && wordCount(answer + ' ' + fact.extra) <= 26) answer += ' ' + fact.extra;
-                if (fact.kind === 'castle') {
-                    const rookFile = c.move.flags.includes('k') ? 'f' : 'd';
-                    answer = 'El rei s’aparta del centre i la torre es col·loca a ' + rookFile + c.move.to[1] + '.';
-                }
-                exchange = { kind: 'move', answer: answer, candidate: fact.key };
-            }
-        }
+        // Amb la visió d'en Grau, els plans i seguiments tenen prioritat absoluta:
+        // no intercalem preguntes addicionals que en desplacin la previsió.
+        if (!exchange && !vision && (gap >= 2 || chosen.kind === 'reply') && chosen.kind !== 'summary')
+            exchange = tvTacticalDialogue(c, chosen, candidates, event, urgent);
         if (!exchange) return chosen;
+        const heard = memory.dialogueFacts || {};
+        if (exchange.key && Number.isInteger(heard[exchange.key]) && c.ply - heard[exchange.key] < 16) return chosen;
+        // La nova narració d'en Grau no diu caselles. La prova tàctica es conserva,
+        // però les coordenades es converteixen en noms de les peces.
+        if (!exchange.turns && vision && typeof vision.clean === 'function') {
+            const cleaned = vision.clean(exchange.answer, c, visio());
+            if (cleaned) exchange = Object.assign({}, exchange, { answer: cleaned });
+            else if (exchange.key) return chosen;
+        }
 
         let dialogue;
         if (exchange.turns) {
@@ -3166,8 +3236,10 @@
             const questionIndex = Number.isInteger(memory.questionIndex)
                 ? memory.questionIndex : tvHash(c.gameId || '') % TV_MOVE_QUESTIONS.length;
             exchange.questionIndex = questionIndex;
+            const spokenFocus = vision && exchange.focus && typeof vision.clean === 'function'
+                ? vision.clean(exchange.focus, c, visio()) : exchange.focus;
             const question = !vision ? (exchange.question ? move + ' ' + exchange.question : tvMoveQuestion(c.move, questionIndex, exchange.focus))
-                : neutral + ' ' + (exchange.question || tvWhyQuestion(c, questionIndex, exchange.focus));
+                : neutral + ' ' + (exchange.question || tvWhyQuestion(c, questionIndex, spokenFocus));
             if (wordCount(question) + wordCount(exchange.answer) > (exchange.tail ? 52 : 45)) {
                 if (!exchange.tail) return chosen;
                 // Sense espai per a la continuació: el fil sense la cua.
@@ -3176,13 +3248,18 @@
                 exchange.questionIndex = questionIndex;
             }
             const solo = exchange.kind === 'variant' ? null : (vision ? neutral : move) +
-                (exchange.focus ? ' Seguim ' + exchange.focus + '.' : '');
+                (vision ? (spokenFocus ? ' Seguim ' + spokenFocus + '.' : '')
+                    : (exchange.focus ? ' Seguim ' + exchange.focus + '.' : ''));
             dialogue = [
                 { role: 'presenter', text: question, solo: solo },
                 { role: 'analyst', text: exchange.answer }
             ];
         }
         memory.lastDialoguePly = c.ply;
+        if (exchange.key) {
+            memory.dialogueFacts = Object.fromEntries(Object.entries(heard).filter(([, ply]) => c.ply - ply < 16));
+            memory.dialogueFacts[exchange.key] = c.ply;
+        }
         if (exchange.visio) memory.visio = exchange.visio;
         if (exchange.kind === 'variant') memory.lastVariantPly = c.ply;
         else if (!exchange.turns) memory.questionIndex = (exchange.questionIndex + 1) % TV_MOVE_QUESTIONS.length;
@@ -3250,7 +3327,7 @@
         // i captures verificables. Si no carrega, el comentari no canvia.
         if (c.narrative && typeof c.narrative.apply === 'function') {
             try {
-                const coversChosen = chosen && (!chosen.dialogue || chosen.dialogueEvent === 'move');
+                const coversChosen = chosen && (!chosen.dialogue || chosen.dialogueEvent === 'move' || chosen.dialogueEvent === 'defence');
                 const connected = c.narrative.apply(memory.story, coversChosen ? chosen : null, {
                     ply: c.ply, move: c.move, candidates: candidates
                 });

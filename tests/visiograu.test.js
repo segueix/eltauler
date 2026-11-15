@@ -161,18 +161,50 @@ describe('el pla d’en Grau', () => {
         expect(at(V.CONFIG.SAME_SIDE_GAP_PLIES)).not.toBeNull();
     });
 
+    // El pla a una jugada concreta de la partida, amb l'anàlisi real i la
+    // memòria del seguiment, sense dependre de quan toca el diàleg.
+    function planAt(game, ply) {
+        const chess = new Chess(game.startFen || undefined);
+        let memory = null, prevMove = null, ctx = null;
+        for (let i = 0; i <= ply; i++) {
+            const fenBefore = chess.fen();
+            const u = game.moves[i];
+            const move = chess.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] || 'q' });
+            const a = game.analyses[i + 1];
+            ctx = { ChessCtor: Chess, fenBefore, fenAfter: chess.fen(), move, prevMove, ply: i, tier: 'mid', gameId: game.name,
+                prepared: i < (game.prepared || 0), end: null, moveText: 'La jugada.',
+                after: a ? TV.tvBuildAnalysis(a.fen, a.infos, a.bestUci) : null };
+            memory = V.track(ctx, memory).memory;
+            prevMove = move;
+        }
+        return { san: ctx.move.san, plan: V.plan(ctx, memory) };
+    }
+    // Els textos del tema de material (l'última resposta d'en Grau).
+    const GAIN = /guanyen (un|una|la|dos|tres) |de més|guany net per a /;
+    const logicText = turns => turns.filter(t => t.role === 'analyst').slice(-1).map(t => t.text).join(' ');
+
     test('una recaptura no es presenta com a material guanyat', () => {
-        const row = simulate(FIXTURES[0], 'mid')[36];
-        expect(row.san).toBe('dxe5');
-        expect(row.dialogueEvent).toBe('plan');
-        expect(row.dialogue.map(t => t.text).join(' ')).not.toMatch(/de més|guanyen (un|una|la|dos)/);
+        const { san, plan } = planAt(FIXTURES[0], 36);
+        expect(san).toBe('dxe5');
+        expect(plan).not.toBeNull();
+        expect(plan.theme).not.toBe('material');
+        expect(logicText(plan.turns)).not.toMatch(GAIN);
+    });
+
+    test('la captura que s’acaba de fer no és el premi del pla', () => {
+        // axb3 recupera material; la línia només canvia torres i no hi afegeix res.
+        const { san, plan } = planAt(FIXTURES[0], 42);
+        expect(san).toBe('axb3');
+        expect(plan).not.toBeNull();
+        expect(plan.theme).not.toBe('material');
+        expect(logicText(plan.turns)).not.toMatch(GAIN);
     });
 
     test('el guany de material s’explica amb la causa comprovada', () => {
         const rows = simulate(FIXTURES[0], 'mid');
-        const row = rows.find(r => r.dialogueEvent === 'plan' && /peó de més|guanyen un peó/.test(grauText(r.dialogue)));
-        expect(row).toBeTruthy();
-        expect(grauText(row.dialogue)).toMatch(/queda sense defensa|té més atacants que defensors/);
+        const gains = rows.filter(r => r.dialogueEvent === 'plan' && GAIN.test(logicText(r.dialogue)));
+        expect(gains.length).toBeGreaterThan(0);
+        gains.forEach(row => expect(logicText(row.dialogue)).toMatch(/queda sense defensa|té més atacants que defensors/));
     });
 });
 
