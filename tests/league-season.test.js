@@ -113,10 +113,10 @@ describe('rendiment (leaguePerformanceRating)', () => {
 });
 
 describe('escala de graons: C → B → A → C del nivell següent (LLIGA.md §6)', () => {
-    test('21 graons, tres per nivell en l\'ordre C, B, A; es comença com a mínim a la lliga del territori, C', () => {
+    test('21 graons, tres per nivell en l\'ordre C, B, A; es comença a la lliga local, C', () => {
         expect(Core.LEAGUE_TIER_COUNT).toBe(21);
-        expect(Core.LEAGUE_START_TIER).toBe(9);
-        expect(Core.leagueTierLevel(Core.LEAGUE_START_TIER)).toBe(3);
+        expect(Core.LEAGUE_START_TIER).toBe(0);
+        expect(Core.leagueTierLevel(Core.LEAGUE_START_TIER)).toBe(0);
         expect(Core.leagueTierGroup(Core.LEAGUE_START_TIER)).toBe('C');
         expect(Core.leagueFullName(3, 'C', { territory: 'val', municipi: 'Gandia', comarca: 'la Safor' }))
             .toBe('Lliga Valenciana · Divisió C');
@@ -126,15 +126,6 @@ describe('escala de graons: C → B → A → C del nivell següent (LLIGA.md §
         expect(Core.leagueTierOf(1, 'B')).toBe(4);
         expect(Core.leagueTier(99)).toBe(20);
         expect(Core.leagueTier(-1)).toBe(0);
-    });
-
-    test('el mínim: qui no ha jugat mai a la lliga del territori hi puja; qui hi ha jugat, si baixa, baixa', () => {
-        expect(Core.leagueFloorTier(0, 0)).toBe(9);
-        expect(Core.leagueFloorTier(5, 5)).toBe(9);
-        expect(Core.leagueFloorTier(11, 0)).toBe(11);
-        expect(Core.leagueFloorTier(8, 9)).toBe(8);
-        expect(Core.leagueFloorTier(2, 12)).toBe(2);
-        expect(Core.leagueFloorTier(4, undefined)).toBe(9);
     });
 
     test('la graella es fa 12 punts més forta a cada graó, de −120 a +120', () => {
@@ -277,8 +268,6 @@ describe('escala de nivells (LLIGA.md §6)', () => {
 });
 
 describe('temporada sencera a l\'app (applyLeagueAfterGame + finalizeLeagueSeason)', () => {
-    // Per provar els graons de sota de la lliga del territori, per defecte la
-    // trajectòria ja hi ha jugat (millor graó 9) i hi ha baixat.
     function seasonCtx(myOutcome, { level = 2, group = 'B', legacy = false, oldLadder = false,
         career = legacy ? null : { bestTier: 9, seasons: [] } } = {}) {
         const store = career ? { chess_leagueCareer: JSON.stringify(career) } : {};
@@ -289,7 +278,7 @@ describe('temporada sencera a l\'app (applyLeagueAfterGame + finalizeLeagueSeaso
             localStorage: { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } },
             saveStorage() {}, getLeagueTimeControlId: () => '1+0',
             simulateOutcomeByElo: (a, b) => Core.leagueSimulatedResult(a, b, '1+0'),
-            leagueRoundAwaitingGame: null, LEAGUE_CAREER_KEY: 'chess_leagueCareer', LEAGUE_CAREER_MAX_SEASONS: 30,
+            leagueRoundAwaitingGame: null, LEAGUE_CAREER_KEY: 'chess_leagueCareer', LEAGUE_CAREER_MAX_SEASONS: 30, LEAGUE_RECENT_NAMES_MAX: 54,
             currentLeague: null, leagueActiveMatch: null
         });
         ['getLeaguePlayer', 'applyResult', 'leagueSort', 'getLeaguePerformance', 'loadLeagueCareer', 'saveLeagueCareer',
@@ -335,11 +324,14 @@ describe('temporada sencera a l\'app (applyLeagueAfterGame + finalizeLeagueSeaso
     });
 
     test('de la C es puja a la B, de la B a la A i de la A a la C del nivell següent', () => {
-        const up = (level, group) => seasonCtx('win', { level, group }).ctx.currentLeague.final;
-        expect(up(1, 'C')).toMatchObject({ nextLevel: 1, nextGroup: 'B', movement: 'up' });
-        expect(up(1, 'B')).toMatchObject({ nextLevel: 1, nextGroup: 'A', movement: 'up' });
-        expect(up(1, 'A')).toMatchObject({ nextLevel: 2, nextGroup: 'C', movement: 'up' });
-        // I al cim (Mundial A) el campió es queda: és el campió del món.
+        const up = (level, group) => seasonCtx('win', { level, group, career: null }).ctx.currentLeague.final;
+        for (let level = 0; level < Core.LEAGUE_LEVELS.length; level++) {
+            expect(up(level, 'C')).toMatchObject({ nextLevel: level, nextGroup: 'B', movement: 'up' });
+            expect(up(level, 'B')).toMatchObject({ nextLevel: level, nextGroup: 'A', movement: 'up' });
+            if (level < Core.LEAGUE_LEVELS.length - 1) {
+                expect(up(level, 'A')).toMatchObject({ nextLevel: level + 1, nextGroup: 'C', movement: 'up' });
+            }
+        }
         expect(up(6, 'A')).toMatchObject({ nextLevel: 6, nextGroup: 'A', movement: 'stay' });
     });
 
@@ -365,28 +357,29 @@ describe('temporada sencera a l\'app (applyLeagueAfterGame + finalizeLeagueSeaso
         expect(JSON.parse(store.chess_leagueCareer)).toMatchObject({ tier: 9, level: 3 });
     });
 
-    test('una lliga de l\'antic sistema es tanca amb la divisió i l\'escalada comença a la lliga del territori', () => {
+    test('una lliga de l\'antic sistema es tanca amb la divisió i l\'escalada comença a la lliga local', () => {
         const { ctx, store } = seasonCtx('win', { legacy: true });
-        expect(ctx.currentLeague.final).toMatchObject({ rank: 1, division: 2, nextLevel: 3, movement: 'start' });
+        expect(ctx.currentLeague.final).toMatchObject({ rank: 1, division: 2, nextLevel: 0, movement: 'start' });
         const career = JSON.parse(store.chess_leagueCareer);
-        expect(career).toMatchObject({ tier: 9, level: 3 });
+        expect(career).toMatchObject({ tier: 0, level: 0 });
         expect(career.seasons[0]).toMatchObject({ division: 2 });
         expect(career.seasons[0].level).toBeUndefined();
     });
 
-    test('la primera temporada (a la lliga del territori, C) ja compta: si es perd tot, es baixa a la provincial', () => {
+    test('una temporada a la lliga del territori C baixa a la provincial A si es perd tot', () => {
         const { ctx, store } = seasonCtx('loss', { level: 3, group: 'C', career: null });
         expect(ctx.currentLeague.final).toMatchObject({ tier: 9, nextTier: 8, nextLevel: 2, nextGroup: 'A', movement: 'down' });
         expect(JSON.parse(store.chess_leagueCareer)).toMatchObject({ tier: 8, bestTier: 9 });
     });
 
-    test('una temporada d\'abans del mínim, jugada per sota de la lliga del territori, acaba pujant-hi', () => {
-        const old = { tier: 2, bestTier: 2, seasons: [] };
-        const lost = seasonCtx('loss', { level: 0, group: 'A', career: old });
-        expect(lost.ctx.currentLeague.final).toMatchObject({ tier: 2, nextTier: 9, nextLevel: 3, nextGroup: 'C' });
-        expect(JSON.parse(lost.store.chess_leagueCareer)).toMatchObject({ tier: 9, level: 3 });
-        const won = seasonCtx('win', { level: 0, group: 'A', career: old });
-        expect(won.ctx.currentLeague.final).toMatchObject({ nextTier: 9, movement: 'up' });
+    test('una temporada antiga de la B local conserva el pas a la divisió adjacent', () => {
+        const options = { level: 0, group: 'B', oldLadder: true, career: { tier: 1, bestTier: 1 } };
+        const won = seasonCtx('win', options);
+        expect(won.ctx.currentLeague.final).toMatchObject({ tier: 1, nextTier: 2, nextLevel: 0, nextGroup: 'A', movement: 'up' });
+        expect(won.ctx.loadLeagueCareer()).toMatchObject({ tier: 2, level: 0 });
+        const lost = seasonCtx('loss', options);
+        expect(lost.ctx.currentLeague.final).toMatchObject({ tier: 1, nextTier: 0, nextLevel: 0, nextGroup: 'C', movement: 'down' });
+        expect(lost.ctx.loadLeagueCareer()).toMatchObject({ tier: 0, level: 0 });
     });
 
     test('el graó nou es fa servir en crear la temporada següent', () => {

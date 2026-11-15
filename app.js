@@ -5373,18 +5373,10 @@ function loadLeagueCareer() {
         : ElTaulerCore.LEAGUE_START_LEVEL;
     // Les trajectòries d'abans dels graons només tenien el nivell: comencen a
     // la C del nivell que s'havien guanyat.
-    const savedTier = (data && Number.isFinite(data.tier)) ? ElTaulerCore.leagueTier(data.tier)
+    const tier = (data && Number.isFinite(data.tier)) ? ElTaulerCore.leagueTier(data.tier)
         : ElTaulerCore.leagueTierOf(savedLevel, 'C');
-    // El millor graó on s'ha jugat de debò: el desat (o, a les d'abans, el del
-    // millor nivell; i, sense cap dels dos, el graó). No s'hi suma el graó
-    // desat, que pot ser el del mínim: és el que diu si encara s'ha de pujar a
-    // la lliga del territori.
     const bestTier = (data && Number.isFinite(data.bestTier)) ? ElTaulerCore.leagueTier(data.bestTier)
-        : ((data && Number.isFinite(data.bestLevel)) ? ElTaulerCore.leagueTierOf(data.bestLevel, 'C') : savedTier);
-    // L'escalada comença com a mínim a la lliga del territori, Divisió C: qui no
-    // hi ha jugat mai (les trajectòries noves i les d'abans que no hi havien
-    // arribat) hi comença.
-    const tier = ElTaulerCore.leagueFloorTier(savedTier, bestTier);
+        : ((data && Number.isFinite(data.bestLevel)) ? ElTaulerCore.leagueTierOf(data.bestLevel, 'C') : tier);
     const level = ElTaulerCore.leagueTierLevel(tier);
     const bestLevel = Math.max(level, ElTaulerCore.leagueTierLevel(bestTier),
         (data && Number.isFinite(data.bestLevel)) ? ElTaulerCore.leagueLevel(data.bestLevel).level : 0);
@@ -5820,7 +5812,7 @@ function renderLeagueHomePreview() {
     if (!L || !box) return;
     const home = L.normalizeHome(leagueHomeFormValues());
     if (!home) { box.innerHTML = ''; return; }
-    // On comences (com a mínim, la lliga del territori) o on jugues ara.
+    // On comences o on jugues ara.
     const career = loadLeagueCareer();
     const mine = ElTaulerCore.leagueTierLevel(career.tier);
     const note = career.seasons.length ? ' ← hi jugues' : ' ← hi comences';
@@ -6117,9 +6109,7 @@ function renderLeagueLadderSteps() {
     if (box) {
         box.hidden = cur === null;
         box.innerHTML = ElTaulerCore.LEAGUE_LEVELS.map((L, i) => {
-            // Fets, només des de la lliga del territori (on es comença).
-            const startLevel = ElTaulerCore.leagueTierLevel(ElTaulerCore.LEAGUE_START_TIER);
-            const cls = ['lg-step', i === cur ? 'is-current' : (cur !== null && i < cur && i >= startLevel ? 'is-done' : ''), i === career.bestLevel ? 'is-best' : '']
+            const cls = ['lg-step', i === cur ? 'is-current' : (cur !== null && i < cur ? 'is-done' : ''), i === career.bestLevel ? 'is-best' : '']
                 .filter(Boolean).join(' ');
             const title = ElTaulerCore.leagueLevelName(i, career.home) + (i === cur && lad.group ? ' · Divisió ' + lad.group : '');
             return `<span class="${cls}" title="${escapeHtml(title)}">${leagueIcon(L.icon)}</span>`;
@@ -6142,23 +6132,19 @@ function renderLeagueLadder() {
     const levels = ElTaulerCore.LEAGUE_LEVELS.map((L, i) => {
         const groups = ElTaulerCore.LEAGUE_GROUP_IDS.map(id => {
             const t = ElTaulerCore.leagueTierOf(i, id);
-            // Els graons de sota de la lliga del territori no es pinten com a
-            // fets: no s'hi puja (es comença més amunt), només s'hi baixa.
-            const done = t < curTier && t >= ElTaulerCore.LEAGUE_START_TIER;
+            const done = t < curTier;
             const cls = t === curTier ? 'lgc-orange is-mine' : (done ? 'lgc-green'
                 : (t > curTier && t === career.bestTier ? 'lgc-gold' : 'lgc-silver'));
             return `<span class="lg-chip ${cls}">Divisió ${id}</span>`;
         }).join('<span class="lll-arrow" aria-hidden="true">→</span>');
         const marks = [i === cur ? `<span class="lg-chip lgc-orange">Ets aquí: Divisió ${escapeHtml(ElTaulerCore.leagueTierGroup(curTier))}</span>` : '',
             i === ElTaulerCore.leagueTierLevel(career.bestTier) && career.bestTier > curTier ? '<span class="lg-chip lgc-gold">Millor graó</span>' : ''].join('');
-        const cls = i === cur ? ' is-current'
-            : (i < cur && i >= ElTaulerCore.leagueTierLevel(ElTaulerCore.LEAGUE_START_TIER) ? ' is-done' : '');
+        const cls = i === cur ? ' is-current' : (i < cur ? ' is-done' : '');
         return `<div class="league-ladder-level${cls}"><span class="lll-ic">${leagueIcon(L.icon)}</span><div>`
             + `<div class="lll-name">${escapeHtml(ElTaulerCore.leagueLevelName(i, career.home))}${marks}</div>`
             + `<div class="lll-groups">${groups}</div></div></div>`;
     }).reverse().join('');
-    box.innerHTML = levels + '<div class="league-note">Es comença, com a mínim, a la Divisió C de la lliga del teu territori; '
-        + 'la provincial, la comarcal i la del municipi hi són per si baixes. '
+    box.innerHTML = levels + '<div class="league-note">Les trajectòries noves comencen a la Divisió C de la lliga local. '
         + 'Es puja d\'un graó en un: de la C a la B, de la B a la A i de la A a la C del nivell següent. '
         + 'El podi puja un graó i els tres últims en baixen un (de la Divisió C del municipal no se\'n baixa). '
         + 'Cada graó fa els rivals 12 punts més forts que l\'anterior: a la Lliga Local C ets favorit i a la Mundial A cal jugar molt per sobre de la teva puntuació. '
@@ -6878,10 +6864,7 @@ function finalizeLeagueSeason() {
         const group = currentLeague.ladder.group || null;
         const tier = Number.isFinite(currentLeague.ladder.tier) ? ElTaulerCore.leagueTier(currentLeague.ladder.tier)
             : ElTaulerCore.leagueTierOf(level, group);
-        // Una temporada d'abans del mínim, jugada per sota de la lliga del
-        // territori, acaba pujant-hi (leagueFloorTier).
-        const nextTier = ElTaulerCore.leagueFloorTier(ElTaulerCore.leagueNextTier(tier, rank, standings.length),
-            Math.max(career.bestTier || 0, tier));
+        const nextTier = ElTaulerCore.leagueNextTier(tier, rank, standings.length);
         const next = ElTaulerCore.leagueTierLevel(nextTier);
         currentLeague.final = Object.assign(base, { level, group, tier, nextLevel: next, nextTier,
             nextGroup: ElTaulerCore.leagueTierGroup(nextTier),

@@ -369,25 +369,23 @@ describe('a l\'app: la lliga a l\'escala', () => {
     }
     const vic = { territory: 'cat', municipi: 'Vic', comarca: 'Osona', provincia: 'Barcelona', pais: '' };
 
-    test('sense trajectòria: es comença a la C de la lliga del territori (com a mínim)', () => {
+    test('sense trajectòria: es comença a la C de la lliga local', () => {
         const { ctx } = appCtx({ base: 1000 });
         const L = ctx.createNewLeague(true);
-        // El grup ja no surt de l'ELO, i no es comença a la lliga local: la
-        // Lliga Catalana C (sense localitat, la catalana), rivals de −12.
-        expect(L.ladder).toEqual({ level: 3, group: 'C', tier: 9 });
-        expect(L.divisionShift).toBe(-12);
-        expect(L.name).toBe('Lliga Catalana · Divisió C');
+        expect(L.ladder).toEqual({ level: 0, group: 'C', tier: 0 });
+        expect(L.divisionShift).toBe(-120);
+        expect(L.name).toBe('Lliga Local · Divisió C');
         expect(L.division).toBeUndefined();
         const bots = L.players.filter(p => p.id !== 'me');
         expect(bots).toHaveLength(9);
-        bots.forEach(p => expect(Loc.findMunicipality(p.from)).toBeTruthy());
+        bots.forEach(p => expect(p.from).toBeUndefined());
         const avg = bots.reduce((s, p) => s + p.elo, 0) / 9;
-        expect(Math.abs(avg - 988)).toBeLessThan(15);
+        expect(Math.abs(avg - 880)).toBeLessThan(15);
     });
 
-    test('amb la localitat al País Valencià: Lliga Valenciana C, amb rivals de poblacions de les tres províncies', () => {
+    test('des de Gandia, al graó 9: Lliga Valenciana C, amb rivals de poblacions de les tres províncies', () => {
         const gandia = { territory: 'val', municipi: 'Gandia', comarca: 'la Safor', provincia: 'València', pais: '' };
-        const L = appCtx({ career: { home: gandia, seasons: [] }, base: 1200 }).ctx.createNewLeague(true);
+        const L = appCtx({ career: { tier: 9, home: gandia, seasons: [] }, base: 1200 }).ctx.createNewLeague(true);
         expect(L.name).toBe('Lliga Valenciana · Divisió C');
         const towns = L.players.filter(p => p.id !== 'me').map(p => Loc.findMunicipality(p.from, 'val'));
         towns.forEach(m => expect(m).toBeTruthy());
@@ -461,8 +459,7 @@ describe('a l\'app: la lliga a l\'escala', () => {
         const before = ctx.currentLeague.id;
         ctx.saveLeagueHome(vic);
         expect(JSON.parse(store.chess_leagueCareer).home).toEqual(vic);
-        expect(ctx.currentLeague.name).toBe('Lliga Catalana · Divisió C');
-        expect(ctx.currentLeague.players.find(p => p.id === 'me').from).toBe('Vic');
+        expect(ctx.currentLeague.name).toBe('Lliga de Vic · Divisió C');
 
         ctx.currentLeague.currentRound = 2;
         const name = ctx.currentLeague.name;
@@ -477,7 +474,7 @@ describe('a l\'app: la lliga a l\'escala', () => {
             currentRound: 1, completed: false, players: [{ id: 'me', pj: 0 }] });
         const fresh = appCtx({ league: legacy() }).ctx;
         expect(fresh.upgradeLegacyLeague()).toBe(true);
-        expect(fresh.currentLeague.ladder).toEqual({ level: 3, group: 'C', tier: 9 });
+        expect(fresh.currentLeague.ladder).toEqual({ level: 0, group: 'C', tier: 0 });
         expect(fresh.currentLeague.timeControl).toBe('3+2');
 
         const started = appCtx({ league: Object.assign(legacy(), { currentRound: 4 }) }).ctx;
@@ -490,18 +487,12 @@ describe('a l\'app: la lliga a l\'escala', () => {
 
     test('la trajectòria llegeix nivell, millor nivell i localitat (i les velles, sense)', () => {
         const { ctx } = appCtx({ career: { division: 3, seasons: [{ name: 'x', division: 3 }] } });
-        // Mai no ha jugat a la lliga del territori: hi comença (el millor graó
-        // jugat continua essent el que era).
-        expect(ctx.loadLeagueCareer()).toMatchObject({ division: 3, tier: 9, level: 3, bestTier: 0, bestLevel: 3, home: null });
-        expect(appCtx({}).ctx.loadLeagueCareer()).toMatchObject({ tier: 9, level: 3, seasons: [] });
-        expect(appCtx({ career: { tier: 4, bestTier: 4, seasons: [] } }).ctx.loadLeagueCareer()).toMatchObject({ tier: 9 });
-        expect(appCtx({ career: { tier: 7, bestTier: 10, seasons: [] } }).ctx.loadLeagueCareer()).toMatchObject({ tier: 7 });
-        // Desar la trajectòria amb el graó del mínim no infla el millor graó:
-        // una temporada d'abans, jugada per sota, encara acabarà pujant.
-        const saved = appCtx({ career: { tier: 2, bestTier: 2, seasons: [] } });
+        expect(ctx.loadLeagueCareer()).toMatchObject({ division: 3, tier: 0, level: 0, bestTier: 0, bestLevel: 0, home: null });
+        expect(appCtx({}).ctx.loadLeagueCareer()).toMatchObject({ tier: 0, level: 0, seasons: [] });
+        const saved = appCtx({ career: { tier: 4, bestTier: 4, seasons: [] } });
         saved.ctx.saveLeagueCareer(saved.ctx.loadLeagueCareer());
-        expect(JSON.parse(saved.store.chess_leagueCareer)).toMatchObject({ tier: 9, bestTier: 2 });
-        expect(saved.ctx.loadLeagueCareer()).toMatchObject({ tier: 9, bestTier: 2 });
+        expect(saved.ctx.loadLeagueCareer()).toMatchObject({ tier: 4, bestTier: 4, level: 1 });
+        expect(appCtx({ career: { tier: 7, bestTier: 10, seasons: [] } }).ctx.loadLeagueCareer()).toMatchObject({ tier: 7 });
         const c2 = appCtx({ career: { level: 9, bestLevel: 2, home: { municipi: '' }, seasons: [] } }).ctx.loadLeagueCareer();
         // Només amb nivell (d'abans dels graons): la C del nivell.
         expect(c2).toMatchObject({ tier: 18, level: 6, bestLevel: 6, home: null });
