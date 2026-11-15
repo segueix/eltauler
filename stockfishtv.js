@@ -3213,7 +3213,9 @@
         }
         if (!exchange && !urgent && !c.prepared && gap >= 1 && c.ply >= 8 && c.ply - (memory.lastVariantPly ?? -100) >= 12)
             exchange = tvCompareVariants(c, vision, memory.visio && memory.visio.prevIds);
-        if (!exchange && (gap >= 2 || chosen.kind === 'reply') && chosen.kind !== 'summary')
+        // Amb la visió d'en Grau, els plans i seguiments tenen prioritat absoluta:
+        // no intercalem preguntes addicionals que en desplacin la previsió.
+        if (!exchange && !vision && (gap >= 2 || chosen.kind === 'reply') && chosen.kind !== 'summary')
             exchange = tvTacticalDialogue(c, chosen, candidates, event, urgent);
         if (!exchange) return chosen;
         const heard = memory.dialogueFacts || {};
@@ -3234,8 +3236,10 @@
             const questionIndex = Number.isInteger(memory.questionIndex)
                 ? memory.questionIndex : tvHash(c.gameId || '') % TV_MOVE_QUESTIONS.length;
             exchange.questionIndex = questionIndex;
+            const spokenFocus = vision && exchange.focus && typeof vision.clean === 'function'
+                ? vision.clean(exchange.focus, c, visio()) : exchange.focus;
             const question = !vision ? (exchange.question ? move + ' ' + exchange.question : tvMoveQuestion(c.move, questionIndex, exchange.focus))
-                : neutral + ' ' + (exchange.question || tvWhyQuestion(c, questionIndex, exchange.focus));
+                : neutral + ' ' + (exchange.question || tvWhyQuestion(c, questionIndex, spokenFocus));
             if (wordCount(question) + wordCount(exchange.answer) > (exchange.tail ? 52 : 45)) {
                 if (!exchange.tail) return chosen;
                 // Sense espai per a la continuació: el fil sense la cua.
@@ -3244,7 +3248,8 @@
                 exchange.questionIndex = questionIndex;
             }
             const solo = exchange.kind === 'variant' ? null : (vision ? neutral : move) +
-                (exchange.focus ? ' Seguim ' + exchange.focus + '.' : '');
+                (vision ? (spokenFocus ? ' Seguim ' + spokenFocus + '.' : '')
+                    : (exchange.focus ? ' Seguim ' + exchange.focus + '.' : ''));
             dialogue = [
                 { role: 'presenter', text: question, solo: solo },
                 { role: 'analyst', text: exchange.answer }
