@@ -193,8 +193,6 @@
         // Matxa ha deixat de respondre: la TV s'atura i hi torna a provar
         // cada tants mil·lisegons (a més del temps que triga cada intent).
         VOICE_RETRY_MS: 8000,
-        // Inclou l'arrencada de la sessió, la cua de Gradio i la síntesi.
-        VOICE_SYNTH_TIMEOUT_MS: 45000,
         // Control manual: espera mínima i màxima abans que el motor respongui
         // la jugada de l'usuari (dona temps a llegir-ne el comentari).
         CONTROL_REPLY_DELAY_MS: 1200,
@@ -3159,44 +3157,6 @@
         return prefix ? prefix + question[0].toLowerCase() + question.slice(1) : question;
     }
 
-    // L'obertura preparada no passa per l'anàlisi de Stockfish. En Grau
-    // pot explicar una resposta legal a la primera jugada amb els fets
-    // del tauler, també quan no hi ha cap variant llarga a punt.
-    function tvOpeningDialogue(c, vision, neutral) {
-        if (!c.openingDialogue || !vision || typeof vision.intentAt !== 'function') return null;
-        const position = new c.ChessCtor(c.fenAfter);
-        const next = c.openingReply;
-        const moves = position.moves({ verbose: true }).map(m => m.from + m.to + (m.promotion || ''));
-        for (const uci of new Set([next, ...moves])) {
-            if (!uci) continue;
-            const reply = vision.intentAt(c.ChessCtor, c.fenAfter, uci, { prev: c.move, noDemo: true });
-            if (!reply) continue;
-            const side = COLOR[position.turn()].pl;
-            const m = reply.step.move;
-            // Si un peó de flanc incideix sobre l'avanç central contrari,
-            // fem explícita la captura que amenaçaria al centre.
-            const pawnAdvance = m.flags.includes('b');
-            const threatened = pawnAdvance && new c.ChessCtor(reply.step.fen).moves({ verbose: true }).find(r =>
-                r.flags.includes('b') && /^[de]/.test(r.from) &&
-                Math.abs(r.from.charCodeAt(0) - m.from.charCodeAt(0)) === 1 &&
-                Number(r.to[1]) === Number(m.to[1]) + (m.color === 'w' ? 1 : -1));
-            let action = reply.generic ? '' : 'Una opció per a ' + side + ' és ' + reply.inf + '.';
-            if ((threatened || reply.key === 'center' && pawnAdvance) && typeof vision.describeMove === 'function') {
-                const description = vision.describeMove({ ChessCtor: c.ChessCtor, fenBefore: c.fenAfter, move: m });
-                if (description) action = 'Si ' + description[0].toLowerCase() + description.slice(1, -1) +
-                    (threatened ? ', aquest peó controla la casella on podria avançar el peó ' +
-                        (threatened.from[0] === 'd' ? 'de dama' : 'de rei') + ' rival.'
-                        : ', guanyen espai al centre.');
-            }
-            if (!action) continue;
-            return { kind: 'opening-reply', turns: [
-                { role: 'presenter', text: 'Grau, com poden respondre ' + side + ' a aquesta primera jugada?', solo: neutral },
-                { role: 'analyst', text: action }
-            ] };
-        }
-        return null;
-    }
-
     // Ordre dels diàlegs: 1) un fil de conflicte que es resol; 2) el
     // seguiment d'una previsió d'en Grau (s'ha complert o un bàndol se n'ha
     // sortit); 3) els altres canvis dels fils de conflicte, amb la continuació
@@ -3253,11 +3213,10 @@
         }
         if (!exchange && !urgent && !c.prepared && gap >= 1 && c.ply >= 8 && c.ply - (memory.lastVariantPly ?? -100) >= 12)
             exchange = tvCompareVariants(c, vision, memory.visio && memory.visio.prevIds);
-        // Si no hi ha pla ni seguiment, en Grau encara pot respondre una
-        // pregunta que té una amenaça o una recaptura legal comprovada.
-        if (!exchange && (gap >= 2 || chosen.kind === 'reply') && chosen.kind !== 'summary')
+        // Amb la visió d'en Grau, els plans i seguiments tenen prioritat absoluta:
+        // no intercalem preguntes addicionals que en desplacin la previsió.
+        if (!exchange && !vision && (gap >= 2 || chosen.kind === 'reply') && chosen.kind !== 'summary')
             exchange = tvTacticalDialogue(c, chosen, candidates, event, urgent);
-        if (!exchange) exchange = tvOpeningDialogue(c, vision, neutral);
         if (!exchange) return chosen;
         const heard = memory.dialogueFacts || {};
         if (exchange.key && Number.isInteger(heard[exchange.key]) && c.ply - heard[exchange.key] < 16) return chosen;
@@ -3548,18 +3507,6 @@
         const actualNeuralId = opts => (dualEnabled() && opts &&
             (opts.voiceId === TV_DUO.presenter || opts.voiceId === TV_DUO.analyst))
             ? opts.voiceId : neuralId();
-        function neuralOptions(text, id, opts) {
-            const options = {
-                rate: clamp(neuralRate() * (isNum(opts.rate) ? opts.rate : 1), 0.75, 1.25),
-                synthTimeoutMs: TV_CONFIG.VOICE_SYNTH_TIMEOUT_MS
-            };
-            if (id === TV_DUO.presenter || id === TV_DUO.analyst) {
-                const P = getProsodia();
-                const mode = P && P.questionMode && P.questionMode(text);
-                if (mode) options.questionMode = mode;
-            }
-            return options;
-        }
         const synthSupported = e.allowSystemVoice !== false && !!(synth && typeof synth.speak === 'function' && typeof Utter === 'function');
         const supported = synthSupported || !!neural;
         let pref = typeof e.loadPref === 'function' ? e.loadPref() : null;
@@ -3609,13 +3556,7 @@
             const seq = speakSeq;
             const hold = holding();
             if (neuralReady() || (hold && o.force)) {
-                const prepared = neuralText(text), id = actualNeuralId(o);
-                return neural.speak(prepared, id, {
-                    ...neuralOptions(prepared, id, o), effects: neuralEffects(),
-                    maxWaitMs: (isNum(o.maxWaitMs) ? o.maxWaitMs : tvSpeechMaxWaitMs(text)) +
-                        TV_CONFIG.VOICE_SYNTH_TIMEOUT_MS,
-                    force: !!(hold && o.force)
-                })
+                return neural.speak(neuralText(text), actualNeuralId(o), { rate: clamp(neuralRate() * (isNum(o.rate) ? o.rate : 1), 0.75, 1.25), effects: neuralEffects(), maxWaitMs: (isNum(o.maxWaitMs) ? o.maxWaitMs : tvSpeechMaxWaitMs(text)) + 9000, force: !!(hold && o.force) })
                     .then((r) => {
                         if (r && (r.spoken || r.reason === 'stopped' || seq !== speakSeq)) return r;
                         if (r && r.reason === 'not-allowed') { blocked = true; emit(); return r; }
@@ -3674,11 +3615,7 @@
             neuralUnavailable() { return !!(neuralId() && !neural.available()); },
             // Si Matxa falla, no es llegeix amb una altra veu: s'espera que torni.
             holdsForNeural() { return holding(); },
-            prefetch(text, opts) {
-                if (pref !== 'on' || !text || !neuralReady()) return;
-                const prepared = neuralText(text), id = actualNeuralId(opts);
-                neural.prefetch(prepared, id, neuralOptions(prepared, id, opts || {}));
-            },
+            prefetch(text, opts) { if (pref === 'on' && text && neuralReady()) { const o = opts || {}; neural.prefetch(neuralText(text), actualNeuralId(o), { rate: clamp(neuralRate() * (isNum(o.rate) ? o.rate : 1), 0.75, 1.25) }); } },
             supportsDual() { return dualEnabled() && (neuralReady() || holding()); },
             pref() { return pref; },
             isOn() { return pref === 'on'; },
@@ -4146,11 +4083,8 @@
         }
 
         function spokenTurns(comment) {
-            const turns = tvDialogueTurns(comment, !!(d.voice && typeof d.voice.supportsDual === 'function' &&
+            return tvDialogueTurns(comment, !!(d.voice && typeof d.voice.supportsDual === 'function' &&
                 d.voice.supportsDual()));
-            const P = getProsodia();
-            if (!P || !P.questionParts) return turns;
-            return turns.flatMap(turn => P.questionParts(turn.text).map(text => ({ ...turn, text })));
         }
 
         // opts = { fromTurn, force }: per reprendre un comentari a mitges
@@ -4333,11 +4267,11 @@
                 if (plan.chosen && d.voice && typeof d.voice.prefetch === 'function') {
                     const planned = { ...plan.chosen, speech: tvSpeechText(plan.chosen.say || plan.chosen.text), ply };
                     const direction = tvSpeechDirection(planned);
-                    // La sessió Matxa de l'Èlia i en Grau és compartida.
-                    // Si encuem tots els fragments alhora, el termini dels
-                    // últims ja corre mentre encara es prepara el primer.
-                    const [turn] = spokenTurns(planned);
-                    if (turn) d.voice.prefetch(turn.text, { ...direction, voiceId: turn.voiceId });
+                    for (const turn of spokenTurns(planned)) {
+                        const tone = turn.role === 'maxim'
+                            ? tvSpeechDirection({ kind: 'summary' }) : direction;
+                        d.voice.prefetch(turn.text, { ...tone, voiceId: turn.voiceId });
+                    }
                 }
 
                 // Espera la visualització de la jugada anterior i la seva locució.
@@ -4393,8 +4327,6 @@
             const step = tvBroadcastStep({
                 ChessCtor: d.ChessCtor, fenBefore: fenBefore, fenAfter: fenAfter, move: mv, prevMove: prevMove,
                 before: before, after: after, tier: g.tier, prepared: !!prepared, phrase: prepared ? prepared.phrase : null,
-                openingDialogue: ply === 0 && prefs.duo && d.voice?.supportsDual?.(),
-                openingReply: prepared ? g.prepared[ply + 1]?.uci : after?.pv?.[0],
                 end: end, ply: ply, memory: g.memory, expression: d.expression, narrative: d.narrative, quality: d.quality,
                 patterns: d.patterns, art: d.art, gameId: g.id, visio: d.visio
             });
@@ -5766,9 +5698,8 @@
             getOpenings: () => { try { return typeof bridge.getCuratedOpenings === 'function' ? bridge.getCuratedOpenings() : []; } catch (e) { return []; } },
             getOpeningGraph: () => { try { return typeof bridge.getOpeningGraph === 'function' ? bridge.getOpeningGraph() : null; } catch (e) { return null; } },
             loadPrefs: loadPrefsRaw,
-            savePrefs: (p) => savePrefsRaw({ speed: p.speed, duo: p.duo, offsets: p.offsets, openingIndex: p.openingIndex,
-                unequal: p.unequal, profiles: p.profiles, recent: p.recent, untilMate: p.untilMate,
-                mateSeries: p.mateSeries, mateRecent: p.mateRecent })
+            savePrefs: (p) => savePrefsRaw({ speed: p.speed, offsets: p.offsets, openingIndex: p.openingIndex, unequal: p.unequal,
+                profiles: p.profiles, recent: p.recent, untilMate: p.untilMate, mateSeries: p.mateSeries, mateRecent: p.mateRecent })
         });
         return controller;
     }
