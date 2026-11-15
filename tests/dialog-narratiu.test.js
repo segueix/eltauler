@@ -79,12 +79,12 @@ test('només hi ha diàleg sobre una jugada quan en Grau hi pot explicar una con
     const [opening] = TV.tvSimulateCommentary(Chess, { moves: ['e2e4'], prepared: 1 });
     expect(opening.dialogue).toBeNull();
     const [capture] = TV.tvSimulateCommentary(Chess, {
-        startFen: '3rk3/8/8/3n4/3R4/8/8/4K3 w - - 0 1', moves: ['d4d5']
+        startFen: '3rk3/8/8/3n4/3R4/8/8/4K3 w - - 0 1', moves: ['d4d5'], visio: null
     });
     expect(capture.dialogueEvent).toBe('move');
-    expect(capture.dialogue[0].text).not.toMatch(/\\b[a-h][1-8]\\b/);
+    expect(capture.dialogue[0].text).toMatch(/d5/);
     expect(capture.dialogue[1].text).toMatch(/recaptura legal/);
-    expect(capture.dialogue[1].text).not.toMatch(/\\b[a-h][1-8]\\b/);
+    expect(capture.dialogue[1].text).toMatch(/d5/);
     const [pinned] = TV.tvSimulateCommentary(Chess, {
         startFen: '4r2k/8/8/8/8/2b1R3/3P4/4K3 w - - 0 1', moves: ['e3e2']
     });
