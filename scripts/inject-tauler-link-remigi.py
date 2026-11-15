@@ -26,18 +26,22 @@ def inject_tauler_link(game_screen_path: str) -> None:
                 height: '2.65rem',
                 display: 'grid',
                 placeItems: 'center',
+                overflow: 'hidden',
                 borderRadius: '50%',
                 border: '1px solid color-mix(in srgb, var(--or) 65%, var(--vora))',
-                background: 'linear-gradient(145deg, color-mix(in srgb, var(--or) 12%, var(--superficie)), var(--superficie))',
-                color: 'var(--or)',
-                fontSize: '2rem',
-                lineHeight: 1,
+                background: '#fff',
                 textDecoration: 'none',
-                boxShadow: 'inset 0 1px 0 rgb(255 255 255 / 0.35), 0 1px 3px rgb(0 0 0 / 0.16)',
-                textShadow: '0 1px 1px rgb(0 0 0 / 0.12)',
+                boxShadow: '0 1px 3px rgb(0 0 0 / 0.16)',
               }}
             >
-              ♔
+              {/* La icona d'El Tauler (la de Remigi: public/eltauler-192.png), no un rei d'escacs. */}
+              <img
+                src={`${import.meta.env.BASE_URL}eltauler-192.png`}
+                alt=""
+                width={42}
+                height={42}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+              />
             </a>
           </li>
           {game.players.map((player, index) => {'''

@@ -63,3 +63,44 @@ describe('injeccions del desplegament a la portada', () => {
         expect(html.split('hreflang="ca"').length - 1).toBe(1);
     });
 });
+
+describe('injecció del desplegament a Remigi: l\'accés a El Tauler a la partida', () => {
+    let dir;
+    let file;
+    // El tros de GameScreen.tsx de Remigi on va l'enllaç (la llista de jugadors).
+    const GAME = [
+        'export function GameScreen() {',
+        '  return (',
+        '      <header className="game-top">',
+        '        <ul className="players">',
+        '          {game.players.map((player, index) => {',
+        '            return <li key={index} />;',
+        '          })}',
+        '        </ul>',
+        '      </header>',
+        '  );',
+        '}',
+        ''
+    ].join('\n');
+    beforeEach(() => {
+        dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eltauler-remigi-'));
+        file = path.join(dir, 'GameScreen.tsx');
+        fs.writeFileSync(file, GAME);
+    });
+    afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+
+    maybe('hi posa la icona d\'El Tauler (no el rei d\'escacs), un sol cop', () => {
+        for (let i = 0; i < 2; i++) {
+            const r = run('inject-tauler-link-remigi.py', file);
+            expect(r.stderr + r.stdout).toBe('');
+            expect(r.status).toBe(0);
+        }
+        const tsx = fs.readFileSync(file, 'utf8');
+        expect(tsx.split('className="tauler-home-link"').length - 1).toBe(1);
+        expect(tsx).toContain('href="https://eltauler.cat/"');
+        expect(tsx).toContain('eltauler-192.png');
+        expect(tsx).not.toContain('♔');
+        // Davant dels jugadors.
+        expect(tsx.indexOf('tauler-home-link')).toBeLessThan(tsx.indexOf('{game.players.map('));
+    });
+});
