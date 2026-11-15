@@ -806,18 +806,20 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   a les partides de prova. També que «la iniciativa» no s'apostrofa.
 - **`visiograu.test.js`** — **La visió d'en Grau** (`visiograu.js`) a
   Stockfish vs Lozza TV: lectura de la línia de Stockfish jugada a jugada amb
-  chess.js (s'atura a la primera il·legal) i finalitats només amb fets certs al
-  tauler (defensar, atacar, posar fora de perill, setena fila, peó passat,
-  enroc…); el pla de l'Èlia i en Grau (la jugada primer, dues jugades de cada
-  bàndol, lògica del tema i valoració, de 2 a 4 torns i dins del límit de
-  paraules de cada nivell); cap pla amb anàlisi poc profunda, mat, posició
-  decidida, jugada preparada o anàlisi d'una altra posició; marge entre plans;
-  una recaptura no és material guanyat i el guany porta la causa comprovada;
-  seguiment de la previsió (encert a la jugada clau, desviació amb el que
-  esperava Stockfish i el que costa, i silenci per a les desviacions
-  irrellevants seguides); a les partides de prova, línies legals, seguiments
-  després d'un pla, veus del duet, desactivació sense canviar cap comentari,
-  memòria immutable i català (contraccions, apòstrofs, puntuació) i varietat.
+  chess.js (s'atura a la primera il·legal) i la intenció de cada jugada sense
+  caselles (treure el cavall de la dama per protegir un peó central, fer fora
+  aquest alfil amb un peó, forquilla, clavada contra el rei, fianchetto,
+  canviar i completar el canvi, empènyer el peó passat) en totes les formes
+  del verb; peces reconegudes des de l'inici i a través de l'enroc; el pla de
+  l'Èlia i en Grau (la jugada primer, dues jugades de cada bàndol, lògica i
+  valoració, de 2 a 4 torns i dins del límit de paraules); cap pla amb anàlisi
+  poc profunda, mat, posició decidida, jugada preparada o anàlisi d'una altra
+  posició; marge entre plans; una recaptura no és material guanyat i el guany
+  porta la causa comprovada; seguiment (encert, desviació i silenci per a les
+  irrellevants); a les partides de prova, línies legals, en Grau sense cap
+  casella i parlant d'escacs, canvis i zones, comentaris de cada jugada amb la
+  veu de l'Èlia, veus del duet, desactivació, memòria immutable, català i
+  varietat.
 - **`maximesexercici.test.js`** — màximes de **l'Art de la Guerra** i de
   **Les 36 estratagemes** al botó «Màxima» dels exercicis de dues jugades
   (`maximesexercici.js`): fets del detector de la TV per jugada (atac doble,

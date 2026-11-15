@@ -49,7 +49,9 @@ test('Stockfish només compara dues variants legals de la mateixa posició i pro
     const row = simulate({});
     expect(row.dialogueEvent).toBe('variant');
     expect(row.dialogue[0].text).toContain('c4');
-    expect(row.dialogue[1].text).toContain('d5');
+    // En Grau no diu caselles: explica la intenció de l'alternativa i de la resposta.
+    expect(row.dialogue[1].text).not.toMatch(/\b[a-h][1-8]\b/);
+    expect(row.dialogue[1].text).toMatch(/un peó del flanc de dama.*espai al centre/);
     expect(simulate({ depth: 13 }).dialogueEvent).not.toBe('variant');
     expect(simulate({ pv: ['c2c4', 'h7h6'] }).dialogueEvent).not.toBe('variant');
 });
