@@ -409,15 +409,10 @@
         const audioEffects = e.audioEffects || createAudioEffects({ createContext: e.createAudioContext });
         // Es baixa el WAV i es reprodueix des de memòria: no depèn que el
         // fitxer temporal del servidor continuï existint.
-        const fetchAudio = e.fetchAudio || (async (url, signal, questionMode) => {
+        const fetchAudio = e.fetchAudio || (async (url, signal) => {
             const resp = await fetch(url, { signal: signal });
             if (!resp.ok) throw new Error('audio-' + resp.status);
-            let wav = await resp.arrayBuffer();
-            if (questionMode && root && root.ElTaulerPitch) {
-                try { wav = root.ElTaulerPitch.modulateQuestionWav(wav, questionMode); }
-                catch (err) { /* Un WAV incompatible es reprodueix tal com arriba. */ }
-            }
-            wav = padWavStart(wav, MATXA_CONFIG.LEAD_IN_MS);
+            const wav = padWavStart(await resp.arrayBuffer(), MATXA_CONFIG.LEAD_IN_MS);
             // El servidor l'envia com a octet-stream: es marca com a WAV.
             return URL.createObjectURL(new Blob([wav], { type: 'audio/wav' }));
         });
@@ -426,13 +421,11 @@
         let cooldownUntil = 0;
         let current = null;
 
-        function key(text, voiceId, rate, questionMode) {
-            return [voiceId, lengthScaleForRate(rate), questionMode || '', text].join('|');
-        }
+        function key(text, voiceId, rate) { return voiceId + '|' + lengthScaleForRate(rate) + '|' + text; }
 
         function source(text, voiceId, opts) {
             const o = opts || {};
-            const k = key(text, voiceId, o.rate, o.questionMode);
+            const k = key(text, voiceId, o.rate);
             if (cache.has(k)) {
                 const hit = cache.get(k);
                 cache.delete(k); cache.set(k, hit);   // LRU
@@ -441,7 +434,7 @@
             const controller = typeof AbortController === 'function' ? new AbortController() : null;
             const timer = setT(() => { if (controller) controller.abort(); }, o.synthTimeoutMs || MATXA_CONFIG.SYNTH_TIMEOUT_MS);
             const p = client.synthesize(text, voiceId, { rate: o.rate, signal: controller ? controller.signal : undefined })
-                .then(url => fetchAudio(url, controller ? controller.signal : undefined, o.questionMode))
+                .then(url => fetchAudio(url, controller ? controller.signal : undefined))
                 .then((src) => { clearT(timer); cooldownUntil = 0; return src; }, (err) => {
                     clearT(timer);
                     cache.delete(k);

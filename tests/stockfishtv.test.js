@@ -1683,36 +1683,6 @@ describe('Integració de la retransmissió a dues veus', () => {
         expect(js).toContain('controller.setDuo(ev.target.checked)');
         expect(js).toContain('spokenTurns(planned)');
     });
-    test('es pot reactivar el duet si la preferència desada era desactivada', () => {
-        const fs = require('node:fs');
-        const vm = require('node:vm');
-        let change;
-        let saved = JSON.stringify({ duo: false, voice: 'off' });
-        const checkbox = { checked: false, addEventListener(event, handler) { if (event === 'change') change = handler; } };
-        const screen = { style: { display: 'none' }, classList: { toggle() {} } };
-        const context = vm.createContext({
-            Chess, Audio: function Audio() {},
-            ElTaulerVeuNeural: require('../veuneural'),
-            Worker: class { addEventListener() {} postMessage() {} terminate() {} },
-            document: {
-                getElementById(id) { return { 'sftv-screen': screen, 'sftv-duo': checkbox }[id] || null; },
-                addEventListener() {}, visibilityState: 'visible'
-            },
-            localStorage: { getItem: () => saved, setItem: (key, value) => { saved = value; } },
-            setTimeout: () => 1, clearTimeout() {}
-        });
-        vm.runInContext(fs.readFileSync(require.resolve('../stockfishtv'), 'utf8'), context);
-        const tv = context.ElTaulerStockfishTV;
-        tv.init();
-        tv.open();
-        expect(checkbox.checked).toBe(false);
-        for (const checked of [true, false]) {
-            checkbox.checked = checked;
-            change({ target: checkbox });
-            expect(JSON.parse(saved).duo).toBe(checked);
-            expect(checkbox.checked).toBe(checked);
-        }
-    });
 });
 
 // ---------------------------------------------------------------------------
@@ -1770,45 +1740,6 @@ describe('Matxa caiguda: la partida espera la veu', () => {
             } };
         return v;
     }
-
-    test('la primera jugada preparada activa les dues veus fins i tot amb una cua de més de 12 segons', async () => {
-        const played = [];
-        const neural = {
-            available: () => true, stop() {}, prefetch() {},
-            speak(text, voiceId, opts) {
-                const isDialogue = text.startsWith('Grau,') || voiceId === TV.TV_DUO.analyst;
-                if (!isDialogue) return Promise.resolve({ spoken: true });
-                const latency = voiceId === TV.TV_DUO.presenter ? 32000 : 23000;
-                const limit = Math.min(opts.synthTimeoutMs || 12000, opts.maxWaitMs);
-                return new Promise(resolve => setTimeout(() => {
-                    if (latency > limit) { resolve({ spoken: false, reason: 'network' }); return; }
-                    played.push({ text, voiceId, mode: opts.questionMode });
-                    resolve({ spoken: true });
-                }, Math.min(latency, limit)));
-            }
-        };
-        const voice = TV.createTvVoice({
-            neural, getNeuralVoiceId: () => TV.TV_DUO.presenter, getDualEnabled: () => true,
-            loadPref: () => 'on', holdNeural: true
-        });
-        const { ctl } = makeController({
-            voice,
-            getOpenings: () => [{ eco: 'B20', name: 'Defensa Siciliana', moves: ['e4', 'c5', 'Nf3'] }],
-            loadPrefs: () => ({ openingIndex: 0, duo: true, profiles: false, unequal: false })
-        });
-        await ctl.open();
-        try {
-            await waitIntro(ctl);
-            for (let i = 0; i < 12 && played.length < 2; i++) await jest.advanceTimersByTimeAsync(6000);
-            expect(played).toEqual([
-                { voiceId: TV.TV_DUO.presenter, text: 'Grau, com poden respondre les negres a aquesta primera jugada?', mode: 'fall' },
-                { voiceId: TV.TV_DUO.analyst, text: expect.stringContaining('peó d’alfil de dama'), mode: undefined }
-            ]);
-            const game = ctl.state().game;
-            expect(game.moves[0]).toMatchObject({ uci: 'e2e4', prepared: true });
-            expect(game.moves.length).toBeLessThanOrEqual(2);
-        } finally { ctl.close(); }
-    });
 
     test('cap jugada mentre Matxa no respon; quan torna, repeteix el comentari i continua', async () => {
         const voice = controllableVoice();

@@ -39,23 +39,6 @@
         return t.trim();
     }
 
-    // A la TV, cada interrogativa té el seu propi àudio. Les respostes i
-    // les frases afirmatives adjacents mantenen la prosòdia de Matxa.
-    function questionParts(text) {
-        if (!text.includes('?')) return [text];
-        return text.split(/(?<=[.!?][»”"’']?)\s+(?=[«“"¿A-ZÀ-Ý])/u).filter(Boolean);
-    }
-
-    function questionMode(text) {
-        if (!/\?[»”"’']*$/u.test(text.trim()) || questionParts(text).length !== 1) return '';
-        const start = text.toLocaleLowerCase('ca').replace(/^[\s«“"¿]+/u, '')
-            .replace(/^(?:(?:grau|i ara|ara bé|doncs|bé|ara),\s*)+/u, '')
-            .replace(/^pel que fa [^,]+,\s*/u, '').replace(/^i\s+/u, '');
-        return /^(?:què|qui|quin(?:a|s|es)?|com|quan|on|quant(?:a|s|es)?|per què|que)(?=\s|[?!,]|$)/u.test(start) ||
-            /^(?:d['’]|de\s+|a\s+|amb\s+|en\s+)(?:on|qui|què|quin(?:a|s|es)?|quan|quant(?:a|s|es)?)(?=\s|[?!,]|$)/u.test(start)
-            ? 'fall' : 'rise';
-    }
-
     // Director d'emissió: les categories provenen exclusivament de motius
     // prèviament validats pel narrador. MAI no afegeix fets ni canvia el text.
     // Matxa admet velocitat, però no SSML ni control fiable d'altura tonal.
@@ -82,5 +65,5 @@
         return { mood, ...STYLES[mood] };
     }
 
-    return { VERSION: 2, LETTERS, DIGITS, squares, prepare, questionParts, questionMode, direction };
+    return { VERSION: 2, LETTERS, DIGITS, squares, prepare, direction };
 });

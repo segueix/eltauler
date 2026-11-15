@@ -186,32 +186,3 @@ describe('Elia i Grau transmeten L’Art de la Guerra sense sobreposició',()=>{
         expect(TV.tvDialogueTurns({...c,maxim:null},true).length).toBeLessThanOrEqual(2);
     });
 });
-
-test('la TV detecta interrogatives directes, parcials i introduïdes amb que', async () => {
-    expect(P.questionParts('És escac. «I ara, què fem?» Ara mouen les negres.'))
-        .toEqual(['És escac.', '«I ara, què fem?»', 'Ara mouen les negres.']);
-    const neural = {
-        available: () => true, speak: jest.fn(async () => ({ spoken: true })),
-        prefetch: jest.fn(), stop: jest.fn()
-    };
-    const voice = TV.createTvVoice({
-        neural, getNeuralVoiceId: () => TV.TV_DUO.presenter, getDualEnabled: () => true,
-        loadPref: () => 'on'
-    });
-    const turns = [
-        ['I ara, les negres poden salvar la dama?', TV.TV_DUO.presenter, 'rise'],
-        ['I d’on surt l’amenaça?', TV.TV_DUO.analyst, 'fall'],
-        ['Grau, quina conseqüència té?', TV.TV_DUO.presenter, 'fall'],
-        ['Grau, en què ens hem de fixar?', TV.TV_DUO.presenter, 'fall'],
-        ['Que queda clavada la torre?', TV.TV_DUO.analyst, 'fall'],
-        ['Les negres recuperen la dama.', TV.TV_DUO.analyst, undefined]
-    ];
-    for (const [text, voiceId, mode] of turns) {
-        voice.prefetch(text, { voiceId });
-        await voice.speak(text, { voiceId });
-        expect(neural.prefetch.mock.lastCall[1]).toBe(voiceId);
-        expect(neural.speak.mock.lastCall[1]).toBe(voiceId);
-        expect(neural.prefetch.mock.lastCall[2].questionMode).toBe(mode);
-        expect(neural.speak.mock.lastCall[2].questionMode).toBe(mode);
-    }
-});

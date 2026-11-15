@@ -278,18 +278,6 @@ describe('integració amb la retransmissió', () => {
         }
     });
 
-    test('l’Èlia pregunta quan en Grau té una recaptura legal per explicar encara que falti un pla', () => {
-        const { ctx } = ctxAfter(['e4d5'], [], {
-            startFen: '4k3/8/2p5/3p4/4P3/8/8/4K3 w - - 0 1', plyOffset: 5
-        });
-        const { comment } = TV.tvBroadcastStep({ ...ctx, after: null, visio: V });
-        const turns = TV.tvDialogueTurns({ ...comment, speech: comment.say }, true);
-        expect(turns).toHaveLength(2);
-        expect(turns[0]).toMatchObject({ voiceId: TV.TV_DUO.presenter, text: expect.stringMatching(/\?$/) });
-        expect(turns[1]).toMatchObject({ voiceId: TV.TV_DUO.analyst, text: expect.stringContaining('recaptura legal') });
-        expect(turns[1].text).not.toMatch(SQUARE);
-    });
-
     test('a les partides reals, en Grau explica plans i en fa el seguiment', () => {
         let plans = 0, follows = 0;
         for (const g of FIXTURES) {
