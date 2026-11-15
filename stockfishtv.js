@@ -193,6 +193,8 @@
         // Matxa ha deixat de respondre: la TV s'atura i hi torna a provar
         // cada tants mil·lisegons (a més del temps que triga cada intent).
         VOICE_RETRY_MS: 8000,
+        // Inclou l'arrencada de la sessió, la cua de Gradio i la síntesi.
+        VOICE_SYNTH_TIMEOUT_MS: 45000,
         // Control manual: espera mínima i màxima abans que el motor respongui
         // la jugada de l'usuari (dona temps a llegir-ne el comentari).
         CONTROL_REPLY_DELAY_MS: 1200,
@@ -3157,6 +3159,44 @@
         return prefix ? prefix + question[0].toLowerCase() + question.slice(1) : question;
     }
 
+    // L'obertura preparada no passa per l'anàlisi de Stockfish. En Grau
+    // pot explicar una resposta legal a la primera jugada amb els fets
+    // del tauler, també quan no hi ha cap variant llarga a punt.
+    function tvOpeningDialogue(c, vision, neutral) {
+        if (!c.openingDialogue || !vision || typeof vision.intentAt !== 'function') return null;
+        const position = new c.ChessCtor(c.fenAfter);
+        const next = c.openingReply;
+        const moves = position.moves({ verbose: true }).map(m => m.from + m.to + (m.promotion || ''));
+        for (const uci of new Set([next, ...moves])) {
+            if (!uci) continue;
+            const reply = vision.intentAt(c.ChessCtor, c.fenAfter, uci, { prev: c.move, noDemo: true });
+            if (!reply) continue;
+            const side = COLOR[position.turn()].pl;
+            const m = reply.step.move;
+            // Si un peó de flanc incideix sobre l'avanç central contrari,
+            // fem explícita la captura que amenaçaria al centre.
+            const pawnAdvance = m.flags.includes('b');
+            const threatened = pawnAdvance && new c.ChessCtor(reply.step.fen).moves({ verbose: true }).find(r =>
+                r.flags.includes('b') && /^[de]/.test(r.from) &&
+                Math.abs(r.from.charCodeAt(0) - m.from.charCodeAt(0)) === 1 &&
+                Number(r.to[1]) === Number(m.to[1]) + (m.color === 'w' ? 1 : -1));
+            let action = reply.generic ? '' : 'Una opció per a ' + side + ' és ' + reply.inf + '.';
+            if ((threatened || reply.key === 'center' && pawnAdvance) && typeof vision.describeMove === 'function') {
+                const description = vision.describeMove({ ChessCtor: c.ChessCtor, fenBefore: c.fenAfter, move: m });
+                if (description) action = 'Si ' + description[0].toLowerCase() + description.slice(1, -1) +
+                    (threatened ? ', aquest peó controla la casella on podria avançar el peó ' +
+                        (threatened.from[0] === 'd' ? 'de dama' : 'de rei') + ' rival.'
+                        : ', guanyen espai al centre.');
+            }
+            if (!action) continue;
+            return { kind: 'opening-reply', turns: [
+                { role: 'presenter', text: 'Grau, com poden respondre ' + side + ' a aquesta primera jugada?', solo: neutral },
+                { role: 'analyst', text: action }
+            ] };
+        }
+        return null;
+    }
+
     // Ordre dels diàlegs: 1) un fil de conflicte que es resol; 2) el
     // seguiment d'una previsió d'en Grau (s'ha complert o un bàndol se n'ha
     // sortit); 3) els altres canvis dels fils de conflicte, amb la continuació
@@ -3217,6 +3257,7 @@
         // pregunta que té una amenaça o una recaptura legal comprovada.
         if (!exchange && (gap >= 2 || chosen.kind === 'reply') && chosen.kind !== 'summary')
             exchange = tvTacticalDialogue(c, chosen, candidates, event, urgent);
+        if (!exchange) exchange = tvOpeningDialogue(c, vision, neutral);
         if (!exchange) return chosen;
         const heard = memory.dialogueFacts || {};
         if (exchange.key && Number.isInteger(heard[exchange.key]) && c.ply - heard[exchange.key] < 16) return chosen;
@@ -3508,7 +3549,10 @@
             (opts.voiceId === TV_DUO.presenter || opts.voiceId === TV_DUO.analyst))
             ? opts.voiceId : neuralId();
         function neuralOptions(text, id, opts) {
-            const options = { rate: clamp(neuralRate() * (isNum(opts.rate) ? opts.rate : 1), 0.75, 1.25) };
+            const options = {
+                rate: clamp(neuralRate() * (isNum(opts.rate) ? opts.rate : 1), 0.75, 1.25),
+                synthTimeoutMs: TV_CONFIG.VOICE_SYNTH_TIMEOUT_MS
+            };
             if (id === TV_DUO.presenter || id === TV_DUO.analyst) {
                 const P = getProsodia();
                 const mode = P && P.questionMode && P.questionMode(text);
@@ -3568,7 +3612,8 @@
                 const prepared = neuralText(text), id = actualNeuralId(o);
                 return neural.speak(prepared, id, {
                     ...neuralOptions(prepared, id, o), effects: neuralEffects(),
-                    maxWaitMs: (isNum(o.maxWaitMs) ? o.maxWaitMs : tvSpeechMaxWaitMs(text)) + 9000,
+                    maxWaitMs: (isNum(o.maxWaitMs) ? o.maxWaitMs : tvSpeechMaxWaitMs(text)) +
+                        TV_CONFIG.VOICE_SYNTH_TIMEOUT_MS,
                     force: !!(hold && o.force)
                 })
                     .then((r) => {
@@ -4348,6 +4393,8 @@
             const step = tvBroadcastStep({
                 ChessCtor: d.ChessCtor, fenBefore: fenBefore, fenAfter: fenAfter, move: mv, prevMove: prevMove,
                 before: before, after: after, tier: g.tier, prepared: !!prepared, phrase: prepared ? prepared.phrase : null,
+                openingDialogue: ply === 0 && prefs.duo && d.voice?.supportsDual?.(),
+                openingReply: prepared ? g.prepared[ply + 1]?.uci : after?.pv?.[0],
                 end: end, ply: ply, memory: g.memory, expression: d.expression, narrative: d.narrative, quality: d.quality,
                 patterns: d.patterns, art: d.art, gameId: g.id, visio: d.visio
             });
