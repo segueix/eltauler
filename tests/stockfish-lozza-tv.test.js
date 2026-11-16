@@ -115,6 +115,43 @@ describe('Stockfish vs Lozza TV · flux real del controlador', () => {
     expect(sf.destroyed).toBe(1);
     expect(lz.destroyed).toBe(1);
   });
+  test('la Najdorf i l’atac anglès es reconeixen al tauler i s’atribueixen a cada motor', async () => {
+    const Core = require('../core');
+    // L'ordre real comença pel peó d'alfil negre, i el catàleg pel de dama.
+    const pgn = '1. e4 d6 2. d4 Nf6 3. Nc3 c5 4. Nf3 cxd4 5. Nxd4 a6';
+    const name = 'Sicilian Defense: Najdorf Variation';
+    const graph = Core.buildOpeningPositionGraph([
+      { eco: 'B90', name, pgn },
+      { eco: 'B90', name: name + ', English Attack', pgn: pgn + ' 6. Be3' }
+    ], sans => {
+      const chess = new Chess();
+      return sans.map(san => { chess.move(san); return chess.fen(); });
+    });
+    const played = ['e2e4', 'c7c5', 'g1f3', 'd7d6', 'd2d4', 'c5d4', 'f3d4', 'g8f6', 'b1c3', 'a7a6', 'c1e3'];
+    const ctl = TV.createTvController({
+      ChessCtor: Chess, engine: mockEngine('stockfish', played), lozzaEngine: mockEngine('lozza', played),
+      random: () => 0.9, loadPrefs: () => ({ speed: 'quick' }),
+      getOpenings: () => [], getOpeningGraph: () => graph, getViewer: () => ({ calibrated: true, roc: 1400 })
+    });
+    await ctl.open();
+    const start = jest.now();
+    while (ctl.state().game.moves.length < played.length && jest.now() - start < 240000) {
+      await jest.advanceTimersByTimeAsync(1000);
+    }
+    const moves = ctl.state().game.moves;
+    const najdorf = moves[9].commentObj;
+    expect(najdorf.dialogueEvent).toBe('opening');
+    expect(najdorf.dialogue[0].text).toContain('jugada de Lozza');
+    expect(najdorf.dialogue[0].text).toContain('Siciliana Najdorf');
+    expect(najdorf.dialogue[1].text).toContain('Lozza, amb les negres');
+    const attack = moves[10].commentObj;
+    expect(attack.dialogueEvent).toBe('opening');
+    expect(attack.dialogue[0].text).toContain('jugada de Stockfish');
+    expect(attack.dialogue[0].text).toContain('Atac Anglès');
+    expect(attack.dialogue[1].text).toMatch(/Stockfish, amb les blanques.*enrocar llarg/);
+    ctl.close();
+  });
+
   test('Fins al mat aplica el mateix límit de cerca i completa la parella amb els colors intercanviats', async () => {
     const sf = mockEngine('stockfish', []), lz = mockEngine('lozza', []);
     const lozzaLookup = lz.request.bind(lz);
@@ -127,9 +164,13 @@ describe('Stockfish vs Lozza TV · flux real del controlador', () => {
       }
       return lozzaLookup(job);
     };
+    const openingDialogues = [];
     const ctl = TV.createTvController({
       ChessCtor: Chess, engine: sf, lozzaEngine: lz, random: () => 0.2,
-      loadPrefs: () => ({ speed: 'quick' }), getViewer: () => ({ calibrated: true, roc: 1400 })
+      loadPrefs: () => ({ speed: 'quick' }), getViewer: () => ({ calibrated: true, roc: 1400 }),
+      view: { comment: comment => {
+        if (comment.dialogueEvent === 'opening') openingDialogues.push(comment.dialogue);
+      } }
     });
     await ctl.open();
     ctl.setUntilMate(true);
@@ -145,6 +186,9 @@ describe('Stockfish vs Lozza TV · flux real del controlador', () => {
     const second = ctl.state().game;
     expect(second.matchPlan).toEqual(expect.objectContaining({ untilMate: true, rematch: true, depth: 6, movetime: 70 }));
     expect(second.opening).toEqual(first.opening);
+    expect(openingDialogues).toHaveLength(1);
+    expect(openingDialogues[0][0].text).toContain('línia preparada');
+    expect(openingDialogues[0][0].text).toContain('Siciliana Sveshnikov');
     expect(second.engines).toEqual({ w: first.engines.b, b: first.engines.w });
     expect(ctl.prefs().recent).toHaveLength(0);
     expect(ctl.prefs().mateRecent).toHaveLength(1);

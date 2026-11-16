@@ -69,3 +69,15 @@ describe('50 presentacions breus, genuïnes i sense espòilers',()=>{
         expect(initial.fen()).toContain(' w KQkq ');
     });
 });
+
+test('el seguiment del patró exigeix una continuació del repertori i es talla quan se’n surt', () => {
+    const common = { canSpeak: true, prepared: false, engines: { w: 'stockfish', b: 'lozza' } };
+    const named = { name: 'Sicilian Defense: Najdorf Variation' };
+    const first = I.openingTalk({ ...common, named, theory: true, color: 'b', ply: 9 });
+    expect(first.turns[0].text).toContain('jugada de Lozza');
+    const follows = I.openingTalk({ ...common, theory: true, color: 'w', ply: 12 }, first.memory);
+    expect(follows.turns[0].text).toContain('Stockfish segueix el patró');
+    const leaves = I.openingTalk({ ...common, theory: false, color: 'b', ply: 15 }, follows.memory);
+    expect(leaves.turns[0].text).toContain('Lozza surt de la línia');
+    expect(I.openingTalk({ ...common, theory: true, color: 'w', ply: 20 }, leaves.memory).turns).toBeUndefined();
+});

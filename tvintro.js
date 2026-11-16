@@ -7,7 +7,7 @@
     else root.ElTaulerTvIntro=api;
 })(typeof self!=='undefined'?self:this,function(){
     'use strict';
-    const VERSION='1.1.0';
+    const VERSION='1.2.0';
     const OPENINGS=Object.freeze([
         'Tot és a punt per a un nou duel entre Stockfish i Lozza.',
         'Stockfish i Lozza es preparen per compartir el tauler.',
@@ -70,6 +70,102 @@
         hunter:'un perfil atent a les oportunitats de captura',
         strategist:'un perfil més posicional'
     });
+    // Noms del graf ECO i del repertori local. Les variants específiques
+    // han d'anar abans de la família general.
+    const OPENING_PROFILES = [
+        [/sveshnikov/i, 'Siciliana Sveshnikov', 'b', 'El peó avançat disputa el centre i guanya temps atacant el cavall blanc.'],
+        [/najdorf.*english attack/i, 'Atac Anglès de la Siciliana Najdorf', 'w', 'Les peces blanques es coordinen per poder enrocar llarg i avançar els peons del flanc de rei.'],
+        [/najdorf/i, 'Siciliana Najdorf', 'b', 'El peó de torre negre treu una casella al cavall blanc i prepara joc al flanc de dama.'],
+        [/accelerat.*drag|drag.*accelerat/i, 'Siciliana del Dragó accelerat', 'b', 'L’alfil negre entra ràpid a la gran diagonal i encara es pot obrir el centre amb el peó de dama.'],
+        [/dragon|dragó/i, 'Siciliana del Dragó', 'b', 'L’alfil de rei pressiona per la gran diagonal i dona suport al contrajoc al flanc de dama.'],
+        [/rossolimo/i, 'Siciliana Rossolimo', 'w', 'Les blanques pressionen el cavall amb l’alfil i poden alterar l’estructura negra amb el canvi.'],
+        [/taimanov/i, 'Siciliana Taimanov', 'b', 'Les negres conserven opcions de desplegament i mantenen oberta la possibilitat de trencar pel centre.'],
+        [/sicilian.*\bkan\b|siciliana kan/i, 'Siciliana Kan', 'b', 'Les negres poden preparar el contrajoc pel flanc de dama mentre decideixen on situar els cavalls.'],
+        [/sicilian|siciliana/i, 'Defensa Siciliana', 'b', 'Les negres disputen el centre des del costat i obtenen una estructura asimètrica amb opcions de contrajoc.'],
+        [/winawer/i, 'Francesa Winawer', 'b', 'L’alfil pressiona el cavall i, amb el canvi, les negres poden doblar els peons blancs del flanc de dama.'],
+        [/french defense.*tarrasch|francesa.*tarrasch/i, 'Francesa Tarrasch', 'w', 'El cavall de dama es desplega sense tapar el peó que pot atacar el centre negre.'],
+        [/french defense.*advance|francesa.*avanç/i, 'Francesa de l’avanç', 'w', 'El peó de rei avançat guanya espai i limita les peces negres.'],
+        [/french defense|defensa francesa/i, 'Defensa Francesa', 'b', 'La cadena de peons permet resistir al centre i preparar un atac contra la seva base.'],
+        [/caro.kann.*(?:advance|avanç)/i, 'Caro-Kann de l’avanç', 'w', 'L’avanç del peó de rei dona espai per maniobrar i buscar joc pel flanc de rei.'],
+        [/caro.kann/i, 'Defensa Caro-Kann', 'b', 'Les negres disputen el centre i tenen l’opció de desenvolupar l’alfil de dama fora de la cadena de peons.'],
+        [/king.s gambit accepted|gambit de rei acceptat/i, 'Gambit de rei acceptat', 'w', 'El peó cedit deixa una columna semioberta per a la torre blanca i facilita l’atac si les peces es desenvolupen ràpid.'],
+        [/king.s gambit|gambit de rei/i, 'Gambit de rei', 'w', 'El peó d’alfil lluita pel centre i crea opcions d’atac ràpid al flanc de rei.'],
+        [/scotch.*classical|escocesa.*clàssic/i, 'Escocesa clàssica', 'b', 'L’alfil negre surt amb activitat i pressiona el cavall blanc que ocupa el centre.'],
+        [/scotch|escocesa/i, 'Obertura Escocesa', 'w', 'El canvi de peons obre el centre aviat i permet donar joc ràpid als alfils.'],
+        [/two knights defense|defensa dels dos cavalls/i, 'Defensa dels Dos Cavalls', 'b', 'El cavall surt atacant el peó central. Això dona opcions de contrajoc mentre les blanques preparen l’atac.'],
+        [/italian game|obertura italiana|giuoco piano/i, 'Obertura Italiana', 'w', 'L’alfil blanc apunta a prop del rei rival i permet preparar una ruptura al centre.'],
+        [/ruy lopez|ruy lópez|spanish opening|obertura espanyola/i, 'Obertura de Ruy López', 'w', 'L’alfil pressiona el cavall que sosté el peó central i les blanques queden a punt per enrocar.'],
+        [/catalan opening|obertura catalana/i, 'Obertura Catalana', 'w', 'L’alfil de rei pressiona per la gran diagonal i pot mantenir activitat durant molt de temps.'],
+        [/london system|sistema londres/i, 'Sistema Londres', 'w', 'L’alfil de dama surt abans de tancar la cadena de peons, que sosté el desplegament.'],
+        [/tarrasch defense|defensa tarrasch/i, 'Defensa Tarrasch', 'b', 'El peó de dama pot quedar aïllat, però dona espai i obre línies perquè les peces negres surtin actives.'],
+        [/queen.s gambit accepted|gambit de dama acceptat/i, 'Gambit de dama acceptat', 'b', 'Acceptar el peó allibera la tensió central i deixa preparar un contraatac amb el peó d’alfil de dama.'],
+        [/queen.s gambit declined|gambit de dama refusat/i, 'Gambit de dama refusat', 'b', 'Les negres sostenen el centre amb una cadena de peons que també obre pas a l’alfil de rei.'],
+        [/king.s indian defense|defensa (?:índia|india) de rei/i, 'Defensa Índia de Rei', 'b', 'L’alfil de la gran diagonal es combina amb ruptures de peons per atacar el centre o buscar joc al flanc de rei.'],
+        [/nimzo.indian|nimzo.índia/i, 'Defensa Nimzo-Índia', 'b', 'L’alfil frena el cavall de dama i ajuda les negres a disputar les caselles centrals.'],
+        [/pirc defense|defensa pirc/i, 'Defensa Pirc', 'b', 'Les negres despleguen l’alfil per la diagonal llarga i guarden els peons per colpejar el centre quan convingui.'],
+        [/scandinavian defense|defensa escandinava/i, 'Defensa Escandinava', 'b', 'Les negres desafien immediatament el peó central blanc i poden resoldre de seguida aquesta tensió.'],
+        [/english opening|obertura anglesa/i, 'Obertura Anglesa', 'w', 'Les blanques controlen el centre des del flanc i conserven flexibilitat per triar l’estructura de peons.']
+    ];
+
+    function openingProfile(entry) {
+        if (!entry || typeof entry.name !== 'string') return null;
+        const profile = OPENING_PROFILES.find(row => row[0].test(entry.name));
+        if (!profile) return null;
+        const [, name, color, strength] = profile;
+        return { name, color, strength };
+    }
+
+    function openingTalk(ctx, previous) {
+        const c = ctx;
+        const memory = { ...(previous || {}) };
+        const reached = openingProfile(c.named);
+        if (reached) memory.active = reached;
+        const known = reached || memory.active;
+        if (c.theory !== true && !reached) memory.active = null;
+        const newVariant = reached && !c.prepared && c.ply >= 4 && memory.lastName !== reached.name;
+        if (!c.canSpeak || (!newVariant && c.ply - (memory.lastPly ?? -10) < 3) || (memory.count || 0) >= 4) return { memory };
+        const engineName = color => c.engines[color] === 'lozza' ? 'Lozza' : 'Stockfish';
+        const side = color => color === 'w' ? 'les blanques' : 'les negres';
+        let profile = null, question, solo;
+        if (c.preparedComplete && !memory.prepared) {
+            profile = openingProfile(c.seed);
+            if (profile) {
+                solo = 'La línia preparada ens porta a «' + profile.name + '».';
+                question = solo + ' Què hi guanya el bàndol que la planteja?';
+                memory.prepared = true;
+                if (c.theory === true && !memory.active) memory.active = profile;
+            }
+        }
+        if (!profile && !c.prepared && c.ply >= 4 && known) {
+            const player = engineName(c.color);
+            const pattern = player + ':' + known.name;
+            if (newVariant || (c.theory === true && memory[pattern] !== 'theory')) {
+                profile = known;
+                solo = newVariant ? 'Amb la jugada de ' + player + ' arribem a «' + profile.name + '».'
+                    : player + ' segueix el patró de «' + profile.name + '».';
+                question = solo + ' Quin és el punt fort d’aquesta línia?';
+                memory[pattern] = 'theory';
+            } else if (c.theory === false && memory[pattern] !== 'outside' && memory.lastName === known.name) {
+                memory[pattern] = 'outside';
+                memory.lastPly = c.ply;
+                memory.count = (memory.count || 0) + 1;
+                solo = player + ' surt de la línia d’obertura recollida al repertori.';
+                return { memory, turns: [
+                    { role: 'presenter', text: solo + ' En quina obertura érem fins ara?', solo },
+                    { role: 'analyst', text: 'Veníem de «' + known.name + '». ' + known.strength }
+                ] };
+            }
+        }
+        if (!profile) return { memory };
+        memory.lastPly = c.ply;
+        memory.lastName = profile.name;
+        memory.count = (memory.count || 0) + 1;
+        return { memory, turns: [
+            { role: 'presenter', text: question, solo },
+            { role: 'analyst', text: 'El recurs és per a ' + engineName(profile.color) + ', amb ' + side(profile.color) + '. ' + profile.strength }
+        ] };
+    }
+
     function scene(options){
         const o=options||{}, d=o.duel, seq=Number.isInteger(o.gameSeq)?o.gameSeq:1;
         if(!d) return 'Comença una partida amb Stockfish als dos bàndols. Lozza no participa en aquesta sessió.';
@@ -116,5 +212,5 @@
         const detail=contexts[(Math.floor((seq-1)/3)+seq-1)%contexts.length];
         return OPENINGS[index]+' '+detail;
     }
-    return Object.freeze({VERSION,OPENINGS,COLORS,STYLES,scene});
+    return Object.freeze({VERSION,OPENINGS,COLORS,STYLES,scene,openingTalk});
 });

@@ -590,7 +590,7 @@
         { eco: 'E90', name: 'Defensa índia de rei', theme: 'Espai contra contrajoc',
             angle: 'Un bàndol guanya espai al centre. L’altre té opcions de buscar joc pels flancs.',
             moves: ['d4', 'Nf6', 'c4', 'g6', 'Nc3', 'Bg7', 'e4', 'd6', 'Nf3', 'O-O'] },
-        { eco: 'C45', name: 'Partida escocesa', theme: 'Peces actives en un centre obert',
+        { eco: 'C45', name: 'Escocesa clàssica', theme: 'Peces actives en un centre obert',
             angle: 'El centre s’obre aviat. Mirarem quines peces hi arriben amb més activitat.',
             moves: ['e4', 'e5', 'Nf3', 'Nc6', 'd4', 'exd4', 'Nxd4', 'Bc5', 'Be3', 'Qf6', 'c3', 'Nge7'] },
         { eco: 'C18', name: 'Francesa Winawer', theme: 'Centre tancat',
@@ -3434,7 +3434,24 @@
                 visionEvent = tracked.event;
             } catch (err) { /* sense seguiment, els comentaris continuen */ }
         }
-        if (!chosen && event && ['resolved', 'transformed'].includes(event.kind) && !c.prepared && !c.end) {
+        const I = c.opening && c.move && getTvIntro();
+        const opening = I?.openingTalk?.({
+            ...c.opening, color: c.move.color, ply: c.ply, prepared: !!c.prepared,
+            canSpeak: !urgent && !event && !visionEvent && !c.end && !c.move.promotion && !/[+#]$/.test(c.move.san || '')
+        }, memory.openingTalk);
+        if (opening) memory.openingTalk = opening.memory;
+        if (opening?.turns) {
+            const text = opening.turns.map(turn => turn.text).join(' ');
+            chosen = { kind: 'opening', text, leadText: text, family: 'opening', variantId: 0,
+                explanatory: true, dialogue: opening.turns, dialogueEvent: 'opening' };
+            memory.lastDialoguePly = c.ply;
+            // L'obertura ha ocupat el torn. Els altres fets d'aquesta jugada
+            // només continuen a la memòria com a observacions.
+            for (const t of memory.conflicts || []) {
+                if (t.saidPly === c.ply) t.saidPly = t.priorSaidPly;
+                if (t.introducedPly === c.ply) t.introducedPly = null;
+            }
+        } else if (!chosen && event && ['resolved', 'transformed'].includes(event.kind) && !c.prepared && !c.end) {
             // El desenllaç d’un fil ja narrat pot merèixer un comentari propi.
             const desc = describeMove(c.move, false);
             const text = desc.variants[0];
@@ -4125,6 +4142,33 @@
             } catch (err) { return null; }
         }
 
+        function openingDialogueContext(g, move, fenBefore, fenAfter, prepared) {
+            const ply = g.moves.length;
+            if (!g.matchPlan || g.startFen || g.hadManualControl || ply >= 24) return null;
+            const lastPrepared = g.prepared.length - 1;
+            const context = {
+                engines: g.engines,
+                seed: g.opening,
+                preparedComplete: lastPrepared >= 0 &&
+                    (ply === lastPrepared && !!prepared || g.moves[lastPrepared]?.prepared === true)
+            };
+            const Core = getCore();
+            try {
+                const graph = d.getOpeningGraph?.();
+                if (graph && Core?.positionKeyFromFen) {
+                    const from = Core.positionKeyFromFen(fenBefore);
+                    const to = Core.positionKeyFromFen(fenAfter);
+                    const continuations = graph.theory.get(from);
+                    context.named = graph.byPos.get(to) || null;
+                    // Una transposició pot arribar a una posició teòrica per
+                    // un moviment que no figura en la seqüència habitual.
+                    if (continuations?.has(move.san)) context.theory = true;
+                    else if (!context.named && !graph.theory.has(to) && continuations?.size) context.theory = false;
+                }
+            } catch (err) { /* el repertori preparat es pot explicar igualment */ }
+            return context;
+        }
+
         function startGame() {
             halt();
             const epoch = S.epoch;
@@ -4460,7 +4504,8 @@
                 ChessCtor: d.ChessCtor, fenBefore: fenBefore, fenAfter: fenAfter, move: mv, prevMove: prevMove,
                 before: before, after: after, tier: g.tier, prepared: !!prepared, phrase: prepared ? prepared.phrase : null,
                 end: end, ply: ply, memory: g.memory, expression: d.expression, narrative: d.narrative, quality: d.quality,
-                patterns: d.patterns, art: d.art, gameId: g.id, visio: d.visio
+                patterns: d.patterns, art: d.art, gameId: g.id, visio: d.visio,
+                opening: openingDialogueContext(g, mv, fenBefore, fenAfter, prepared)
             });
             return { ply: ply, fenAfter: fenAfter, end: end, chosen: step.comment, memory: step.memory,
                 resign: resign ? resign.state : undefined, decided: tvIsDecided(after) };
