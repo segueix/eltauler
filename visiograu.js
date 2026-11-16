@@ -23,7 +23,7 @@
 //     la jugada.
 //   · El material guanyat només es diu si la línia acaba quieta, el guany
 //     es manté fins al final de la línia i la valoració no el contradiu.
-//   · Res no s'atribueix als jugadors: tot és «la línia de Stockfish».
+//   · Res no s'atribueix als jugadors: es descriu la línia analitzada.
 //   · Mats, posicions decidides, jugades preparades i anàlisis poc
 //     profundes no generen plans.
 //
@@ -41,7 +41,7 @@
 })(typeof self !== 'undefined' ? self : this, function (root) {
     'use strict';
 
-    const VERSION = '1.2.0';
+    const VERSION = '1.4.0';
 
     function getCore() {
         if (root && root.ElTaulerCore) return root.ElTaulerCore;
@@ -841,7 +841,7 @@
     ];
     const THEME_QUESTIONS = {
         material: ['Qui hi guanyaria material?', 'Com quedaria el balanç de material?'],
-        compensation: ['Com valora Stockfish la cessió de material?', 'Val la pena cedir material en aquesta línia?'],
+        compensation: ['Com valores la cessió de material, Grau?', 'Val la pena cedir material en aquesta línia?'],
         fork: ['On és el perill tàctic?', 'Què permetria atacar dues peces alhora?'],
         pin: ['Quin problema els planteja la clavada?', 'Quina peça quedaria lligada si juguen aquesta línia?'],
         attack: ['On es concentraria l’atac?', 'Què ens diu la línia sobre la seguretat del rei?'],
@@ -867,8 +867,8 @@
 
     // Narració de la línia (en Grau). x.R1, x.M1... són frases de jugada.
     const LINE_OPENERS = [
-        x => 'Stockfish espera que ' + x.opp + ' ' + x.R1.subj + '. ' + x.then + ', ' + x.me + ' ' + x.M1.cond + '.',
-        x => 'Si ' + x.opp + ' ' + x.R1.pres + ', com proposa Stockfish, ' + x.me + ' ' + x.M1.cond + '.',
+        x => 'Preveig que ' + x.opp + ' ' + x.R1.subj + '. ' + x.then + ', ' + x.me + ' ' + x.M1.cond + '.',
+        x => 'Si ' + x.opp + ' ' + x.R1.pres + ', ' + x.me + ' ' + x.M1.cond + '.',
         x => 'La millor resposta ' + de(x.opp) + ' és ' + x.R1.inf + '. I ' + x.me + ' ' + x.M1.cond + '.',
         x => 'Primer, ' + x.opp + ' ' + x.R1.cond + '; després, ' + x.me + ' ' + x.M1.cond + '.',
         x => 'Fixeu-vos-hi: ' + x.opp + ' ' + x.R1.pres + ' i ' + x.me + ' ' + x.M1.pres + '.',
@@ -877,7 +877,7 @@
         x => 'El més probable és que ' + x.opp + ' ' + x.R1.subj + '. ' + x.then + ', ' + x.me + ' ' + x.M1.cond + '.'
     ];
     // Per als avançats, de tant en tant, la profunditat de l'anàlisi.
-    const DEPTH_OPENER = x => 'Stockfish, a profunditat ' + x.depth + ', espera que ' + x.opp + ' ' + x.R1.subj + '. ' +
+    const DEPTH_OPENER = x => 'A profunditat ' + x.depth + ', preveig que ' + x.opp + ' ' + x.R1.subj + '. ' +
         x.then + ', ' + x.me + ' ' + x.M1.cond + '.';
     const LINE_SECOND = [
         x => ' Després, ' + x.opp + ' ' + x.R2.cond + ' i ' + x.me + ' ' + x.M2.cond + '.',
@@ -902,13 +902,13 @@
         material: [
             p => 'Al final de la línia, ' + p.s + ' guanyen ' + p.word + p.because + '.',
             p => 'Aquí hi ha premi: ' + p.s + ' es queden amb ' + p.word + ' de més' + p.because + '.',
-            p => 'Stockfish hi veu un guany net per a ' + p.s + ': ' + p.word + p.because + '.',
+            p => 'Hi veig un guany net per a ' + p.s + ': ' + p.word + p.because + '.',
             p => 'És una qüestió de comptes, i surten a favor ' + de(p.s) + ': ' + p.word + ' de més' + p.because + '.'
         ],
         compensation: [
-            p => p.S + ' cedirien ' + p.word + ' i, tot i així, Stockfish encara els dona avantatge.',
-            p => 'Stockfish manté una valoració favorable a ' + p.s + ' encara que cedeixin ' + p.word + '.',
-            p => 'La línia deixa ' + p.s + ' amb menys material, ' + p.word + ' menys, i amb una posició que el motor prefereix.'
+            p => p.S + ' cedirien ' + p.word + ' i, tot i així, encara els veig amb avantatge.',
+            p => 'Continuo veient millor ' + p.s + ' encara que cedeixin ' + p.word + '.',
+            p => 'La línia deixa ' + p.s + ' amb menys material, ' + p.word + ' menys, i amb una posició que veig més favorable.'
         ],
         fork: [
             p => 'La forquilla és l’arma: amb una sola jugada, ' + p.piece + ' ataca dues peces alhora.',
@@ -1035,7 +1035,7 @@
         ],
         defence: [
             p => p.S + ' han de consolidar: primer defensen el que està atacat, i només després podran pensar a atacar.',
-            p => 'És un moment defensiu per a ' + p.s + '. Stockfish prioritza la solidesa abans que l’activitat.',
+            p => 'És un moment defensiu per a ' + p.s + '. En aquesta línia han de consolidar la posició abans de buscar activitat.',
             p => 'Defensar bé també és jugar bé: ' + p.s + ' tapen els forats abans de buscar res més.'
         ],
         tension: [
@@ -1046,7 +1046,7 @@
         ],
         quiet: [
             p => 'Són jugades de maniobra: ningú no força res, i cada bàndol busca les millors caselles per a les peces.',
-            p => 'Una fase tranquil·la. Stockfish recol·loca les peces sense pressa, a l’espera del moment oportú.',
+            p => 'Una fase tranquil·la. Els dos bàndols tenen temps per recol·locar les peces.',
             p => 'No hi ha cap cop immediat: la lluita és posicional, de peces ben situades.'
         ]
     };
@@ -1056,74 +1056,74 @@
     };
     // Valoració final de la línia.
     const EVAL_TEXTS = {
-        equal: [() => 'Per a Stockfish, la posició queda equilibrada.', () => 'Tot i així, Stockfish ho veu equilibrat.',
-            () => 'Stockfish no hi veu cap avantatge clar.', () => 'La balança, de moment, queda equilibrada.',
+        equal: [() => 'Veig la posició equilibrada.', () => 'Tot i així, ho veig equilibrat.',
+            () => 'No hi veig cap avantatge clar.', () => 'La balança, de moment, queda equilibrada.',
             () => 'Ara com ara, cap bàndol no en surt clarament millor.'],
-        slight: [x => 'Stockfish hi dona un lleuger avantatge a ' + x.who + x.pawns + '.',
-            x => 'Al final de la línia, ' + x.who + ' estan una mica millor, segons Stockfish' + x.pawns + '.',
+        slight: [x => 'Hi veig un lleuger avantatge per a ' + x.who + x.pawns + '.',
+            x => 'Al final de la línia, ' + x.who + ' quedarien una mica millor' + x.pawns + '.',
             x => 'La balança s’inclina lleugerament cap a ' + x.who + x.pawns + '.'],
-        clear: [x => 'Stockfish veu ' + x.who + ' clarament millor' + x.pawns + '.',
-            x => 'El balanç de Stockfish: avantatge clar per a ' + x.who + x.pawns + '.',
+        clear: [x => 'Veig ' + x.who + ' clarament millor' + x.pawns + '.',
+            x => 'Hi veig un avantatge clar per a ' + x.who + x.pawns + '.',
             x => 'La valoració és clara: ' + x.who + ' estan millor' + x.pawns + '.'],
-        decisive: [x => 'Per a Stockfish, ' + x.who + ' ja tenen una posició guanyadora' + x.pawns + '.',
-            x => 'A hores d’ara, ' + x.who + ' tenen la partida a la mà' + x.pawns + '.']
+        decisive: [x => 'Diria que ' + x.who + ' ja tenen una posició guanyadora' + x.pawns + '.',
+            x => 'Ara mateix veig ' + x.who + ' amb opcions clares de guanyar' + x.pawns + '.']
     };
 
     // Seguiment: s'ha complert la previsió.
     const HIT_QUESTIONS = [
         x => 'Grau, és la jugada que anunciaves?',
         x => 'Això ja ho havies vist venir, oi, Grau?',
-        x => 'Es compleix la previsió de Stockfish?',
+        x => 'Es compleix el que havies previst?',
         x => 'És el pla que explicaves fa un moment?',
         x => 'Grau, la partida va pel camí que deies?',
         x => 'Tal com havies dit, oi?'
     ];
     const HIT_OPENERS = [
         x => 'Exacte. ',
-        x => 'Sí, tal com preveia Stockfish ' + x.ago + '. ',
+        x => 'Sí, tal com havia previst ' + x.ago + '. ',
         x => 'Dit i fet: ',
         x => 'Sí, és la línia prevista. ',
         x => 'Efectivament. ',
         x => 'Ho veieu? '
     ];
     const HIT_SOLO = [
-        x => 'Es compleix la previsió de Stockfish.',
+        x => 'Es compleix la nostra previsió.',
         x => 'Tal com s’havia anunciat ' + x.ago + '.',
-        x => 'És la jugada que preveia Stockfish.'
+        x => 'És la jugada que havíem previst.'
     ];
     // Seguiment: un bàndol se surt de la línia.
     const MISS_QUESTIONS = [
-        x => 'Grau, això no és el que esperava Stockfish, oi?',
+        x => 'Grau, això t’ho esperaves?',
         x => 'Canvi de guió, Grau?',
         x => capFirst(x.side) + ' se surten de la línia prevista. Què en penses, Grau?',
-        x => 'No era aquesta la jugada que preveia Stockfish?',
+        x => 'Grau, quina jugada tenies prevista?',
         x => 'Sorpresa, Grau?'
     ];
     const MISS_ANSWERS = [
-        x => 'No. Stockfish esperava que ' + x.side + ' ' + x.expectedPast + '.',
-        x => capFirst(x.side) + ' trien un altre camí: Stockfish proposava ' + x.expected + '.',
-        x => 'Sí, és una sorpresa: el pla de Stockfish era ' + x.expected + '.'
+        x => 'Esperava que ' + x.side + ' ' + x.expectedPast + '.',
+        x => capFirst(x.side) + ' trien un altre camí. Jo hi veia ' + x.expected + '.',
+        x => 'Em sorprèn. Em semblava més natural ' + x.expected + '.'
     ];
     const MISS_SOLO = [
-        x => capFirst(x.side) + ' se surten de la línia que preveia Stockfish.',
-        x => 'No és la jugada que esperava Stockfish.'
+        x => capFirst(x.side) + ' se surten de la línia que havíem analitzat.',
+        x => 'És diferent de la continuació que havíem previst.'
     ];
     const MISS_ASSESS = {
-        equal: [x => 'Per a Stockfish, és pràcticament igual de bona.', x => 'La valoració gairebé no canvia.',
+        equal: [x => 'La veig pràcticament igual de bona.', x => 'La valoració gairebé no canvia.',
             x => 'No passa res: és una alternativa equivalent.'],
-        slight: [x => 'La valoració empitjora una mica per a ' + x.side + '.', x => 'Stockfish la considera una mica més imprecisa.'],
-        clear: [x => 'I surt cara: segons Stockfish, la posició ' + de(x.side) + ' empitjora clarament' + x.pawns + '.',
-            x => 'Stockfish hi veu una imprecisió clara' + x.pawns + '.']
+        slight: [x => 'La valoració empitjora una mica per a ' + x.side + '.', x => 'La trobo una mica més imprecisa.'],
+        clear: [x => 'I surt cara. La posició ' + de(x.side) + ' empitjora clarament' + x.pawns + '.',
+            x => 'Hi veig una imprecisió clara' + x.pawns + '.']
     };
     // Continuació d'un fil de conflicte: la línia de Stockfish hi torna.
     const TAIL_TEXTS = {
-        attack: [x => 'I no s’acaba aquí: Stockfish preveu que ' + x.S + ' ' + x.subj + '.',
-            x => 'La pressió continuarà: segons Stockfish, ' + x.S + ' ' + x.cond + '.'],
-        capture: [x => 'I Stockfish ja hi veu la captura: ' + x.S + ' ' + x.cond + '.'],
-        defend: [x => 'Stockfish preveu que ' + x.S + ' ' + x.subj + '.']
+        attack: [x => 'I no s’acaba aquí. Preveig que ' + x.S + ' ' + x.subj + '.',
+            x => 'La pressió podria continuar. En aquesta línia, ' + x.S + ' ' + x.cond + '.'],
+        capture: [x => 'Ja hi veig una captura. ' + x.S + ' ' + x.cond + '.'],
+        defend: [x => 'Preveig que ' + x.S + ' ' + x.subj + '.']
     };
     const NEXT_TEXTS = [
-        x => ' Ara, Stockfish espera que ' + x.opp + ' ' + x.R1.subj + '.',
+        x => ' Ara preveig que ' + x.opp + ' ' + x.R1.subj + '.',
         x => ' I la cosa continua: ' + x.opp + ' ' + x.R1.cond + '.'
     ];
     // En Grau explica una jugada (diàlegs sobre el fet de la jugada).
@@ -1305,12 +1305,9 @@
                 const who = band === 'equal' ? '' : SIDE[band[0]].pl;
                 const pawns = tier === 'advanced' && band !== 'equal' ? ' (uns ' + pawnsText(c.after.best.value) + ' peons)' : '';
                 const evals = EVAL_TEXTS[level];
-                const busy = ((line + ' ' + logic).match(/Stockfish/g) || []).length >= 2;
                 const sample = i => evals[i]({ who: who, pawns: pawns });
-                const plain = evals.map((fn, i) => i).filter(i => !/Stockfish/.test(sample(i)));
                 const echo = i => /Al final de la línia/.test(logic) && /Al final de la línia/.test(sample(i));
-                const accept = id => !echo(id) && (!busy || !plain.length || plain.indexOf(id) !== -1);
-                evalText = evals[pick(mem, 'eval-' + level, evals, seed >> 5, accept)]({ who: who, pawns: pawns });
+                evalText = sample(pick(mem, 'eval-' + level, evals, seed >> 5, id => !echo(id)));
             }
         }
 
@@ -1320,9 +1317,9 @@
         const question = questions[pick(mem, 'question-' + family, questions, seed >> 6)];
         const moveText = String(c.moveText || '').trim();
         const q1 = moveText ? moveText + ' ' + question : question;
-        const solo = (moveText ? moveText + ' ' : '') + 'Mirem què preveu Stockfish.';
+        const solo = (moveText ? moveText + ' ' : '') + 'Mirem com podria continuar.';
         const max = CONFIG.MAX_WORDS[tier];
-        const answer = /^Stockfish\b/.test(logic) ? logic : 'En aquesta línia, ' + lowFirst(logic);
+        const answer = /^(Al final de la línia|En aquesta línia|Hi veig)\b/.test(logic) ? logic : 'En aquesta línia, ' + lowFirst(logic);
         const ask = { role: 'presenter', text: q1, solo: solo };
         const grau = text => ({ role: 'analyst', text: text });
         const proof = { role: 'presenter', text: PROOF_QUESTIONS[pick(mem, 'proof', PROOF_QUESTIONS, seed >> 8)],

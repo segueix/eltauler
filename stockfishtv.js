@@ -1810,7 +1810,7 @@
                 const accio = moveAction(c.ChessCtor, c.fenBefore, c.before.bestUci);
                 if (accio) {
                     const pawns = (Math.round(loss / 10) / 10).toFixed(1).replace('.', ',');
-                    const tail = tier === 'advanced' ? ': segons el motor, la jugada feta cedeix uns ' + pawns + ' peons.' : '.';
+                    const tail = tier === 'advanced' ? ': amb la jugada feta cedeixen uns ' + pawns + ' peons.' : '.';
                     const variants = tier === 'basic'
                         ? ['Hi havia una jugada millor per a ' + me.pl + ': ' + accio + '.', capFirst(me.pl) + ' tenien una opció millor: ' + accio + '.']
                         : ['Per a ' + me.pl + ', l\'anàlisi preferia ' + accio + tail, 'L\'anàlisi recomanava ' + accio + tail,
@@ -2655,29 +2655,28 @@
     // «també» (el material i l'anàlisi l'afavoreixen tots dos).
     function sameSubjectClauses(band, pawns, also) {
         const level = band.slice(2), t = also ? 'també ' : '';
-        if (level === 'slight') return ['l\'anàlisi ' + t + 'les veu una mica millor' + pawns, 'segons l\'anàlisi, ' + t + 'estan una mica millor' + pawns];
-        if (level === 'clear') return ['l\'anàlisi ' + t + 'els dona un avantatge clar' + pawns, 'segons l\'anàlisi, estan clarament millor' + pawns];
-        return ['l\'anàlisi considera guanyadora la seva posició' + pawns, 'segons l\'anàlisi, la seva posició ja és guanyadora' + pawns];
+        if (level === 'slight') return [t + 'les veig una mica millor' + pawns, t + 'estan una mica millor' + pawns];
+        if (level === 'clear') return [t + 'els dono un avantatge clar' + pawns, t + 'estan clarament millor' + pawns];
+        return [t + 'les veig amb una posició guanyadora' + pawns, 'diria que la seva posició ja és guanyadora' + pawns];
     }
-    // Uneix dues parts amb «i» o «però»; un inciso «segons l'anàlisi» va
-    // entre comes i, si la primera part ja porta una «i», es passa a «;».
+
     function joinClauses(a, conj, b) {
-        const aside = /^(segons|per a) l'anàlisi, /.test(b);
-        if (conj === 'però') return a + ', però' + (aside ? ', ' : ' ') + b;
-        if (/ i /.test(a)) return a + '; a més, ' + b.replace(/\btambé /, '');
-        return a + ' i' + (aside ? ', ' : ' ') + b;
+        if (conj === 'però') return a + ', però ' + b;
+        if (/ i /.test(a)) return a + '; a més, ' + b.replace(/^també /, '');
+        return a + ' i ' + b;
     }
-    // Valoració de l'anàlisi en paraules (amb el detall en peons per als avançats).
+
+    // Valoració en paraules (amb el detall en peons per als avançats).
     function evalClauses(band, pawns) {
-        if (band === 'equal') return ['segons l\'anàlisi, la posició està equilibrada', 'l\'anàlisi veu la posició equilibrada',
-            'per a l\'anàlisi, cap bàndol no té avantatge'];
+        if (band === 'equal') return ['veig la posició equilibrada', 'no hi veig cap avantatge clar',
+            'cap bàndol no té un avantatge clar'];
         const who = COLOR[band[0]].pl, level = band.slice(2);
-        if (level === 'slight') return ['segons l\'anàlisi, ' + who + ' estan una mica millor' + pawns,
-            'l\'anàlisi dona un lleuger avantatge a ' + who + pawns, who + ' estan una mica millor, segons l\'anàlisi' + pawns];
-        if (level === 'clear') return ['segons l\'anàlisi, ' + who + ' tenen un avantatge clar' + pawns,
-            'l\'anàlisi dona un avantatge clar a ' + who + pawns, who + ' estan clarament millor, segons l\'anàlisi' + pawns];
-        return ['segons l\'anàlisi, ' + who + ' tenen una posició guanyadora' + pawns,
-            'l\'anàlisi considera guanyadora la posició de ' + who + pawns, who + ' estan guanyant, segons l\'anàlisi' + pawns];
+        if (level === 'slight') return ['veig ' + who + ' una mica millor' + pawns,
+            'dono un lleuger avantatge a ' + who + pawns, who + ' tenen un petit avantatge' + pawns];
+        if (level === 'clear') return ['veig ' + who + ' clarament millor' + pawns,
+            'dono un avantatge clar a ' + who + pawns, who + ' tenen un avantatge clar' + pawns];
+        return ['veig ' + who + ' amb una posició guanyadora' + pawns,
+            'diria que ' + who + ' tenen una posició guanyadora' + pawns, 'ara mateix veig ' + who + ' amb opcions clares de guanyar' + pawns];
     }
 
     // Resum estratègic (cada 4-6 jugades completes, només si aporta res de
@@ -2712,8 +2711,8 @@
             } else {
                 const clause = tvVariant(clauses, seed);
                 const contrast = (mp && (band === 'equal' || evalSide !== mp.leader)) || (!mp && evalSide);
-                // «Les negres tenen un peó de menys, però, segons l'anàlisi,
-                // estan una mica millor»: no es repeteix el subjecte.
+                // «Les negres tenen un peó de menys, però estan una mica
+                // millor»: evitem repetir el subjecte.
                 let evs = mp && clause.subject === 'trailer' && evalSide === other(mp.leader)
                     ? sameSubjectClauses(band, pawns, false) : evalClauses(band, pawns);
                 if (/cap bàndol/.test(clause.text)) evs = evs.filter(t => !/cap bàndol/.test(t));
@@ -3043,8 +3042,8 @@
                 const rival = COLOR[other(m.color)].pl;
                 return { kind: 'variant', key: 'variant:' + second + ':' + b.pv[1], topic: 'variant:' + m.color,
                     question: played === first ? 'I si haguessin triat ' + alt.inf + '?' : 'Quin risc té aquesta jugada?',
-                    answer: played === first ? 'En la variant de Stockfish, ' + rival + ' ' + rep.cond + '.'
-                        : 'En la variant de Stockfish, ' + rival + ' ' + rep.cond + '. El motor preferia ' + fav.inf + '.' };
+                    answer: played === first ? 'En la línia que analitzo, ' + rival + ' ' + rep.cond + '.'
+                        : 'En la línia que analitzo, ' + rival + ' ' + rep.cond + '. Jo preferia ' + fav.inf + '.' };
             }
             if (fav && alt && fav.inf === alt.inf) return null;
         }
@@ -3061,9 +3060,9 @@
         if (!counter) return null;
         return { kind: 'variant', key: 'variant:' + second + ':' + b.pv[1], topic: 'variant:' + m.color,
             question: played === first ? 'Com podria respondre el rival a l’opció de ' + alternative + '?'
-                : 'Quina resposta tàctica preveu Stockfish a la jugada feta?',
+                : 'Quina resposta tàctica hi veus, Grau?',
             answer: 'En aquesta variant, el rival té l’opció de ' + counter + '.' +
-                (played === second ? ' Stockfish prefereix ' + favoured + '.' : '') };
+                (played === second ? ' Jo preferia ' + favoured + '.' : '') };
     }
 
     // Comprovem la captura concreta i el torn posterior. Una peça que
@@ -3217,10 +3216,10 @@
                         const side = COLOR[c.move.color].pl;
                         const pawns = /cedeix uns ([\d,]+) peons/.exec(part.text);
                         const mate = /mat en (\d+)/.exec(part.text);
-                        const tail = pawns ? ': segons el motor, la jugada feta cedeix uns ' + pawns[1] + ' peons.' : '.';
-                        out.push(mate ? 'L’anàlisi veia mat en ' + mate[1] + ' per a ' + side + ' amb una altra jugada: ' + alt.inf + '.'
-                            : tvVariant(['Per a ' + side + ', l’anàlisi preferia ' + alt.inf + tail, 'L’anàlisi recomanava ' + alt.inf + tail,
-                                'Segons l’anàlisi, era millor ' + alt.inf + tail, capFirst(side) + ' tenien una opció millor: ' + alt.inf + tail],
+                        const tail = pawns ? ': amb la jugada feta cedeixen uns ' + pawns[1] + ' peons.' : '.';
+                        out.push(mate ? 'Hi veia mat en ' + mate[1] + ' per a ' + side + ' amb una altra jugada: ' + alt.inf + '.'
+                            : tvVariant(['Per a ' + side + ', trobava millor ' + alt.inf + tail, 'Jo hauria preferit ' + alt.inf + tail,
+                                'Em semblava millor ' + alt.inf + tail, capFirst(side) + ' tenien una opció millor: ' + alt.inf + tail],
                                 isNum(chosen.variantId) ? chosen.variantId : c.ply || 0));
                         continue;
                     }
@@ -5724,8 +5723,8 @@
         if (valid && c.forecast && c.forecast.san) {
             const line = document.createElement('div');
             line.className = 'sftv-forecast';
-            line.textContent = 'Línia de Stockfish: ' + c.forecast.san;
-            line.title = 'Les properes jugades que preveu l’anàlisi de Stockfish. La partida pot seguir un altre camí.';
+            line.textContent = 'Variant analitzada: ' + c.forecast.san;
+            line.title = 'La continuació que hem analitzat. La partida pot seguir un altre camí.';
             el.appendChild(line);
         }
         if (valid && c.maxim && c.maxim.text) {

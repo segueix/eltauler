@@ -49,7 +49,7 @@ describe('el fil principal durant la retransmissió', () => {
         const dilemma = rows[96];
         expect(dilemma.dialogueEvent).toBe('variant');
         expect(dilemma.dialogue[0].text).toMatch(/I si haguessin triat capturar l’alfil amb l’alfil, amb escac/);
-        expect(dilemma.dialogue[1].text).toMatch(/En la variant de Stockfish, les negres recuperarien la peça/);
+        expect(dilemma.dialogue[1].text).toMatch(/En la línia que analitzo, les negres recuperarien la peça/);
     });
 });
 
@@ -297,7 +297,7 @@ describe('fets correctes i prudència', () => {
                 // que ja és al tauler. Les prediccions sí que demanen anàlisi.
                 const withoutMaterial = r.comment.replace(/han guanyat la qualitat \(torre per (?:alfil|cavall)\)/gi, '');
                 if (/guany|\bperd/.test(withoutMaterial) && !/Guanyen les/.test(r.comment))
-                    expect(r.comment).toMatch(/anàlisi/);
+                    expect(r.comment).toMatch(/anàlisi|\bveig\b|\bdiria\b/);
             });
         });
     });

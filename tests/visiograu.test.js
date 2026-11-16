@@ -241,7 +241,7 @@ describe('seguiment de la previsió', () => {
         expect(r.memory.forecast).toBeNull();
     });
 
-    test('si un bàndol se’n surt, en Grau diu què esperava Stockfish i què li costa', () => {
+    test('si un bàndol se’n surt, en Grau diu què esperava i què costa la desviació', () => {
         const r = play(planned(), ['d7d6'], ['d2d4']);
         expect(r.event).toEqual({ kind: 'miss', ply: 2, index: 0, expected: 'b8c6', side: 'b' });
         const fenPlan = ctxAfter(RUY, RUY_PV).ctx.fenAfter;
@@ -304,6 +304,11 @@ describe('integració amb la retransmissió', () => {
         }
         expect(plans).toBeGreaterThanOrEqual(20);
         expect(follows).toBeGreaterThanOrEqual(5);
+    });
+
+    test('en Grau presenta les valoracions i previsions amb veu pròpia', () => {
+        expect(grauTurns.some(text => /Veig la posició equilibrada|ho veig equilibrat|veig un lleuger avantatge/i.test(text))).toBe(true);
+        grauTurns.forEach(text => expect(text).not.toMatch(/\bStockfish\b/));
     });
 
     test('en Grau no diu mai cap casella', () => {
