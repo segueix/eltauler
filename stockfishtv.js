@@ -3436,13 +3436,18 @@
         const I = c.opening && c.move && getTvIntro();
         const opening = I?.openingTalk?.({
             ...c.opening, color: c.move.color, ply: c.ply, prepared: !!c.prepared,
-            canSpeak: !urgent && !event && !visionEvent && !c.end && !c.move.promotion && !/[+#]$/.test(c.move.san || '')
+            flush: !!c.end,
+            canSpeak: !!c.end || (!urgent && !c.move.promotion && !/[+#]$/.test(c.move.san || ''))
         }, memory.openingTalk);
         if (opening) memory.openingTalk = opening.memory;
         if (opening?.turns) {
-            const text = opening.turns.map(turn => turn.text).join(' ');
-            chosen = { kind: 'opening', text, leadText: text, family: 'opening', variantId: 0,
-                explanatory: true, dialogue: opening.turns, dialogueEvent: 'opening' };
+            // Si la partida acaba durant una seqüència de xecs, primer diem
+            // el resultat i després recuperem l'obertura ajornada.
+            const dialogue = c.end && chosen
+                ? [{ role: 'presenter', text: chosen.text }, ...opening.turns] : opening.turns;
+            const text = dialogue.map(turn => turn.text).join(' ');
+            chosen = { kind: c.end && chosen ? chosen.kind : 'opening', text, leadText: text, family: 'opening', variantId: 0,
+                explanatory: true, dialogue, dialogueEvent: 'opening' };
             memory.lastDialoguePly = c.ply;
             // L'obertura ha ocupat el torn. Els altres fets d'aquesta jugada
             // només continuen a la memòria com a observacions.
@@ -4134,33 +4139,58 @@
                     if (!mv) break;
                     fens.push(replay.fen());
                     sans.push(mv.san);
-                    if (fens.length >= 30) break;
                 }
                 const res = Core.analyzeGameOpeningByPositions(graph, fens, sans);
                 return res && res.name ? { name: res.name, eco: res.eco || null } : null;
             } catch (err) { return null; }
         }
 
+        function openingMoveIdea(move) {
+            if (move.flags.includes('k') || move.flags.includes('q')) return 'L’enroc porta el rei cap a un flanc i treu la torre del racó per acostar-la al centre.';
+            if (move.captured) return 'La captura modifica el material i la tensió entre les peces. En aquesta línia cal seguir qui recupera el material i amb quina activitat.';
+            if (move.piece === 'p') {
+                if (['d4', 'e4', 'd5', 'e5'].includes(move.to)) return 'El peó ocupa una casella central: guanya espai i controla les dues diagonals del davant.';
+                return 'L’avanç del peó guanya terreny i canvia les caselles que controla. Cal vigilar també les caselles que deixa de defensar.';
+            }
+            if (['n', 'b'].includes(move.piece)) return 'La maniobra reubica ' + pieceNP(move.piece, null) + '. En l’obertura, el sentit del desplegament és acostar les peces a la lluita central sense perdre temps.';
+            return 'La maniobra reubica ' + pieceNP(move.piece, null) + '. Cal valorar aquesta activitat juntament amb el desenvolupament de les altres peces i la seguretat del rei.';
+        }
+
         function openingDialogueContext(g, move, fenBefore, fenAfter, prepared) {
             const ply = g.moves.length;
-            if (!g.matchPlan || g.startFen || g.hadManualControl || ply >= 24) return null;
+            if (g.startFen) return null;
             const lastPrepared = g.prepared.length - 1;
             const context = {
-                engines: g.engines,
-                seed: g.opening,
-                preparedComplete: lastPrepared >= 0 &&
-                    (ply === lastPrepared && !!prepared || g.moves[lastPrepared]?.prepared === true)
+                engines: g.engines, seed: g.opening, moveIdea: openingMoveIdea(move),
+                preparedComplete: lastPrepared >= 0 && g.prepared.length === g.opening?.moves?.length &&
+                    (ply === lastPrepared && !!prepared || g.moves[lastPrepared]?.prepared === true),
+                discoveries: []
             };
             const Core = getCore();
             try {
-                const graph = d.getOpeningGraph?.();
+                let graph = d.getOpeningGraph?.();
+                const repertoire = typeof d.getOpenings === 'function' ? d.getOpenings() : [];
+                // El graf complet es carrega en segon pla. El repertori petit
+                // permet narrar també les primeres partides, abans que estigui llest.
+                if (!graph && Core?.buildOpeningPositionGraph) {
+                    if (!g.localOpeningGraph) g.localOpeningGraph = Core.buildOpeningPositionGraph(
+                        repertoire.map(op => ({ ...op, pgn: (op.moves || []).join(' ') })), sans => {
+                            const board = new d.ChessCtor();
+                            return sans.map(san => { if (!board.move(san)) throw new Error('opening'); return board.fen(); });
+                        });
+                    graph = g.localOpeningGraph;
+                }
                 if (graph && Core?.positionKeyFromFen) {
+                    const enrich = entry => entry ? { ...repertoire.find(op => op.name === entry.name), ...entry } : null;
                     const from = Core.positionKeyFromFen(fenBefore);
                     const to = Core.positionKeyFromFen(fenAfter);
                     const continuations = graph.theory.get(from);
-                    context.named = graph.byPos.get(to) || null;
-                    // Una transposició pot arribar a una posició teòrica per
-                    // un moviment que no figura en la seqüència habitual.
+                    context.named = enrich(graph.byPos.get(to));
+                    for (const entry of g.moves) {
+                        const named = enrich(graph.byPos.get(Core.positionKeyFromFen(entry.fen)));
+                        if (named) context.discoveries.push({ named, ply: entry.ply, color: entry.color,
+                            prepared: entry.prepared, moveIdea: openingMoveIdea(entry.verbose) });
+                    }
                     if (continuations?.has(move.san)) context.theory = true;
                     else if (!context.named && !graph.theory.has(to) && continuations?.size) context.theory = false;
                 }
@@ -4535,7 +4565,7 @@
             const entry = { ply: ply, san: mv.san, uci: uci, color: mv.color, from: mv.from, to: mv.to, prepared: !!prepared, fen: fenAfter, verbose: mv,
                 byUser: !!byUser, commentObj: null, undo: undo };
             g.moves.push(entry);
-            if (!g.identified || ply < 30) g.identified = identifyOpening(g) || g.identified;
+            g.identified = identifyOpening(g) || g.identified;
             g.end = plan.end;
             g.comment = null;
             g.memory = plan.memory;

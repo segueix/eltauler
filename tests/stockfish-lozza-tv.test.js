@@ -142,13 +142,73 @@ describe('Stockfish vs Lozza TV · flux real del controlador', () => {
     const najdorf = moves[9].commentObj;
     expect(najdorf.dialogueEvent).toBe('opening');
     expect(najdorf.dialogue[0].text).toContain('jugada de Lozza');
-    expect(najdorf.dialogue[0].text).toContain('Siciliana Najdorf');
+    expect(najdorf.dialogue[0].text).toContain('Defensa Siciliana: variant Najdorf');
     expect(najdorf.dialogue[1].text).toContain('Lozza, amb les negres');
     const attack = moves[10].commentObj;
     expect(attack.dialogueEvent).toBe('opening');
     expect(attack.dialogue[0].text).toContain('jugada de Stockfish');
-    expect(attack.dialogue[0].text).toContain('Atac Anglès');
+    expect(attack.dialogue[0].text).toContain('variant Najdorf, atac anglès');
     expect(attack.dialogue[1].text).toMatch(/Stockfish, amb les blanques.*enrocar llarg/);
+    ctl.close();
+  });
+
+  test('recupera les obertures ja jugades quan el graf acaba de carregar', async () => {
+    const Core = require('../core');
+    const pgn = '1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6';
+    const graph = Core.buildOpeningPositionGraph([
+      { name: 'Sicilian Defense', pgn: '1. e4 c5' },
+      { name: 'Sicilian Defense: Najdorf Variation', pgn }
+    ], sans => { const board = new Chess(); return sans.map(san => { board.move(san); return board.fen(); }); });
+    const board = new Chess();
+    const played = Core.parsePgnToMoves(pgn + ' 6. Be3 e6 7. Be2 Be7 8. O-O O-O').map(san => {
+      const m = board.move(san); return m.from + m.to;
+    });
+    let ready = false;
+    const comments = [];
+    const ctl = TV.createTvController({ ChessCtor: Chess,
+      engine: mockEngine('stockfish', played), lozzaEngine: mockEngine('lozza', played),
+      getOpeningGraph: () => ready ? graph : null, getOpenings: () => [],
+      getViewer: () => ({ calibrated: true, roc: 1400 }), loadPrefs: () => ({ speed: 'quick' }),
+      view: { comment: c => comments.push(c) } });
+    await ctl.open();
+    const start = jest.now();
+    while (ctl.state().game.moves.length < 10 && jest.now() - start < 240000) await jest.advanceTimersByTimeAsync(1000);
+    expect(ctl.state().game.moves.length).toBeGreaterThanOrEqual(10);
+    ready = true;
+    while (!comments.some(c => c.text.includes('variant Najdorf')) && jest.now() - start < 360000) await jest.advanceTimersByTimeAsync(1000);
+    const openings = comments.filter(c => c.dialogueEvent === 'opening');
+    expect(openings.some(c => c.text.includes('«Defensa Siciliana»'))).toBe(true);
+    expect(openings.some(c => c.text.includes('variant Najdorf'))).toBe(true);
+    ctl.close();
+  });
+
+  test.each([
+    ['Obertura de Viena', ['e4', 'e5', 'Nc3', 'Nf6', 'Bc4', 'Bc5'], 'Prepara el peó d’alfil amb suport del cavall.', /possibilitat/],
+    ['Obertura Sokolsky (Orangutan)', ['b4', 'e5', 'Bb2'], 'Guanya espai al flanc de dama i activa l’alfil.', /diagonal llarga/],
+    ['Gambit Budapest', ['d4', 'Nf6', 'c4', 'e5', 'dxe5', 'Ng4', 'Bf4', 'Nc6', 'Nf3', 'Bb4+'], 'Cedeix un peó per activar les peces.', /crear amenaces/]
+  ])('narra %s amb veu real del controlador, sense graf ni Lozza', async (name, moves, idea, meaning) => {
+    const spoken = [], comments = [];
+    const ctl = TV.createTvController({
+      ChessCtor: Chess, engine: mockEngine('stockfish', []),
+      voice: { isOn: () => true, status: () => 'ready', supportsDual: () => true,
+        speak: async (text, options) => { spoken.push({ text, ...options }); return { spoken: true }; }, stop() {}, destroy() {} },
+      random: () => 0.2, loadPrefs: () => ({ speed: 'quick', openingIndex: 0 }),
+      getOpenings: () => [{ name, moves, idea, userColor: 'w' }], getOpeningGraph: () => null,
+      getViewer: () => ({ calibrated: true, roc: 1400 }),
+      view: { comment: c => comments.push(c) }
+    });
+    await ctl.open();
+    const start = jest.now();
+    while (!spoken.some(x => meaning.test(x.text)) && jest.now() - start < 360000) {
+      await jest.advanceTimersByTimeAsync(1000);
+    }
+    expect(spoken.some(x => x.text.includes(TV.tvSpeechText(name)) && x.voiceId === TV.TV_DUO.presenter)).toBe(true);
+    expect(spoken.some(x => meaning.test(x.text) && x.voiceId === TV.TV_DUO.analyst)).toBe(true);
+    if (moves[moves.length - 1].endsWith('+')) {
+      // La jugada final preparada és escac: s'explica després, sense perdre-la.
+      const explanation = comments.find(c => c.dialogueEvent === 'opening');
+      expect(explanation.ply).toBeGreaterThan(moves.length - 1);
+    }
     ctl.close();
   });
 

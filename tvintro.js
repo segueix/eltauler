@@ -2,12 +2,12 @@
 // Les presentacions descriuen les condicions reals del duel. A la revenja
 // es recupera el resultat de l'anada i es confirmen els colors nous.
 (function(root,factory){
-    const api=factory();
+    const api=factory(root);
     if(typeof module!=='undefined'&&module.exports) module.exports=api;
     else root.ElTaulerTvIntro=api;
-})(typeof self!=='undefined'?self:this,function(){
+})(typeof self!=='undefined'?self:this,function(root){
     'use strict';
-    const VERSION='1.2.0';
+    const VERSION='1.3.0';
     const OPENINGS=Object.freeze([
         'Tot és a punt per a un nou duel entre Stockfish i Lozza.',
         'Stockfish i Lozza es preparen per compartir el tauler.',
@@ -73,6 +73,31 @@
     // Noms del graf ECO i del repertori local. Les variants específiques
     // han d'anar abans de la família general.
     const OPENING_PROFILES = [
+        [/vienna|viena/i, 'Obertura de Viena', 'w', 'El cavall sosté el centre i deixa oberta la possibilitat d’avançar el peó d’alfil de rei.'],
+        [/réti|reti/i, 'Atac Réti', 'w', 'Les blanques despleguen les peces abans de fixar el centre i conserven flexibilitat per triar l’estructura de peons.'],
+        [/four pawns attack|atac dels quatre peons/i, 'Atac dels Quatre Peons', 'w', 'Els peons guanyen espai al centre, però les peces han de sostenir-los perquè no es converteixin en objectius.'],
+        [/semi.slav|semieslava/i, 'Defensa Semieslava', 'b', 'Les negres reforcen el centre amb peons i preparen el desplegament abans de decidir quan l’obren.'],
+        [/bishop.s opening|obertura de l.alfil/i, 'Obertura de l’Alfil', 'w', 'L’alfil surt aviat cap al flanc de rei rival i les blanques mantenen opcions per al cavall i el peó d’alfil.'],
+        [/king.s indian attack|atac [íi]ndi.*rei/i, 'Atac Indi de Rei', 'w', 'L’alfil a la diagonal llarga dona suport al centre i a la preparació d’un atac al flanc de rei.'],
+        [/trompowsky/i, 'Atac Trompowsky', 'w', 'L’alfil pressiona de seguida el cavall de rei i planteja la possibilitat de canviar-lo i alterar els peons rivals.'],
+        [/torre attack|atac torre/i, 'Atac Torre', 'w', 'El cavall i l’alfil es despleguen per pressionar el centre abans de fixar la resta de peons.'],
+        [/colle/i, 'Sistema Colle', 'w', 'La cadena de peons sosté les peces i prepara una ruptura central amb el peó de rei.'],
+        [/bird/i, 'Obertura Bird', 'w', 'El peó d’alfil de rei controla una casella central i dona espai per preparar joc al flanc de rei.'],
+        [/larsen/i, 'Atac Nimzowitsch-Larsen', 'w', 'L’alfil de dama entra per la diagonal llarga per pressionar el centre des del flanc.'],
+        [/sokolsky|orangutan|polish opening/i, 'Obertura Sokolsky', 'w', 'Les blanques guanyen espai al flanc de dama i preparen la sortida de l’alfil per la diagonal llarga.'],
+        [/stonewall attack|atac stonewall/i, 'Atac Stonewall', 'w', 'El mur de peons sosté el centre i deixa preparar un atac al flanc de rei amb les peces.'],
+        [/petrov|petroff|russian game/i, 'Defensa Petrov', 'b', 'El cavall negre contraataca el peó central blanc en lloc de limitar-se a defensar el propi.'],
+        [/philidor/i, 'Defensa Philidor', 'b', 'El peó de dama sosté el peó de rei i ofereix una base sòlida per desenvolupar les peces.'],
+        [/alekhine/i, 'Defensa Alekhine', 'b', 'El cavall provoca l’avanç dels peons blancs per convertir aquest centre avançat en un objectiu de contraatac.'],
+        [/queen.s indian|índia de dama/i, 'Defensa Índia de Dama', 'b', 'L’alfil de dama pressiona el centre des de la diagonal llarga.'],
+        [/grünfeld|grunfeld/i, 'Defensa Grünfeld', 'b', 'Les negres permeten un centre ampli de peons blancs per atacar-lo després amb peces i ruptures de peons.'],
+        [/benoni/i, 'Defensa Benoni', 'b', 'Les negres accepten menys espai central a canvi d’activitat i opcions de contrajoc al flanc de dama.'],
+        [/dutch|holandesa/i, 'Defensa Holandesa', 'b', 'El peó d’alfil de rei disputa el centre i prepara espai per al joc al flanc de rei.'],
+        [/slav defense|defensa eslava/i, 'Defensa Eslava', 'b', 'El peó d’alfil de dama sosté el centre sense tancar d’entrada la sortida de l’alfil de dama.'],
+        [/modern defense|defensa moderna|robatsch/i, 'Defensa Moderna', 'b', 'L’alfil de rei pressiona per la diagonal llarga mentre les negres preparen un contraatac sobre el centre blanc.'],
+        [/bogo.indian|bogo.índia/i, 'Defensa Bogo-Índia', 'b', 'La sortida de l’alfil amb escac obliga les blanques a decidir com el cobreixen i ofereix opcions de simplificar.'],
+        [/budapest/i, 'Gambit Budapest', 'b', 'Les negres cedeixen un peó per activar ràpidament les peces i crear amenaces.'],
+        [/albin/i, 'Contragambit Albin', 'b', 'Les negres ofereixen un peó per obtenir un peó central avançat que dificulta el desplegament blanc.'],
         [/sveshnikov/i, 'Siciliana Sveshnikov', 'b', 'El peó avançat disputa el centre i guanya temps atacant el cavall blanc.'],
         [/najdorf.*english attack/i, 'Atac Anglès de la Siciliana Najdorf', 'w', 'Les peces blanques es coordinen per poder enrocar llarg i avançar els peons del flanc de rei.'],
         [/najdorf/i, 'Siciliana Najdorf', 'b', 'El peó de torre negre treu una casella al cavall blanc i prepara joc al flanc de dama.'],
@@ -107,63 +132,94 @@
         [/english opening|obertura anglesa/i, 'Obertura Anglesa', 'w', 'Les blanques controlen el centre des del flanc i conserven flexibilitat per triar l’estructura de peons.']
     ];
 
-    function openingProfile(entry) {
-        if (!entry || typeof entry.name !== 'string') return null;
+    function openingProfile(entry, moveIdea) {
+        if (!entry || typeof entry.name !== 'string' || !entry.name.trim()) return null;
         const profile = OPENING_PROFILES.find(row => row[0].test(entry.name));
-        if (!profile) return null;
-        const [, name, color, strength] = profile;
-        return { name, color, strength };
+        let name = entry.name;
+        try {
+            const lab = root?.ElTaulerOpeningLab || (typeof require === 'function' ? require('./tallerobertures') : null);
+            name = lab?.translateOpeningName(name) || name;
+        } catch (err) { /* conservem el nom exacte del repertori */ }
+        // El nom COMPLET és la identitat: dues variants de la mateixa família
+        // no s'han de fondre en un sol comentari. La idea familiar s'identifica
+        // com a tal, sense atribuir-li detalls d'una variant no documentada.
+        return { name, color: profile?.[2] || entry.userColor || null,
+            strength: profile ? profile[3] : entry.idea || moveIdea ||
+                'El nom descriu la seqüència jugada; encara no tenim una explicació específica d’aquesta línia.',
+            family: profile?.[1] || null };
     }
 
     function openingTalk(ctx, previous) {
         const c = ctx;
-        const memory = { ...(previous || {}) };
-        const reached = openingProfile(c.named);
+        const memory = JSON.parse(JSON.stringify(previous || {}));
+        memory.pending = memory.pending || [];
+        memory.seen = memory.seen || [];
+        const engineName = color => c.engines?.[color] === 'lozza' ? 'Lozza' : 'Stockfish';
+        const enqueue = (entry, event) => {
+            const profile = openingProfile(entry, event.moveIdea || c.moveIdea);
+            if (!profile) return;
+            if (memory.seen.includes(profile.name)) return;
+            memory.active = profile;
+            memory.seen.push(profile.name);
+            memory.pending.push({ profile, ...event });
+        };
+        // Recupera també les posicions reconegudes mentre el graf carregava.
+        for (const found of c.discoveries || []) enqueue(found.named, found);
+        const reached = openingProfile(c.named, c.moveIdea);
+        if (reached) enqueue(c.named, { ply: c.ply, color: c.color, prepared: c.prepared });
         if (reached) memory.active = reached;
+        if (c.preparedComplete && !memory.prepared) {
+            enqueue(c.seed, { ply: c.ply, prepared: true });
+            memory.prepared = true;
+        }
         const known = reached || memory.active;
         if (c.theory !== true && !reached) memory.active = null;
-        const newVariant = reached && !c.prepared && c.ply >= 4 && memory.lastName !== reached.name;
-        if (!c.canSpeak || (!newVariant && c.ply - (memory.lastPly ?? -10) < 3) || (memory.count || 0) >= 4) return { memory };
-        const engineName = color => c.engines[color] === 'lozza' ? 'Lozza' : 'Stockfish';
-        const side = color => color === 'w' ? 'les blanques' : 'les negres';
-        let profile = null, question, solo;
-        if (c.preparedComplete && !memory.prepared) {
-            profile = openingProfile(c.seed);
-            if (profile) {
-                solo = 'La línia preparada ens porta a «' + profile.name + '».';
-                question = solo + ' Què hi guanya el bàndol que la planteja?';
-                memory.prepared = true;
-                if (c.theory === true && !memory.active) memory.active = profile;
-            }
-        }
-        if (!profile && !c.prepared && c.ply >= 4 && known) {
-            const player = engineName(c.color);
-            const pattern = player + ':' + known.name;
-            if (newVariant || (c.theory === true && memory[pattern] !== 'theory')) {
-                profile = known;
-                solo = newVariant ? 'Amb la jugada de ' + player + ' arribem a «' + profile.name + '».'
-                    : player + ' segueix el patró de «' + profile.name + '».';
-                question = solo + ' Quin és el punt fort d’aquesta línia?';
+        // Una urgència ajorna l'explicació; mai no la dona per pronunciada.
+        if (!c.canSpeak) return { memory };
+        let turns;
+        if (memory.pending.length) {
+            const events = c.flush ? memory.pending.splice(0) : [memory.pending.shift()];
+            const names = events.map(e => '«' + e.profile.name + '»').join(', ');
+            const first = events[0];
+            const solo = events.length > 1 ? 'Les obertures i variants que hem recorregut són ' + names + '.'
+                : first.prepared ? 'La línia preparada ens porta a ' + names + '.'
+                : first.ply === c.ply ? 'Amb la jugada de ' + engineName(first.color) + ' arribem a ' + names + '.'
+                : 'En aquesta partida hem arribat a ' + names + '.';
+            const explanations = events.map(({ profile }) => {
+                const side = profile.color === 'w' ? 'les blanques' : 'les negres';
+                const owner = profile.color ? 'El recurs és per a ' + engineName(profile.color) + ', amb ' + side + '. ' : '';
+                const family = profile.family && profile.name !== profile.family ? 'La idea de la família «' + profile.family + '» és aquesta: ' : '';
+                return (events.length > 1 ? '«' + profile.name + '»: ' : '') + owner + family + profile.strength;
+            });
+            turns = [
+                { role: 'presenter', text: solo + ' Quin sentit té aquesta tria?', solo },
+                { role: 'analyst', text: explanations.join(' ') }
+            ];
+            memory.lastName = events[events.length - 1].profile.name;
+        } else if (c.ply - (memory.lastPly ?? -10) >= 3 && !c.prepared && known) {
+            const player = engineName(c.color), pattern = player + ':' + known.name;
+            let solo;
+            if (c.theory === true && memory[pattern] !== 'theory') {
+                solo = player + ' segueix el patró de «' + known.name + '».';
                 memory[pattern] = 'theory';
-            } else if (c.theory === false && memory[pattern] !== 'outside' && memory.lastName === known.name) {
-                memory[pattern] = 'outside';
-                memory.lastPly = c.ply;
-                memory.count = (memory.count || 0) + 1;
+            } else if (c.theory === false && memory[pattern] !== 'outside') {
                 solo = player + ' surt de la línia d’obertura recollida al repertori.';
-                return { memory, turns: [
-                    { role: 'presenter', text: solo + ' En quina obertura érem fins ara?', solo },
-                    { role: 'analyst', text: 'Veníem de «' + known.name + '». ' + known.strength }
-                ] };
+                memory[pattern] = 'outside';
             }
+            if (solo) turns = [
+                { role: 'presenter', text: solo + ' Quina idea hi havia al darrere?', solo },
+                { role: 'analyst', text: 'Veníem de «' + known.name + '». ' + known.strength }
+            ];
+        } else if (!memory.seen.length && !memory.unidentified && c.ply >= 7 && !c.prepared && c.moveIdea) {
+            const solo = 'Encara no tenim un nom d’obertura verificat per a aquesta seqüència.';
+            turns = [
+                { role: 'presenter', text: solo + ' Què ens diu la jugada?', solo },
+                { role: 'analyst', text: c.moveIdea }
+            ];
+            memory.unidentified = true;
         }
-        if (!profile) return { memory };
-        memory.lastPly = c.ply;
-        memory.lastName = profile.name;
-        memory.count = (memory.count || 0) + 1;
-        return { memory, turns: [
-            { role: 'presenter', text: question, solo },
-            { role: 'analyst', text: 'El recurs és per a ' + engineName(profile.color) + ', amb ' + side(profile.color) + '. ' + profile.strength }
-        ] };
+        if (turns) memory.lastPly = c.ply;
+        return { memory, ...(turns ? { turns } : {}) };
     }
 
     function scene(options){
