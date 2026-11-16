@@ -17,7 +17,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
     'use strict';
 
-    const VERSION = '1.2.0';
+    const VERSION = '1.3.0';
     // Identificació per al prestatge de llibres de la TV (alterna amb
     // estratagemes.js).
     const BOOK_ID = 'art';
@@ -335,6 +335,90 @@
         remat: 'Remat i decisió'
     });
 
+    // Aplicacions breus per als torns d’en Grau. Cada tema correspon a
+    // un fet que el diàleg ja ha explicat i hi afegeix una idea transferible.
+    const DIALOGUE_BANK = {
+        tempo: ['decisions', 'Guanyar un temps', [
+            'Una amenaça útil avança el teu pla mentre el rival respon al seu problema.',
+            'El temps guanyat serveix si la teva peça acaba en un lloc més útil.',
+            'Fer moure una peça rival et dona un temps per millorar la posició.'
+        ]],
+        initiative: ['setge', 'Iniciativa', [
+            'Qui ha de respondre a cada amenaça té menys ocasions de crear-ne una.',
+            'Per conservar la iniciativa, cada amenaça ha de preparar la següent.',
+            'Una amenaça dona aire al teu pla quan obliga el rival a ajornar el seu.'
+        ]],
+        development: ['desplegament', 'Coordinació de les peces', [
+            'Una peça ben desplegada amplia les opcions de tot el bàndol.',
+            'Abans d’obrir el joc, situa les peces on es puguin ajudar.',
+            'Com més peces treballen juntes, més fàcil és passar de la defensa a l’atac.'
+        ]],
+        trades: ['intercanvi', 'Canvi de peces', [
+            'Abans d’acceptar un canvi, mira quina feina faran les peces que quedaran.',
+            'Cada intercanvi canvia el valor pràctic dels peons i de les peces que queden.',
+            'Valora un canvi per la posició que deixa després de la recaptura.'
+        ]],
+        outpost: ['territori', 'Casella forta', [
+            'Un lloc avançat val més si el rival no el pot disputar amb un peó.',
+            'Una casella segura permet pressionar sense haver de recol·locar la peça.',
+            'Ocupa una casella avançada si hi pots continuar treballant després de l’amenaça inicial.'
+        ]],
+        maneuver: ['paciencia', 'Maniobra', [
+            'De vegades cal passar per una casella discreta per arribar a una de més útil.',
+            'Una maniobra es jutja per l’activitat que guanya la peça al final del trajecte.',
+            'La ruta d’una peça té sentit quan amplia les seves opcions.'
+        ]],
+        defence: ['defensa', 'Prioritat defensiva', [
+            'Una defensa útil resol el problema i deixa alguna peça lliure per tornar a actuar.',
+            'Abans d’obrir un altre front, assegura’t que el rival no pugui aprofitar l’actual.',
+            'Guanyar marge per atacar comença per identificar què has de defensar.'
+        ]],
+        recapture: ['defensa', 'Defensa amb recaptura', [
+            'Per saber si una peça està defensada, comprova que la recaptura sigui legal.',
+            'Abans de donar una peça per perduda, mira qui pot reprendre a la mateixa casella.',
+            'La possibilitat de recapturar canvia el cost real d’una captura.'
+        ]],
+        passed: ['peons', 'El peó passat', [
+            'Un peó passat guanya valor si té camí per avançar i suport per mantenir-se.',
+            'Abans d’empènyer un peó passat, mira des d’on el poden bloquejar.',
+            'Com més a prop és de coronar, més atenció li ha de dedicar la defensa.'
+        ]],
+        blockade: ['peons', 'Bloqueig del peó passat', [
+            'Aturar un peó pel davant et dona temps per organitzar la resta de la defensa.',
+            'La peça que fa de bloqueig també compta entre els recursos que la defensa compromet.',
+            'Controlar la casella del davant dona marge abans d’intentar capturar el peó.'
+        ]],
+        files: ['camins', 'Columnes i rutes', [
+            'Una columna és útil si les peces hi tenen una via d’entrada.',
+            'Abans de disputar una columna, fixa’t en què podries atacar des d’allà.',
+            'Controlar una ruta val més quan encara hi tens peces per aprofitar-la.'
+        ]],
+        pressure: ['setge', 'Pressió sobre una peça', [
+            'Per valorar la pressió, compta els atacs i comprova quins defensors poden actuar.',
+            'Una peça lligada a la defensa deixa de fer feina en altres punts del tauler.',
+            'Mantenir una amenaça dona temps per preparar la resta de peces.'
+        ]],
+        pin: ['lligams', 'Clavada i restricció', [
+            'Una clavada limita els recursos rivals mentre calgui protegir la peça del darrere.',
+            'Abans de comptar amb una peça clavada, mira quins moviments conserva.',
+            'La força d’una clavada depèn del que exposes si mous la peça del davant.'
+        ]],
+        fork: ['dos_fronts', 'Dos objectius alhora', [
+            'El segon objectiu fa més difícil respondre a la primera amenaça.',
+            'En un atac doble, comprova si una sola resposta pot salvar tots dos objectius.',
+            'Quan una peça amenaça dos objectius, el defensor ha de triar què prioritza.'
+        ]]
+    };
+    const DIALOGUE_CATALOG = Object.freeze(Object.entries(DIALOGUE_BANK).flatMap(([theme, [family, label, texts]]) =>
+        texts.map((text, i) => Object.freeze({
+            id: 'dialeg-' + theme + '-' + (i + 1), family, theme, label, text,
+            attribution: 'Màxima original inspirada en la filosofia de Sunzi'
+        }))
+    ));
+    const BY_THEME = Object.freeze(Object.fromEntries(Object.keys(DIALOGUE_BANK).map(theme =>
+        [theme, Object.freeze(DIALOGUE_CATALOG.filter(x => x.theme === theme))]
+    )));
+
     // IDs efectius de tvCommentCandidates i de patrons.js. La relació és
     // conservadora: un motiu desconegut no rep mai una màxima.
     const KIND_TO_FAMILY = Object.freeze({
@@ -379,7 +463,7 @@
     ));
     const BY_FAMILY = Object.freeze(Object.fromEntries(Object.keys(BANK).map(family =>
         [family, Object.freeze(CATALOG.filter(x => x.family === family))])));
-    const KNOWN_IDS = new Set(CATALOG.map(x => x.id));
+    const KNOWN_IDS = new Set([...CATALOG, ...DIALOGUE_CATALOG].map(x => x.id));
 
     function initialMemory() {
         return { lastPly: -1000, lastFamily: null, lastByFamily: {}, recentIds: [], count: 0 };
@@ -408,7 +492,8 @@
         const c = ctx && typeof ctx === 'object' ? ctx : {};
         const comment = c.comment || {};
         const evidence = c.evidence || {};
-        const family = familyFor(comment.kind);
+        const theme = Object.hasOwn(BY_THEME, c.dialogueTheme) ? BY_THEME[c.dialogueTheme] : null;
+        const family = c.dialogueTheme ? theme && theme[0].family : familyFor(comment.kind);
         if (!c.certified || !family || typeof comment.text !== 'string' || !comment.text.trim()) return { reason: 'unverified', family: null };
         if (!Number.isInteger(c.ply) || c.ply < 0) return { reason: 'invalid-ply', family };
         if (c.prepared || c.terminal || c.urgent || CRITICAL.has(comment.kind)
@@ -440,10 +525,12 @@
         return h >>> 0;
     }
     function pick(family, ctx, memory) {
-        const options = BY_FAMILY[family] || [];
+        const options = ctx.dialogueTheme
+            ? BY_THEME[ctx.dialogueTheme].filter(x => x.text.split(/\s+/).length <= ctx.dialogueWords)
+            : BY_FAMILY[family];
         if (!options.length) return null;
         const seed = hash32(String(ctx.gameId || 'partida') + ':' + ctx.ply + ':' +
-            family + ':' + String(ctx.comment && ctx.comment.kind || ''));
+            family + ':' + String(ctx.dialogueTheme || ctx.comment && ctx.comment.kind || ''));
         const fresh = options.filter(x => !memory.recentIds.includes(x.id));
         const pool = fresh.length ? fresh : options; // rotació si la partida és molt llarga
         return pool[seed % pool.length];
@@ -468,7 +555,7 @@
 
     return Object.freeze({
         VERSION, BOOK_ID, BOOK_LABEL, MIN_GAP_PLIES, FAMILY_GAP_PLIES, MIN_STOCKFISH_DEPTH,
-        CATALOG, BANK, LABELS, KIND_TO_FAMILY, CRITICAL_KINDS,
+        CATALOG, DIALOGUE_CATALOG, BANK, LABELS, KIND_TO_FAMILY, CRITICAL_KINDS,
         initialMemory, normalizeMemory, familyFor, eligibility, choose
     });
 });

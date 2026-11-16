@@ -115,6 +115,31 @@
         const A = ctx && ctx.art;
         if (!A || typeof A.choose !== 'function' || !chosen ||
                 !Array.isArray(candidates)) return { comment: chosen, memory };
+        if (chosen.dialogue) {
+            const art = chosen.dialogueArt;
+            if (!art || ctx.prepared || ctx.end) return { comment: chosen, memory };
+            const turnIndex = chosen.dialogue.findIndex(turn => turn.role === 'analyst');
+            if (turnIndex < 0) return { comment: chosen, memory };
+            const turn = chosen.dialogue[turnIndex];
+            const available = art.limit - wordCount(tvReadingText(chosen));
+            if (available <= 0) return { comment: chosen, memory };
+            const analysis = ctx.after;
+            if (art.fromPlan && (!analysis || !analysis.reliable || analysis.fen !== ctx.fenAfter ||
+                    !Number.isFinite(analysis.depth) || analysis.depth < 12))
+                return { comment: chosen, memory };
+            const evidence = art.fromPlan ? { source: 'stockfish', reliable: true, depth: analysis.depth }
+                : { source: 'rules', reliable: true };
+            const output = A.choose({
+                gameId: ctx.gameId, ply: ctx.ply, comment: { kind: 'dialogue', text: turn.text },
+                dialogueTheme: art.theme, dialogueWords: available, certified: true, evidence
+            }, memory.art);
+            if (!output?.maxim || output.maxim.theme !== art.theme || wordCount(output.maxim.text) > available)
+                return { comment: chosen, memory };
+            const dialogue = chosen.dialogue.slice();
+            dialogue[turnIndex] = { ...turn, text: turn.text + ' ' + output.maxim.text };
+            return { comment: { ...chosen, dialogue, maxim: { ...output.maxim, inDialogue: true } },
+                memory: { ...memory, art: output.memory } };
+        }
         const source = candidates.find(c => c && c.kind === chosen.kind &&
             c.key === chosen.key && c.sig === chosen.sig);
         if (!source) return { comment: chosen, memory };
@@ -3061,6 +3086,7 @@
                         pieceNP(move.piece, move.color) + ' hi pot recapturar.';
                     const defence = fact('defence', 'recaptura:' + square + ':' + proof.attacker.from + ':' + move.piece,
                         'la pressió sobre ' + victim, answer, candidate.key);
+                    defence.recapture = true;
                     defence.question = 'Com responen a la pressió sobre ' + pieceNP(proof.victim, move.color) +
                         ' si el rival ' + piecePronoun(proof.victim) + ' captura?';
                     if (event && event.topic.split(':')[2] === square) defence.topic = event.topic;
@@ -3219,8 +3245,9 @@
         if (!exchange && gap >= 1 && conflict) {
             // Una defensa es pot explicar amb la recaptura legal concreta, si existeix.
             const proof = event.kind === 'defence' ? tvTacticalDialogue(c, chosen, candidates, event, urgent) : null;
-            exchange = proof && proof.kind === 'defence'
-                ? { ...event, answer: proof.answer, question: proof.question, followQuestion: 'Què passa si el rival fa la captura?', key: proof.key } : event;
+            exchange = proof && proof.topic === event.topic
+                ? { ...event, answer: proof.answer, question: proof.question, followQuestion: 'Què passa si el rival fa la captura?',
+                    key: proof.key, recapture: true } : event;
             // Si la línia de Stockfish torna a la mateixa casella, en Grau ho avança.
             const square = String(event.topic || '').split(':')[2];
             if (vision && square && /^[a-h][1-8]$/.test(square)) {
@@ -3308,8 +3335,18 @@
             thread.lastEvent = exchange.kind;
             thread.lastEventPly = c.ply;
         }
-        return Object.assign({}, chosen, { dialogue: dialogue, dialogueEvent: exchange.kind },
-            exchange.forecast ? { forecast: exchange.forecast, planTheme: exchange.theme } : {});
+        const fromPlan = exchange.kind === 'plan';
+        let theme = fromPlan ? exchange.theme : null;
+        if (exchange.recapture) theme = 'recapture';
+        else if (exchange.threadKind === 'passed' && exchange.kind === 'defence') theme = 'blockade';
+        else if (exchange.threadKind === 'passed' && exchange.kind === 'reinforced') theme = 'passed';
+        else if (exchange.threadKind === 'file' && exchange.kind !== 'resolved') theme = 'files';
+
+        const planLimits = vision?.CONFIG?.MAX_WORDS;
+        const limit = fromPlan ? planLimits?.[c.tier] ?? planLimits?.mid ?? 88 : 52;
+        return { ...chosen, dialogue, dialogueEvent: exchange.kind,
+            ...(theme && !urgent ? { dialogueArt: { theme, fromPlan, limit } } : {}),
+            ...(exchange.forecast ? { forecast: exchange.forecast, planTheme: exchange.theme } : {}) };
     }
 
     // Un pas complet de la retransmissió: candidats, selecció, resum
@@ -3382,7 +3419,7 @@
                 }
             } catch (err) { /* reserva: comentari original i memòria intacta */ }
         }
-        const artStep = chosen && chosen.dialogue ? { comment: chosen, memory: memory } : tvArtStep(c, chosen, memory, candidates);
+        const artStep = tvArtStep(c, chosen, memory, candidates);
         chosen = artStep.comment;
         // El que diu (i mostra) l'Èlia: intencions, sense caselles.
         if (chosen && vision) chosen = Object.assign({}, chosen, { say: tvEliaSay(c, chosen, vision, artStep.memory) });
@@ -5593,7 +5630,8 @@
         if (valid && c.maxim && c.maxim.text) {
             const line = document.createElement('div');
             line.className = 'sftv-art-maxim';
-            line.textContent = (c.maxim.bookLabel || 'L’Art de la Guerra') + ' · ' + c.maxim.text;
+            line.textContent = (c.maxim.bookLabel || 'L’Art de la Guerra') + ' · ' +
+                (c.maxim.inDialogue ? c.maxim.label : c.maxim.text);
             line.title = c.maxim.book === 'estratagemes'
                 ? 'Frase original inspirada en «Les 36 estratagemes» (estratagema ' + c.maxim.number + ': «' + c.maxim.title + '»), no una citació'
                 : 'Màxima original inspirada en la filosofia de Sunzi, no una citació històrica';

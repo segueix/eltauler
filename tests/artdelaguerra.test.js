@@ -176,3 +176,46 @@ describe('Integració sense inferències amb Stockfish TV', () => {
         expect(original.art).toBeNull();
     });
 });
+
+describe('L’Art de la Guerra dins del diàleg', () => {
+    const TV = require('../stockfishtv');
+    const E = require('../estratagemes');
+    const shelf = TV.tvBookshelf([A, E]);
+
+    test('el repertori del diàleg té 42 frases úniques i respecta el pressupost de paraules', () => {
+        expect(A.DIALOGUE_CATALOG).toHaveLength(42);
+        expect(new Set(A.DIALOGUE_CATALOG.map(x => x.text)).size).toBe(42);
+        for (const item of A.DIALOGUE_CATALOG) {
+            expect(item.text.split(/\s+/).length).toBeLessThanOrEqual(16);
+            expect(item.attribution).toMatch(/original/);
+        }
+        const ctx = base('dialogue', 12, { dialogueTheme: 'blockade', dialogueWords: 5 });
+        expect(A.choose(ctx).maxim).toBeNull();
+        expect(A.choose({ ...ctx, dialogueWords: 16 }).maxim.theme).toBe('blockade');
+    });
+
+    test('preserva la pregunta i la resposta de la partida i en Grau només llegeix una vegada la màxima', () => {
+        const { Chess } = require('chess.js');
+        const game = require('./fixtures/tv-games.json').games[0];
+        const input = { ...game, gameId: game.name, tier: 'mid' };
+        const plain = TV.tvSimulateCommentary(Chess, input);
+        const withArt = TV.tvSimulateCommentary(Chess, { ...input, art: shelf });
+        const integrations = withArt.filter(row => row.maxim?.inDialogue);
+        expect(integrations.length).toBeGreaterThan(0);
+        const quotes = withArt.filter(row => row.maxim);
+        for (let i = 1; i < quotes.length; i++) {
+            expect(quotes[i].ply - quotes[i - 1].ply).toBeGreaterThanOrEqual(A.MIN_GAP_PLIES);
+        }
+        for (const row of integrations) {
+            const prior = plain[row.ply].dialogue;
+            const answerIndex = prior.findIndex(turn => turn.role === 'analyst');
+            expect(row.dialogue).toHaveLength(prior.length);
+            expect(row.dialogue[0]).toEqual(prior[0]);
+            expect(row.dialogue[answerIndex].text).toBe(prior[answerIndex].text + ' ' + row.maxim.text);
+            const spoken = TV.tvDialogueTurns(row, true);
+            expect(spoken[answerIndex].voiceId).toBe('matxa:central:grau');
+            expect(spoken.filter(turn => turn.text.includes(TV.tvSpeechText(row.maxim.text)))).toHaveLength(1);
+            expect(TV.tvDialogueTurns(row, false).every(turn => turn.voiceId === null)).toBe(true);
+        }
+    });
+});
