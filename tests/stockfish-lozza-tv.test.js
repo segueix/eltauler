@@ -49,6 +49,21 @@ describe('Stockfish vs Lozza TV · decisions del duel següent', () => {
   });
 });
 
+test('el repertori de Fins al mat té deu posicions legals i diferents', () => {
+  const scenarios = TV.TV_MATE_SCENARIOS;
+  expect(scenarios).toHaveLength(10);
+  expect(new Set(scenarios.map(x => x.theme)).size).toBe(10);
+  const positions = scenarios.map(scenario => {
+    const chess = new Chess();
+    if (scenario.fen) expect(chess.load(scenario.fen)).toBe(true);
+    else for (const san of scenario.moves) expect(chess.move(san)).toBeTruthy();
+    expect(chess.game_over()).toBe(false);
+    return chess.fen().split(' ').slice(0, 4).join(' ');
+  });
+  expect(new Set(positions).size).toBe(scenarios.length);
+  expect(scenarios.filter(x => x.fen)).toHaveLength(2);
+});
+
 function mockEngine(label, played) {
   return {
     jobs: [], destroyed: 0,
@@ -59,8 +74,8 @@ function mockEngine(label, played) {
     destroy() { this.destroyed++; },
     request(job) {
       this.jobs.push(job);
-      const g = new Chess();
-      const moveText = job.position.split(' moves ')[1];
+      const [start, moveText] = job.position.split(' moves ');
+      const g = new Chess(start.startsWith('position fen ') ? start.slice('position fen '.length) : undefined);
       if (moveText) moveText.split(' ').forEach(u =>
         g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] || 'q' }));
       const legal = g.moves({ verbose: true }).map(m => m.from + m.to + (m.promotion || ''));
@@ -139,6 +154,42 @@ describe('Stockfish vs Lozza TV · flux real del controlador', () => {
     }
     expect(lz.jobs.some(j => j.go === 'go depth 4')).toBe(true);
     expect(sf.jobs.filter(j => j.tag.kind === 'move' && j.go === search).every(j => j.strength.includes('setoption name Skill Level value 20'))).toBe(true);
+    ctl.close();
+  });
+
+  test('els motors reben el mateix final en una revenja i la següent parella canvia de posició', async () => {
+    const index = TV.TV_MATE_SCENARIOS.findIndex(x => x.fen);
+    const scenario = TV.TV_MATE_SCENARIOS[index];
+    const sf = mockEngine('stockfish', []), lz = mockEngine('lozza', []);
+    const ctl = TV.createTvController({
+      ChessCtor: Chess, engine: sf, lozzaEngine: lz, random: () => 0.2,
+      loadPrefs: () => ({ speed: 'quick', untilMate: true, mateSeries: {
+        index, returnColor: 'b', firstResult: 'stockfish'
+      } }),
+      getViewer: () => ({ calibrated: true, roc: 1400 })
+    });
+    await ctl.open();
+    const start = ctl.state().game;
+    expect(start.fen).toBe(scenario.fen);
+    expect(start.opening).toEqual(expect.objectContaining({ fromPosition: true, plies: 0 }));
+    expect(start.comment.text).toContain('Stockfish va guanyar la primera partida.');
+    expect(start.engines).toEqual({ w: 'stockfish', b: 'lozza' });
+
+    const time = jest.now();
+    let state = start;
+    while (!state.end && jest.now() - time < 1000000) {
+      await jest.advanceTimersByTimeAsync(1000);
+      state = ctl.state().game;
+    }
+    const position = 'position fen ' + scenario.fen;
+    expect(sf.jobs.some(job => job.position === position && job.tag.kind === 'move')).toBe(true);
+    expect(lz.jobs.some(job => job.position.startsWith(position + ' moves ') && job.tag.kind === 'move')).toBe(true);
+    const expectedFinish = state.end.result === '1-0' ? '2 · Lozza 0'
+      : state.end.result === '0-1' ? '1 · Lozza 1' : '1,5 · Lozza 0,5';
+    expect(state.pairScore).toBe('Balanç de la parella: Stockfish ' + expectedFinish + '.');
+    expect(ctl.prefs().mateSeries).toEqual({ index: index + 1, returnColor: null, firstResult: null });
+    await jest.advanceTimersByTimeAsync(12000);
+    expect(ctl.state().game.opening.name).toBe(TV.TV_MATE_SCENARIOS[index + 1].name);
     ctl.close();
   });
 

@@ -1,14 +1,13 @@
 // tvintro.js — Presentacions breus i variades de Stockfish vs Lozza TV.
-// Cap introducció revela el nom de l'obertura, la línia preparada,
-// jugades futures, ni promet resultats. Les condicions explicades
-// provenen del pla real de la partida, no d'hipòtesis sobre els motors.
+// Les presentacions descriuen les condicions reals del duel. A la revenja
+// es recupera el resultat de l'anada i es confirmen els colors nous.
 (function(root,factory){
     const api=factory();
     if(typeof module!=='undefined'&&module.exports) module.exports=api;
     else root.ElTaulerTvIntro=api;
 })(typeof self!=='undefined'?self:this,function(){
     'use strict';
-    const VERSION='1.0.0';
+    const VERSION='1.1.0';
     const OPENINGS=Object.freeze([
         'Tot és a punt per a un nou duel entre Stockfish i Lozza.',
         'Stockfish i Lozza es preparen per compartir el tauler.',
@@ -80,6 +79,15 @@
         const stockfishColor=engine.w==='stockfish'&&engine.b==='lozza'?'w':
             engine.b==='stockfish'&&engine.w==='lozza'?'b':null;
         if(!stockfishColor) return 'Stockfish i Lozza es preparen per començar una nova partida.';
+        if (d.untilMate && o.mateAngle) {
+            if (!d.rematch) return 'Primer duel de la parella. ' + COLORS[stockfishColor] + ' ' + o.mateAngle;
+            const lead = {
+                stockfish: 'Stockfish va guanyar la primera partida.',
+                lozza: 'Lozza va guanyar la primera partida.',
+                draw: 'La primera partida va acabar en taules.'
+            }[d.firstResult] || '';
+            return (lead ? lead + ' ' : '') + 'Revenja des de la mateixa posició amb els colors intercanviats. ' + COLORS[stockfishColor];
+        }
         const contexts=[
             COLORS[stockfishColor],
             'El sistema ha fixat les condicions del duel; la partida decidirà la resta.',

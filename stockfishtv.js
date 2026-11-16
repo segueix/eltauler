@@ -578,33 +578,74 @@
         return caps.mode + ':' + caps.min + '-' + caps.max;
     }
 
-    // Línies amb mat en totes dues assignacions de colors a la prova inicial.
-    const TV_MATE_OPENINGS = [
-        { eco: 'B33', name: 'Siciliana Sveshnikov', moves: ['e4', 'c5', 'Nf3', 'Nc6', 'd4', 'cxd4', 'Nxd4', 'Nf6', 'Nc3', 'e5'] },
-        { eco: 'C39', name: 'Gambit de rei acceptat', moves: ['e4', 'e5', 'f4', 'exf4', 'Nf3', 'g5', 'h4', 'g4', 'Ne5', 'Nf6'] },
-        { eco: 'E90', name: 'Defensa índia de rei', moves: ['d4', 'Nf6', 'c4', 'g6', 'Nc3', 'Bg7', 'e4', 'd6', 'Nf3', 'O-O'] }
+    // Cada posició es juga dues vegades, amb els colors intercanviats.
+    // Els tres primers índexs es conserven per a les revenges ja desades.
+    const TV_MATE_SCENARIOS = [
+        { eco: 'B33', name: 'Siciliana Sveshnikov', theme: 'Caselles fortes',
+            angle: 'Fixem-nos en qui aprofita les caselles que els peons deixen lliures al centre.',
+            moves: ['e4', 'c5', 'Nf3', 'Nc6', 'd4', 'cxd4', 'Nxd4', 'Nf6', 'Nc3', 'e5'] },
+        { eco: 'C39', name: 'Gambit de rei acceptat', theme: 'Material a canvi d’atac',
+            angle: 'La lluita gira al voltant d’un peó cedit i les línies que es poden obrir prop del rei.',
+            moves: ['e4', 'e5', 'f4', 'exf4', 'Nf3', 'g5', 'h4', 'g4', 'Ne5', 'Nf6'] },
+        { eco: 'E90', name: 'Defensa índia de rei', theme: 'Espai contra contrajoc',
+            angle: 'Un bàndol guanya espai al centre. L’altre té opcions de buscar joc pels flancs.',
+            moves: ['d4', 'Nf6', 'c4', 'g6', 'Nc3', 'Bg7', 'e4', 'd6', 'Nf3', 'O-O'] },
+        { eco: 'C45', name: 'Partida escocesa', theme: 'Peces actives en un centre obert',
+            angle: 'El centre s’obre aviat. Mirarem quines peces hi arriben amb més activitat.',
+            moves: ['e4', 'e5', 'Nf3', 'Nc6', 'd4', 'exd4', 'Nxd4', 'Bc5', 'Be3', 'Qf6', 'c3', 'Nge7'] },
+        { eco: 'C18', name: 'Francesa Winawer', theme: 'Centre tancat',
+            angle: 'Els peons bloquegen el centre. La pregunta és per quin costat buscarà joc cada motor.',
+            moves: ['e4', 'e6', 'd4', 'd5', 'Nc3', 'Bb4', 'e5', 'c5', 'a3', 'Bxc3+', 'bxc3', 'Ne7'] },
+        { name: 'Final de rei i peons', theme: 'Bloqueig i coronació',
+            angle: 'Les blanques tenen un peó passat. Veurem si el rei negre el pot aturar.',
+            fen: '8/p4kpp/8/2P5/1p6/1P3K2/P5PP/8 w - - 0 1' },
+        { eco: 'D32', name: 'Defensa Tarrasch', theme: 'Peó aïllat',
+            angle: 'Una posició amb un peó central aïllat. Pot donar espai o convertir-se en un objectiu.',
+            moves: ['d4', 'd5', 'c4', 'e6', 'Nc3', 'c5', 'cxd5', 'exd5', 'Nf3', 'Nc6', 'dxc5', 'Bxc5'] },
+        { eco: 'B07', name: 'Defensa Pirc', theme: 'Atac per flancs',
+            angle: 'El rei blanc va al flanc de dama i els peons negres hi guanyen terreny.',
+            moves: ['e4', 'd6', 'd4', 'Nf6', 'Nc3', 'g6', 'Be3', 'Bg7', 'Qd2', 'c6', 'O-O-O', 'b5'] },
+        { eco: 'B12', name: 'Caro-Kann de l’avanç', theme: 'Tensió al flanc de rei',
+            angle: 'El centre queda fixat i els peons de torre es troben al flanc de rei. Veurem qui hi obre camí.',
+            moves: ['e4', 'c6', 'd4', 'd5', 'e5', 'Bf5', 'h4', 'h5', 'Bd3', 'Bxd3', 'Qxd3', 'e6'] },
+        { name: 'Final de torres', theme: 'Torres actives i peons passats',
+            angle: 'Cada bàndol té només una torre. Segueix quina actua millor darrere dels peons.',
+            fen: '6k1/5pp1/7p/8/2P5/1P6/r4PPP/3R2K1 w - - 0 1' }
     ];
 
     function tvMateSeries(value) {
         const series = value || {};
+        const returnColor = series.returnColor === 'w' || series.returnColor === 'b' ? series.returnColor : null;
         return {
-            index: Number.isInteger(series.index) && series.index >= 0 ? series.index % TV_MATE_OPENINGS.length : 0,
-            returnColor: series.returnColor === 'w' || series.returnColor === 'b' ? series.returnColor : null
+            index: Number.isInteger(series.index) && series.index >= 0 ? series.index % TV_MATE_SCENARIOS.length : 0,
+            returnColor,
+            firstResult: returnColor && ['stockfish', 'lozza', 'draw'].includes(series.firstResult) ? series.firstResult : null
         };
     }
 
     function tvMateMatch(series, random) {
         const lozzaColor = series.returnColor || (random() < 0.5 ? 'w' : 'b');
+        const scenario = TV_MATE_SCENARIOS[series.index];
         return {
             untilMate: true,
             index: series.index,
             rematch: !!series.returnColor,
+            firstResult: series.firstResult,
+            theme: scenario.theme,
             lozzaColor: lozzaColor,
             engines: { w: lozzaColor === 'w' ? 'lozza' : 'stockfish', b: lozzaColor === 'b' ? 'lozza' : 'stockfish' },
             depth: TV_CONFIG.MATE_DEPTH,
             movetime: TV_CONFIG.MATE_MOVETIME_MS,
-            reason: series.returnColor ? 'Fins al mat · Revenja amb els colors intercanviats.' : 'Fins al mat · Primera partida de la parella.'
+            reason: scenario.theme + (series.returnColor ? ' · Revenja amb els colors intercanviats.' : ' · Primera partida de la parella.')
         };
+    }
+
+    function tvMatePairScore(first, second) {
+        if (!first) return '';
+        const points = result => result === 'stockfish' ? 1 : result === 'draw' ? 0.5 : 0;
+        const stockfish = points(first) + points(second);
+        const label = score => String(score).replace('.', ',');
+        return 'Balanç de la parella: Stockfish ' + label(stockfish) + ' · Lozza ' + label(2 - stockfish) + '.';
     }
 
     function tvNormalizePrefs(raw) {
@@ -1106,7 +1147,7 @@
 
     // Jugades preparades legals (s'aturen a la primera que no ho sigui).
     function tvPreparedLine(ChessCtor, opening, maxPlies) {
-        if (!opening || typeof ChessCtor !== 'function') return [];
+        if (!opening || !Array.isArray(opening.moves) || typeof ChessCtor !== 'function') return [];
         const g = new ChessCtor();
         const out = [];
         const limit = isNum(maxPlies) ? maxPlies : 12;
@@ -3927,8 +3968,9 @@
 
     const WORKER_ERROR = '\u0000worker-error';
 
-    function tvPositionCommand(uciMoves) {
-        return (Array.isArray(uciMoves) && uciMoves.length) ? 'position startpos moves ' + uciMoves.join(' ') : 'position startpos';
+    function tvPositionCommand(uciMoves, startFen) {
+        const start = startFen ? 'position fen ' + startFen : 'position startpos';
+        return Array.isArray(uciMoves) && uciMoves.length ? start + ' moves ' + uciMoves.join(' ') : start;
     }
 
     // ------------------------------------------------------------------
@@ -4048,7 +4090,9 @@
                     matchPlan: g.matchPlan,
                     recorded: !!g.recorded,
                     hadManualControl: !!g.hadManualControl,
-                    opening: g.opening ? { name: g.opening.name, eco: g.opening.eco, idea: g.opening.idea || null, plies: g.prepared.length } : null,
+                    opening: g.opening ? { name: g.opening.name, eco: g.opening.eco, idea: g.opening.idea || null,
+                        plies: g.prepared.length, fromPosition: !!g.startFen } : null,
+                    pairScore: g.pairScore,
                     identified: g.identified,
                     story: g.memory && g.memory.story ? g.memory.story : null,
                     lastMove: g.moves.length ? g.moves[g.moves.length - 1] : null,
@@ -4061,6 +4105,7 @@
         function render() { notify('render', snapshot()); }
 
         function identifyOpening(g) {
+            if (g.startFen) return null;
             const Core = getCore();
             const graph = typeof d.getOpeningGraph === 'function' ? d.getOpeningGraph() : null;
             if (!Core || !graph || typeof Core.analyzeGameOpeningByPositions !== 'function') return null;
@@ -4093,7 +4138,7 @@
                 caps: S.caps, target: target.value, unequal: prefs.unequal,
                 gameSeq: S.gameSeq, random: random
             }) : null;
-            const pick = untilMate ? { opening: TV_MATE_OPENINGS[duel.index] }
+            const pick = untilMate ? { opening: TV_MATE_SCENARIOS[duel.index] }
                 : tvPickOpening(typeof d.getOpenings === 'function' ? d.getOpenings() : [],
                 prefs.openingIndex !== null ? prefs.openingIndex : Math.floor(random() * 1000),
                 { sharp: duel ? duel.sharp : S.gameSeq % 2 === 0 });
@@ -4104,9 +4149,11 @@
             S.control = null;
             const levels = duel ? null : tvGameLevels(S.caps, target.value, prefs.unequal, random);
             const styles = !untilMate && prefs.profiles && S.caps && S.caps.mode !== 'none' ? tvPickStyles(random) : null;
+            const startFen = untilMate ? pick.opening.fen : undefined;
             S.game = {
                 id: ++S.gameSeq,
-                chess: new d.ChessCtor(),
+                chess: new d.ChessCtor(startFen),
+                startFen,
                 moves: [],
                 uci: [],
                 // El nivell queda FIXAT per a tota la partida. `value` és l'objectiu
@@ -4141,7 +4188,7 @@
             if (d.engine) d.engine.newGame();
             if (duel && d.lozzaEngine) d.lozzaEngine.newGame();
             S.nextRevealAt = now() + TV_CONFIG.INTRO_DELAY_MS;
-            // Presentació curta, sense revelar obertura, línia ni jugades.
+            // Presenta el repte del duel sense avançar les jugades dels motors.
             // El context prové exclusivament de les decisions ja preses
             // per tvMatchPlan, tvPickOpening i tvPickStyles.
             const I = getTvIntro();
@@ -4149,7 +4196,8 @@
                 const intro = I.scene({
                     gameSeq: S.game.id, duel: duel,
                     preparedPlies: S.game.prepared.length,
-                    sharpOpening: untilMate || tvIsSharpOpening(pick.opening),
+                    sharpOpening: tvIsSharpOpening(pick.opening),
+                    mateAngle: untilMate ? pick.opening.angle : null,
                     strengthAdjusted: !!(!untilMate && prefs.unequal && S.caps &&
                         (S.caps.mode === 'elo' || S.caps.mode === 'skill')),
                     styles: styles
@@ -4240,7 +4288,7 @@
         function analysisJob(g, uciMoves, ply, fen) {
             return {
                 tag: { gameId: g.id, ply: ply, fen: fen, kind: 'analysis' },
-                position: tvPositionCommand(uciMoves),
+                position: tvPositionCommand(uciMoves, g.startFen),
                 strength: tvStrengthCommands(S.caps, 'analysis'),
                 multipv: TV_CONFIG.ANALYSIS_MULTIPV,
                 go: 'go depth ' + TV_CONFIG.ANALYSIS_MAX_DEPTH + ' movetime ' + TV_CONFIG.ANALYSIS_MOVETIME_MS,
@@ -4272,7 +4320,7 @@
             const style = !lozzaTurn && g.styles ? g.styles[color] : null;
             const job = {
                 tag: { gameId: g.id, ply: ply, fen: fen, kind: 'move', engine: lozzaTurn ? 'lozza' : 'stockfish' },
-                position: tvPositionCommand(uciMoves),
+                position: tvPositionCommand(uciMoves, g.startFen),
                 strength: lozzaTurn ? [] : tvStrengthCommands(S.caps, mate ? 'analysis' : 'player',
                     g.matchPlan ? g.matchPlan.stockfishLevel : tvSideLevel(g.level, fen)),
                 multipv: style ? TV_CONFIG.STYLE_MULTIPV : 1,
@@ -4285,9 +4333,11 @@
             let res = await engine.request(job);
             if (!alive(epoch) || S.game !== g) return null;
             if (mate && res && !res.bestUci) {
-                // A movetime molt curt el motor pot retornar «bestmove NULL».
-                // Fem una segona cerca acotada en profunditat amb el mateix motor.
-                res = await engine.request({ ...job, go: 'go depth 4', movetime: 250 });
+                // Lozza pot recordar una línia de mat i retornar «bestmove NULL»
+                // tot i tenir jugades legals. Reprenem la cerca des del tauler
+                // visible amb una memòria de cerca nova. La partida conserva l’historial.
+                engine.newGame();
+                res = await engine.request({ ...job, position: tvPositionCommand([], fen), go: 'go depth 4', movetime: 250 });
                 if (!alive(epoch) || S.game !== g) return null;
                 if (!res || !res.bestUci) { fail('engine'); return null; }
             }
@@ -4395,7 +4445,7 @@
         function planMove(g, uci, fenBefore, prepared, before, after, resign) {
             const ply = g.moves.length;
             const prevMove = ply ? g.moves[ply - 1].verbose : null;
-            const copy = new d.ChessCtor();
+            const copy = new d.ChessCtor(g.startFen);
             for (const u of g.uci) {
                 if (!copy.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : 'q' })) return null;
             }
@@ -4508,7 +4558,9 @@
                 const record = { winner: winner, lozzaColor: plan.lozzaColor, sig: tvCapsSignature(S.caps),
                     plies: g.moves.length, reason: g.end.reason };
                 if (plan.untilMate) {
-                    const series = plan.rematch ? { index: plan.index + 1 } : { index: plan.index, returnColor: other(plan.lozzaColor) };
+                    if (plan.rematch) g.pairScore = tvMatePairScore(plan.firstResult, winner);
+                    const series = plan.rematch ? { index: plan.index + 1 }
+                        : { index: plan.index, returnColor: other(plan.lozzaColor), firstResult: winner };
                     prefs = Object.assign({}, prefs, { mateSeries: tvMateSeries(series), mateRecent: tvRecentResults(prefs.mateRecent.concat(record)) });
                 } else {
                     prefs = Object.assign({}, prefs, { recent: tvRecentResults(prefs.recent.concat(record)) });
@@ -4530,7 +4582,7 @@
         }
 
         function rebuildChess(g) {
-            const chess = new d.ChessCtor();
+            const chess = new d.ChessCtor(g.startFen);
             g.uci.forEach(u => chess.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : 'q' }));
             g.chess = chess;
         }
@@ -4691,6 +4743,7 @@
                 g.resign = entry.undo.resign || { side: null, plies: 0 };
                 g.comments = g.comments.filter(c => c.ply < g.moves.length);
                 g.end = null;
+                g.pairScore = '';
                 g.nextGameAt = null;
                 const prev = g.moves[g.moves.length - 1];
                 g.comment = prev ? prev.commentObj : g.intro;
@@ -5466,9 +5519,11 @@
         const parts = [];
         if (g.opening) {
             const playedPrepared = g.moves.filter(m => m.prepared).length;
-            parts.push('<span class="sftv-opening-kicker">Obertura de partida</span> <strong>' + escapeHtml(g.opening.name) + '</strong>'
+            const label = g.opening.fromPosition ? 'Posició inicial' : 'Obertura de partida';
+            parts.push('<span class="sftv-opening-kicker">' + label + '</span> <strong>' + escapeHtml(g.opening.name) + '</strong>'
                 + (g.opening.eco ? ' <span class="sftv-eco">' + escapeHtml(g.opening.eco) + '</span>' : '')
-                + '<span class="sftv-opening-sub">Jugades preparades del repertori: ' + playedPrepared + ' de ' + g.opening.plies + '</span>');
+                + (g.opening.fromPosition ? '' : '<span class="sftv-opening-sub">Jugades preparades del repertori: ' +
+                    playedPrepared + ' de ' + g.opening.plies + '</span>'));
         }
         if (g.identified && (!g.opening || g.identified.name !== g.opening.name)) {
             parts.push('<span class="sftv-opening-sub">Línia identificada: ' + escapeHtml(g.identified.name) + (g.identified.eco ? ' (' + escapeHtml(g.identified.eco) + ')' : '') + '</span>');
@@ -5594,6 +5649,7 @@
                 + (g.level && g.level.reveal ? '<div class="sftv-result-reveal">' + escapeHtml(g.level.reveal) + '</div>' : '')
                 + (g.matchPlan ? '<div class="sftv-result-reveal">' +
                     (g.matchPlan.untilMate ? '' : 'Adaptació de la rivalitat: ') + escapeHtml(g.matchPlan.reason) + '</div>' : '')
+                + (g.pairScore ? '<div class="sftv-result-reveal">' + escapeHtml(g.pairScore) + '</div>' : '')
                 + '<div class="sftv-result-next">' + (left !== null ? 'La partida següent comença d\'aquí a ' + left + ' s.'
                     : (state.control ? 'Control manual: tira enrere o torna el control al motor.' : (state.paused ? 'En pausa.' : ''))) + '</div>';
         };
@@ -5979,6 +6035,7 @@
         tvSideLevel,
         tvResultHeadline,
         tvPickOpening,
+        TV_MATE_SCENARIOS,
         tvPreparedLine,
         tvCommentCandidates,
         tvChooseComment,
