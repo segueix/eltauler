@@ -16,7 +16,9 @@
 //
 // És una veu EN LÍNIA: el text que es llegeix s'envia al servidor del BSC.
 // Si no hi ha xarxa, el servei dorm o triga massa, qui la fa servir torna a
-// la veu del dispositiu (i durant un minut no s'hi torna a provar). La Lliga
+// la veu del dispositiu (i durant un minut no s'hi torna a provar). El temps
+// màxim de cada frase es compta des que surt cap a Matxa: esperar torn darrere
+// la frase anterior (la segona veu d'un diàleg) no la fa fallar ni atura Matxa. La Lliga
 // de llegendes TV, en canvi, atura la partida i hi torna a provar (speak amb
 // force) fins que Matxa respon; una síntesi correcta acaba la pausa.
 //
@@ -41,7 +43,13 @@
         TEMPERATURE: 0.2,
         LENGTH_SCALE: 0.89,
         MAX_CHARS: 480,
+        // Temps per sintetitzar i baixar UNA frase, comptat des que surt cap a
+        // Matxa (no des que es demana): les frases d'una sessió van en fila i
+        // la segona veu d'un diàleg espera la primera (≈ 5 s cadascuna).
         SYNTH_TIMEOUT_MS: 12000,
+        // Espera màxima a la fila abans de començar. Una frase tallada aquí no
+        // diu res de Matxa (només que n'hi havia d'altres davant): no hi ha pausa.
+        QUEUE_TIMEOUT_MS: 30000,
         COOLDOWN_MS: 60000,
         CACHE_SIZE: 40,
         // Matxa comença a parlar als primers mil·lisegons del WAV. En arrencar
@@ -262,6 +270,9 @@
     // Client Gradio de Matxa
     // ------------------------------------------------------------------
     // env = { fetch, baseUrl }
+    // synthesize(text, voiceId, { rate, signal, onStart }): onStart s'avisa quan
+    // una crida d'aquesta frase surt cap al servidor (després d'esperar torn a
+    // la fila de la sessió); si el senyal ja és avortat, no s'envia res.
     function createMatxaClient(env) {
         const e = env || {};
         const doFetch = e.fetch || (typeof fetch === 'function' ? fetch.bind(root) : null);
@@ -332,13 +343,19 @@
             if (!voice) throw new Error('voice');
             const clean = String(text || '').slice(0, MATXA_CONFIG.MAX_CHARS).trim();
             if (!clean) throw new Error('empty');
+            // Torn a la fila: es comprova el senyal i s'avisa just abans d'enviar.
+            const send = (s, fnIndex, data) => enqueue(s, () => {
+                if (o.signal && o.signal.aborted) throw new Error('aborted');
+                if (typeof o.onStart === 'function') { try { o.onStart(); } catch (err) {} }
+                return call(s.hash, fnIndex, data, o.signal);
+            });
             const attempt = async (retry) => {
                 const s = session(voice.accent);
-                if (!s.ready) s.ready = enqueue(s, () => call(s.hash, MATXA_CONFIG.FN_ACCENT, [voice.accent], o.signal));
+                if (!s.ready) s.ready = send(s, MATXA_CONFIG.FN_ACCENT, [voice.accent]);
                 try {
                     await s.ready;
-                    const out = await enqueue(s, () => call(s.hash, MATXA_CONFIG.FN_PREDICT,
-                        [clean, voice.accent, voice.speaker, MATXA_CONFIG.TEMPERATURE, lengthScaleForRate(o.rate)], o.signal));
+                    const out = await send(s, MATXA_CONFIG.FN_PREDICT,
+                        [clean, voice.accent, voice.speaker, MATXA_CONFIG.TEMPERATURE, lengthScaleForRate(o.rate)]);
                     const file = Array.isArray(out) ? out[0] : null;
                     const url = file && (file.url || (file.path ? base + '/gradio_api/file=' + file.path : null));
                     if (!url) throw new Error('no-audio');
@@ -353,7 +370,8 @@
             return attempt(true);
         }
 
-        return { synthesize: synthesize, _sessions: sessions };
+        // reportsStart: el reproductor pot comptar el temps des de l'enviament.
+        return { synthesize: synthesize, reportsStart: true, _sessions: sessions };
     }
 
     // Google Cloud TTS: només servei intermedi al mateix origen, MAI una clau
@@ -432,13 +450,27 @@
                 return hit;
             }
             const controller = typeof AbortController === 'function' ? new AbortController() : null;
-            const timer = setT(() => { if (controller) controller.abort(); }, o.synthTimeoutMs || MATXA_CONFIG.SYNTH_TIMEOUT_MS);
-            const p = client.synthesize(text, voiceId, { rate: o.rate, signal: controller ? controller.signal : undefined })
+            const abort = () => { if (controller) controller.abort(); };
+            // Amb un client que avisa de l'enviament, mentre la frase espera torn
+            // només corre el temps de fila; els 12 s comencen quan surt cap a
+            // Matxa. Un client que no n'avisa compta des d'ara, com sempre.
+            let started = !client.reportsStart;
+            let timer = setT(abort, started ? (o.synthTimeoutMs || MATXA_CONFIG.SYNTH_TIMEOUT_MS)
+                : (o.queueTimeoutMs || MATXA_CONFIG.QUEUE_TIMEOUT_MS));
+            const onStart = () => {
+                if (started) return;
+                started = true;
+                clearT(timer);
+                timer = setT(abort, o.synthTimeoutMs || MATXA_CONFIG.SYNTH_TIMEOUT_MS);
+            };
+            const p = client.synthesize(text, voiceId, { rate: o.rate, signal: controller ? controller.signal : undefined, onStart: onStart })
                 .then(url => fetchAudio(url, controller ? controller.signal : undefined))
                 .then((src) => { clearT(timer); cooldownUntil = 0; return src; }, (err) => {
                     clearT(timer);
                     cache.delete(k);
-                    cooldownUntil = now() + MATXA_CONFIG.COOLDOWN_MS;
+                    // Només una frase que Matxa ha rebut i no ha resolt atura Matxa
+                    // un minut; la que ha caigut esperant torn, no.
+                    if (started) cooldownUntil = now() + MATXA_CONFIG.COOLDOWN_MS;
                     throw err;
                 });
             cache.set(k, p);

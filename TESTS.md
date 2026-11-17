@@ -725,7 +725,11 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   caducada refeta una sola vegada), i el reproductor: memòria cau (preparar per
   endavant no sintetitza dues vegades) amb límit, cap cua de locucions, aturada
   immediata, temps màxim, sense connexió i pausa d'un minut després d'una
-  fallada del servei. També el **silenci inicial** (`padWavStart`, 250 ms) que
+  fallada del servei. El **temps màxim de 12 s es compta des que la frase surt
+  cap a Matxa**: amb un servidor lent i en fila (7 s per frase), l'Èlia i en
+  Grau seguits arriben tots dos sense pausa (abans la segona es tallava als
+  12 s); una frase tallada esperant torn (30 s) no atura Matxa, i una que Matxa
+  ha rebut i no resol, sí. També el **silenci inicial** (`padWavStart`, 250 ms) que
   s'afegeix als WAV de 16 i 24 bits perquè en arrencar el so no es perdi la
   primera síl·laba, respectant els blocs previs a les dades i deixant intactes
   els fitxers que no entén.

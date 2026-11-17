@@ -518,6 +518,8 @@ describe('Lliga de llegendes TV · perquè les partides no s’encallin', () => 
     expect(rep.windowCp).toBe(L.WINDOW_CP);
     expect(rep.windowCp).toBeGreaterThan(TV.TV_CONFIG.STYLE_WINDOW_CP);
     expect(rep.depthBonus).toBeGreaterThan(0);
+    // Amb un motiu ja vist, es manté encara que la posició ja no la justifiqui.
+    expect(TV.tvLateAttack({ ChessCtor: Chess, fen: quiet, ply: 2, history: [], force: 'stalled' }).reason).toBe('stalled');
     // El perfil d'atac conserva una part de l'estil del jugador.
     const base = { label: 'Karpov', weights: { quiet: 2, retreat: 1 } };
     const merged = TV.tvLateAttack({ ChessCtor: Chess, fen: quiet, ply: L.ALWAYS_FROM_PLY, history: [], baseStyle: base }).style.weights;
@@ -606,6 +608,15 @@ describe('Lliga de llegendes TV · fase d’atac al controlador', () => {
         expect(j.go).toBe('go depth ' + (plan.sides.w.depth + L.LOZZA_DEPTH_BONUS) + ' movetime ' + Math.round(plan.sides.w.movetime * L.LOZZA_TIME_FACTOR)));
       late.filter(j => j.tag.engine === 'stockfish').forEach(j => expect(j.multipv).toBe(TV.TV_CONFIG.STYLE_MULTIPV));
       expect(ctl.state().game.attack).toMatchObject({ w: 'long', b: 'long' });
+      // Un cop ha començat, la fase d'atac es manté encara que deixi de complir-se la condició.
+      L.ALWAYS_FROM_PLY = 999;
+      const seen = jobs.length;
+      for (let i = 0; i < 100 && jobs.slice(seen).filter(j => j.tag.kind === 'move').length < 4 && !ctl.state().game.end; i++) await jest.advanceTimersByTimeAsync(1000);
+      const after = jobs.slice(seen).filter(j => j.tag.kind === 'move');
+      expect(after.length).toBeGreaterThan(1);
+      after.filter(j => j.tag.engine === 'lozza').forEach(j =>
+        expect(j.go).toBe('go depth ' + (plan.sides.w.depth + L.LOZZA_DEPTH_BONUS) + ' movetime ' + Math.round(plan.sides.w.movetime * L.LOZZA_TIME_FACTOR)));
+      after.filter(j => j.tag.engine === 'stockfish').forEach(j => expect(j.multipv).toBe(TV.TV_CONFIG.STYLE_MULTIPV));
       ctl.close();
     } finally { L.ALWAYS_FROM_PLY = saved; }
   });
