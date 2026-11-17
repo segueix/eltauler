@@ -16,6 +16,8 @@ function seeded(seed) {
     };
 }
 const SQUARE = /\b[a-h][1-8]\b/;
+// Motor o nivell d'un jugador (interns: no es diuen mai).
+const ENGINE_TALK = /\b(Stockfish|Stock fish|Lozza|motors?|nivells?|profunditat)\b/i;
 
 describe('Lliga de llegendes · els 10 perfils', () => {
     test('hi ha 10 jugadors diferents amb nom, biografia i estil', () => {
@@ -271,14 +273,20 @@ describe('Lliga de llegendes · textos amb els noms', () => {
         expect(variants.size).toBeGreaterThan(3);
     });
 
-    test('la presentació diu amb quin motor juga cadascú i, amb Lozza caigut, el motor real', () => {
+    test('la presentació no diu mai amb quin motor ni a quin nivell juga cadascú: diu qui són', () => {
         const texts = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(seq => L.intro({ white: 'morphy', black: 'karpov', season: 1, round: 1, rounds: 18, seq,
             engines: { w: 'lozza', b: 'stockfish' }, table }));
-        expect(texts.some(t => t.includes('Morphy juga amb Lozza; Karpov, amb Stockfish'))).toBe(true);
-        const down = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(seq => L.intro({ white: 'morphy', black: 'karpov', season: 1, round: 1, rounds: 18, seq,
-            engines: { w: 'stockfish', b: 'stockfish' }, table }));
-        expect(down.some(t => t.includes('Morphy juga amb Stockfish'))).toBe(true);
-        expect(down.some(t => t.includes('amb Lozza'))).toBe(false);
+        expect(texts.some(t => t.includes('Morphy: nord-americà de Nova Orleans'))).toBe(true);
+        expect(texts.some(t => t.includes('Karpov: campió del món entre 1975 i 1985'))).toBe(true);
+        texts.forEach(t => expect(t).not.toMatch(ENGINE_TALK));
+        // Tots els jugadors, totes les variants i també el diàleg de la presentació.
+        L.IDS.forEach((w, i) => {
+            const b = L.IDS[(i + 3) % L.IDS.length];
+            for (let seq = 1; seq <= 12; seq++) {
+                const d = L.introDialogue({ white: w, black: b, season: 1, round: 2, rounds: 18, seq, table, engines: { w: 'lozza', b: 'stockfish' } });
+                [d.text].concat(d.turns.map(t => t.text)).forEach(t => expect(t).not.toMatch(ENGINE_TALK));
+            }
+        });
     });
 
     test('una lliga nova anuncia el campió de l’anterior (una sola vegada)', () => {
@@ -329,10 +337,11 @@ describe('Lliga de llegendes · observacions durant la partida', () => {
         expect(L.remark({ ply: 12, color: 'x', features: rich, ids, engines }, null).remark).toBeNull();
     });
 
-    test('primer el motor i el perfil del jugador que mou; després un tret comprovat', () => {
+    test('primer l’estil del jugador que mou (sense motor ni nivell); després un tret comprovat', () => {
         const first = L.remark({ ply: 10, color: 'w', features: rich, ids, engines }, null);
         expect(first.remark).toMatchObject({ kind: 'profile', color: 'w', id: 'capablanca' });
-        expect(first.remark.text).toContain('Capablanca juga amb Stockfish');
+        expect(first.remark.text).toBe('Capablanca, en una frase: claredat, simplificació i tècnica de final.');
+        first.remark.turns.forEach(t => expect(t.text).not.toMatch(ENGINE_TALK));
         // Massa aviat: cap observació fins que passin 10 semijugades.
         expect(L.remark({ ply: 14, color: 'w', features: rich, ids, engines }, first.memory).remark).toBeNull();
         const second = L.remark({ ply: 20, color: 'w', features: rich, ids, engines }, first.memory);
@@ -354,10 +363,12 @@ describe('Lliga de llegendes · observacions durant la partida', () => {
         expect(check.remark.text).not.toMatch(SQUARE);
     });
 
-    test('si Lozza no es pot carregar, el perfil diu el motor real', () => {
-        const out = L.remark({ ply: 10, color: 'b', features: null, ids, engines: { w: 'stockfish', b: 'stockfish' } }, null);
-        expect(out.remark.text).toContain('Alekhine juga amb Stockfish');
-        expect(out.remark.text).not.toContain('amb Lozza');
+    test('el perfil és el mateix amb qualsevol motor: el motor és intern', () => {
+        const down = L.remark({ ply: 10, color: 'b', features: null, ids, engines: { w: 'stockfish', b: 'stockfish' } }, null);
+        const usual = L.remark({ ply: 10, color: 'b', features: null, ids, engines }, null);
+        expect(down.remark.text).toBe(usual.remark.text);
+        expect(down.remark.text).toBe('Alekhine, en una frase: atacs combinatoris i complicacions profundes.');
+        L.IDS.forEach(id => expect(L.profileLine(id)).not.toMatch(ENGINE_TALK));
     });
 
     test('com a màxim unes quantes observacions per partida', () => {
@@ -485,7 +496,7 @@ describe('Lliga de llegendes · veu, diàlegs i classificació en joc', () => {
 
 
 describe('Lliga de llegendes · anunci de la fase d’atac', () => {
-  test('quan un jugador entra en fase d’atac, l’Èlia ho pregunta i en Grau explica què fa el seu motor (un sol cop)', () => {
+  test('quan un jugador entra en fase d’atac, l’Èlia ho pregunta i en Grau explica què canvia en el seu joc (un sol cop)', () => {
     const ids = { w: 'karpov', b: 'kasparov' }, engines = { w: 'stockfish', b: 'lozza' };
     let m = L.remark({ ply: 10, color: 'b', ids, engines }, null).memory; // primer, el perfil
     const out = L.remark({ ply: 60, color: 'b', ids, engines, attack: { b: 'stalled' } }, m);

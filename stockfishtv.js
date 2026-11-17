@@ -1103,7 +1103,8 @@
         const vals = ['w', 'b'].map(c => plan.sides[c].level).filter(isNum);
         const value = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
         return { value: value, sides: null, stronger: null,
-            label: { short: 'Lliga de llegendes', long: 'Lliga de llegendes: cada jugador té el seu motor, el seu nivell i el seu perfil' },
+            // El motor i el nivell de cada jugador són interns: no es mostren.
+            label: { short: 'Lliga de llegendes', long: 'Lliga de llegendes: cada jugador juga amb el seu estil' },
             reveal: null, mode: caps ? caps.mode : 'none', stockfish: null };
     }
 
@@ -5936,17 +5937,12 @@
         const levelText = g ? g.level.label.short : '—';
         const mate = g && g.matchPlan && g.matchPlan.untilMate ? g.matchPlan : null;
         const nextMate = !state.legends && state.lozzaReady && state.untilMate;
-        // Lliga de llegendes: cada bàndol és un jugador amb el seu motor, nivell i perfil.
+        // Lliga de llegendes: cada bàndol és un jugador amb el seu motor, nivell i
+        // perfil. El motor i el nivell són interns: la pantalla no els mostra.
         const legends = g && g.matchPlan && g.matchPlan.legends ? g.matchPlan : null;
         const mine = (color) => !!(state.control && state.control.color === color);
-        // Amb nivells desiguals, el nivell de cada bàndol només es veu en acabar.
-        const sideText = (color) => mate ? 'profunditat màxima ' + mate.depth : legends
-            ? (() => {
-                const eff = tvSlumpSide(caps, legends.sides[color], g.slumped && !g.end ? legends.slump : null, color, g.moves ? g.moves.length : 0);
-                return g.engines[color] === 'lozza'
-                    ? 'profunditat ' + clamp(eff.depth + (g.attack && g.attack[color] && !g.end ? TV_CONFIG.LATE_ATTACK.LOZZA_DEPTH_BONUS : 0), 2, TV_CONFIG.LOZZA_MAX_DEPTH + TV_CONFIG.LATE_ATTACK.LOZZA_DEPTH_BONUS)
-                    : tvLevelLabel(caps, eff.level).short;
-            })()
+        // Fora de la lliga. Amb nivells desiguals, el de cada bàndol es veu en acabar.
+        const sideText = (color) => mate ? 'profunditat màxima ' + mate.depth
             : g && g.matchPlan
             ? (g.engines[color] === 'lozza' ? 'profunditat ' + g.matchPlan.lozzaDepth
                 : tvLevelLabel(caps, g.matchPlan.stockfishLevel).short)
@@ -5970,14 +5966,19 @@
             const standingText = row && LGm
                 ? (place ? (/^és líder/.test(place) ? 'Líder' : /^comparteix/.test(place) ? 'Primer lloc compartit' : 'Lloc ' + row.rank) + ' · ' : '')
                     + LGm.points(row.points) + ' · ' : '';
+            // Lliga: el motor i el nivell de cada jugador són interns; la fitxa
+            // només diu la classificació i què li passa a la partida.
+            const legendText = legends ? [standingText.replace(/ · $/, ''), mine(color) ? 'Control manual' : '',
+                g && g.attack && g.attack[color] && !g.end ? 'Fase d\'atac' : '',
+                g && g.slumped && g.slumped.color === color && !g.end ? 'Menys precisió' : ''].filter(Boolean).join(' · ') : '';
             if (meta) meta.textContent = !g ? 'Preparant els motors…'
+                : legends ? legendText
                 : mine(color) ? 'Control manual · ' + sideText(color)
-                : standingText + (g.engines && g.engines[color] === 'lozza' ? 'Motor Lozza · ' : 'Motor Stockfish · ') + sideText(color)
-                    + (legends && g.attack && g.attack[color] && !g.end ? ' · Fase d\'atac' : '')
-                    + (legends && g.slumped && g.slumped.color === color && !g.end ? ' · Menys precisió' : '');
+                : standingText + (g.engines && g.engines[color] === 'lozza' ? 'Motor Lozza · ' : 'Motor Stockfish · ') + sideText(color);
             if (box) box.setAttribute('aria-label',
                 (color === 'w' ? 'Blanques: ' : 'Negres: ') + playerName
-                + (g ? ', ' + (mine(color) ? 'control manual' : sideText(color)) : ''));
+                + (g ? (legends ? (legendText ? ', ' + legendText : '') : ', ' + (mine(color) ? 'control manual' : sideText(color))) : '')
+                + (g && !g.end && g.turn === color ? ', li toca moure' : ''));
         };
         showPlayer('w', 'white');
         showPlayer('b', 'black');
@@ -5994,7 +5995,7 @@
         const hard = $id('sftv-too-hard');
         if (cur) cur.textContent = mate
             ? 'Fins al mat · fins a ' + mate.depth + ' semijugades i ' + mate.movetime + ' ms de cerca per a cada motor.'
-            : legends ? 'Lliga de llegendes · ' + legends.reason + '. Cada jugador juga amb el seu motor, el seu nivell i el seu perfil.'
+            : legends ? 'Lliga de llegendes: cada jugador juga amb el seu estil.'
             : g ? (g.matchPlan ? 'Objectiu Stockfish: ' + g.level.label.long + '. Lozza juga amb profunditat limitada, sense Elo equiparable.'
                 + (g.end && g.level.reveal ? ' ' + g.level.reveal : '')
                 : 'Aquesta partida: ' + g.level.label.long + (caps && caps.mode !== 'none' && !g.level.sides ? ' (tots dos jugadors)' : '')
@@ -6017,9 +6018,9 @@
         }
         const stylesBox = $id('sftv-styles');
         if (stylesBox && legends && root.ElTaulerLlegendes) {
-            // Perfil de cada jugador: l'estil i el motor amb què juga avui.
+            // Perfil de cada jugador: només l'estil (el motor i el nivell són interns).
             const LGm = root.ElTaulerLlegendes;
-            const line = (color) => { const p = LGm.legend(legends.ids[color]); return p.short + ' (' + LGm.ENGINE_NAME[g.engines[color]] + '): ' + p.style + '.'; };
+            const line = (color) => { const p = LGm.legend(legends.ids[color]); return p.short + ': ' + p.style + '.'; };
             stylesBox.textContent = 'Perfils: ' + line('w') + ' ' + line('b');
             stylesBox.style.display = '';
         } else if (stylesBox) {
@@ -6060,8 +6061,7 @@
             let text = '';
             if (caps && caps.mode === 'elo') text = 'És un objectiu de força configurat al motor (UCI_Elo ' + caps.min + '–' + caps.max + '). Stockfish el calibra amb l\'Elo CCRL de partides ràpides entre motors: no és una equivalència garantida amb l\'Elo FIDE.';
             else if (caps) text = tvCompatibilityNote(caps) || '';
-            help.textContent = state.legends ? 'Els nivells de Stockfish són objectius d\'Elo del motor, no pas l\'Elo històric dels jugadors. Lozza juga amb una profunditat de cerca limitada, que no es pot equiparar amb cap Elo.'
-                : nextMate ? '' : text;
+            help.textContent = state.legends || nextMate ? '' : text;
         }
         const adjustable = !nextMate && !!(caps && caps.mode !== 'none');
         if (easy) easy.disabled = !adjustable || state.nextLevel === null || state.nextLevel >= caps.max;
@@ -6084,6 +6084,11 @@
                 const holder = e && e.closest ? e.closest('.sftv-unequal-row, .sftv-level-actions') : null;
                 if (holder) holder.style.display = 'none';
             });
+            // El motor de cada jugador és intern: no es mostra quin motor fa servir la TV.
+            const engineRow = typeof document !== 'undefined' && document.querySelector ? document.querySelector('#sftv-screen .sftv-engine-row') : null;
+            if (engineRow) engineRow.style.display = 'none';
+            const engineStatus = $id('sftv-engine-status');
+            if (engineStatus) engineStatus.style.display = 'none';
         }
     }
 
@@ -6128,13 +6133,7 @@
                 if (row.rank === 1 && row.points > 0) tr.classList.add('is-leader');
                 const cell = (value, cls) => { const td = document.createElement('td'); td.textContent = value; if (cls) td.className = cls; tr.appendChild(td); return td; };
                 cell(String(row.rank), 'sftv-legends-pos');
-                const who = cell(row.short, 'sftv-legends-name');
-                const badge = document.createElement('span');
-                const engine = LGm.legend(row.id).engine;
-                badge.className = 'sftv-legends-eng';
-                badge.textContent = engine === 'lozza' ? 'LZ' : 'SF';
-                badge.title = 'Motor: ' + LGm.ENGINE_NAME[engine];
-                who.appendChild(badge);
+                cell(row.short, 'sftv-legends-name');
                 cell(String(row.played));
                 cell(row.wins + '-' + row.draws + '-' + row.losses);
                 cell(String(row.points).replace('.', ','), 'sftv-legends-pts');
@@ -6152,7 +6151,7 @@
                     const strong = document.createElement('strong');
                     strong.textContent = p.name + ' (' + p.born + (p.died ? '–' + p.died : '') + '). ';
                     li.appendChild(strong);
-                    li.appendChild(document.createTextNode(p.bio + ' Estil: ' + p.style + '. Motor: ' + LGm.ENGINE_NAME[p.engine] + ' (' + p.engineWhy + ').'));
+                    li.appendChild(document.createTextNode(p.bio + ' Estil: ' + p.style + '.'));
                     list.appendChild(li);
                 });
             }
@@ -6247,10 +6246,13 @@
             else text = 'Stockfish pensa la resposta amb ' + COLOR[other(ctl.color)].pl + '…';
         } else {
             const last = g.lastMove;
-            text = (g.turn === 'w' ? 'Mouen les blanques' : 'Mouen les negres')
+            // A la lliga, qui mou és el jugador (el motor que hi ha darrere és intern).
+            const mover = g.matchPlan && g.matchPlan.legends && g.names ? g.names[g.turn] : null;
+            text = (mover ? 'Juga ' + mover + ' · ' + (g.turn === 'w' ? 'blanques' : 'negres')
+                : g.turn === 'w' ? 'Mouen les blanques' : 'Mouen les negres')
                 + (last && last.prepared ? ' · jugada preparada de l\'obertura' : '');
         }
-        if (state.duelWarning) text += ' · Lozza no disponible: s\'utilitza temporalment Stockfish als dos bàndols.';
+        if (state.duelWarning && !state.legends) text += ' · Lozza no disponible: s\'utilitza temporalment Stockfish als dos bàndols.';
         if (state.voiceHold && g && !g.end) text += ' · Esperant la veu Matxa';
         if (state.paused) text += ' · En pausa';
         if (el) el.textContent = text;
@@ -6272,7 +6274,8 @@
             // de la incompatibilitat ja surt a la targeta del nivell).
             const caps = state.caps;
             let note = '';
-            if (caps) {
+            // A la lliga, els motors són interns: no hi ha nota tècnica.
+            if (caps && !state.legends) {
                 const range = caps.mode === 'elo'
                     ? 'UCI_Elo ' + caps.engineEloMin + '–' + caps.engineEloMax + ' i UCI_LimitStrength (mínim de la TV: ' + caps.min + ')'
                     : (caps.mode === 'skill' ? 'Skill Level ' + caps.min + '–' + caps.max + '; sense ' + caps.missing.join(' ni ') : 'cap opció de força');

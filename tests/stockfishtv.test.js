@@ -1958,8 +1958,13 @@ describe('Stockfish 19 a la TV (prova pilot)', () => {
             expect(html).toContain('id="sftv-meta-' + color + '"');
         }
         expect(html).toContain('background: rgba(255,255,255,.12);');
-        expect(html).toContain('.sftv-player.is-turn { background: rgba(255,255,255,.18);');
-        expect(html).toContain('.sftv-player.is-user.is-turn { background: rgba(255,255,255,.18);');
+        // El jugador que mou: fitxa blanca i nom en negre (en paper electrònic, a l'inrevés).
+        expect(html).toContain('.sftv-player.is-turn { background: #fff; color: #111;');
+        expect(html).toContain('.sftv-player.is-turn .sftv-player-name { color: #111; text-shadow: none; }');
+        expect(html).toContain('.sftv-player.is-user.is-turn { background: #fff; color: #111;');
+        expect(html).toContain('body.epaper-mode .sftv-player.is-turn, body.epaper-mode .sftv-player.is-user.is-turn { background: #111; color: #fff;');
+        expect(js).toContain("pw && pw.classList.toggle('is-turn', !!(g && !g.end && g.turn === 'w'));");
+        expect(js).toContain("pb && pb.classList.toggle('is-turn', !!(g && !g.end && g.turn === 'b'));");
         expect(html).toContain('backdrop-filter: none');
         expect(html).toContain('body.epaper-mode .sftv-player-name');
         expect(html).toContain('font-size: clamp(1.2rem, 4.5vw, 1.65rem)');

@@ -28,6 +28,8 @@ function seeded(seed) {
   };
 }
 const SQUARE = /\b[a-h][1-8]\b/;
+// Motor o nivell d'un jugador dit en veu alta o a la pantalla.
+const ENGINE_TALK = /\b(Stockfish|Stock fish|Lozza|motors?|nivells?|profunditat)\b/i;
 
 describe('Lliga de llegendes TV · configuració de cada jugador', () => {
   test('els jugadors de Lozza juguen per profunditat i els de Stockfish amb nivell i perfil', () => {
@@ -339,9 +341,12 @@ describe('Lliga de llegendes TV · flux real del controlador', () => {
       expect(c.say).not.toMatch(SQUARE);
       expect(c.speech).not.toMatch(SQUARE);
     });
-    // La primera observació del jugador és el seu motor i perfil, a partir de la semijugada 10.
+    // La primera observació del jugador és el seu estil, a partir de la semijugada 10.
     expect(remarks[0].ply).toBeGreaterThanOrEqual(LG.CONFIG.REMARK_FIRST_PLY);
-    expect(remarks[0].say).toMatch(/ juga amb (Stockfish|Lozza)/);
+    expect(remarks[0].say).toMatch(/, en una frase: /);
+    // El motor i el nivell de cada jugador són interns: cap comentari no els diu.
+    const said = spoken.map(c => [c.say, c.speech].concat((c.dialogue || []).map(t => t.text)).filter(Boolean).join(' '));
+    said.forEach(t => expect(t).not.toMatch(ENGINE_TALK));
     expect(remarks.length).toBeLessThanOrEqual(LG.CONFIG.REMARKS_PER_GAME);
     ctl.close();
   });
@@ -722,5 +727,41 @@ describe('Lliga de llegendes TV · defalliment d’un dels dos jugadors', () => 
         ctl.close();
       } finally { Object.assign(S, saved); }
     });
+  });
+});
+
+describe('Lliga de llegendes TV · el motor i el nivell són interns', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const js = fs.readFileSync(path.join(__dirname, '../stockfishtv.js'), 'utf8');
+  const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+
+  test('la fitxa de cada jugador només diu classificació i què passa a la partida', () => {
+    const meta = js.slice(js.indexOf('const legendText = legends'), js.indexOf('if (meta) meta.textContent'));
+    expect(meta.length).toBeGreaterThan(50);
+    expect(meta).not.toMatch(/sideText|engines|Motor|tvLevelLabel/);
+    expect(meta).toContain("'Fase d\\'atac'");
+    expect(meta).toContain("'Menys precisió'");
+  });
+
+  test('ni la classificació, ni els perfils, ni les notes de la lliga no diuen el motor', () => {
+    expect(js).not.toContain('sftv-legends-eng');
+    expect(html).not.toContain('sftv-legends-eng');
+    expect(html).not.toContain('SF = Stockfish, LZ = Lozza');
+    expect(js).toContain("li.appendChild(document.createTextNode(p.bio + ' Estil: ' + p.style + '.'));");
+    expect(js).toContain("return p.short + ': ' + p.style + '.';");
+    expect(js).toContain("legends ? 'Lliga de llegendes: cada jugador juga amb el seu estil.'");
+    expect(js).toContain("help.textContent = state.legends || nextMate ? '' : text;");
+    const plan = TV.tvLegendLevel(CAPS, TV.tvLegendPlan(LG, { id: 'x', round: 1, white: 'morphy', black: 'karpov' }, CAPS, true, seeded(1)));
+    expect(plan.label.long).not.toMatch(ENGINE_TALK);
+    expect(plan.reveal).toBeNull();
+  });
+
+  test('la línia d’estat diu qui juga pel seu nom', () => {
+    expect(js).toContain("text = (mover ? 'Juga ' + mover + ' · ' + (g.turn === 'w' ? 'blanques' : 'negres')");
+    expect(js).toContain("if (state.duelWarning && !state.legends)");
+    expect(js).toContain("if (caps && !state.legends) {");
+    expect(js).toContain("document.querySelector('#sftv-screen .sftv-engine-row')");
+    expect(js).toContain("if (engineStatus) engineStatus.style.display = 'none';");
   });
 });

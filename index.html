@@ -3442,13 +3442,11 @@
         .sftv-legends-table tr.is-white td, .sftv-legends-table tr.is-black td { background: rgba(201,162,39,.12); }
         .sftv-legends-table tr.is-white td.sftv-legends-name::before { content: "♔ "; }
         .sftv-legends-table tr.is-black td.sftv-legends-name::before { content: "♚ "; }
-        .sftv-legends-eng { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 6px; font-size: .62rem; font-weight: 700; color: var(--text-secondary); border: 1px solid rgba(201,162,39,.35); vertical-align: middle; }
         .sftv-legends-profiles-box { margin: 8px 0; font-size: .78rem; }
         .sftv-legends-profiles-box summary { cursor: pointer; font-weight: 700; padding: 6px 0; }
         .sftv-legends-profiles { margin: 4px 0 6px; padding-left: 18px; line-height: 1.4; }
         .sftv-legends-profiles li { margin-bottom: 6px; }
         body.epaper-mode .sftv-legends-table tr.is-white td, body.epaper-mode .sftv-legends-table tr.is-black td { background: #e6e6e6; }
-        body.epaper-mode .sftv-legends-eng { border-color: #333; }
         .sftv-voicebar { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; margin: 0 0 12px; }
         .sftv-voice-activate { min-width: 0; width: auto; max-width: 320px; flex: 0 1 auto; padding-left: 22px; padding-right: 22px; margin: 0; }
         .sftv-voice-toggle {
@@ -3541,13 +3539,16 @@
             background: rgba(255,255,255,.12); color: #f8fafc; text-align: left;
             -webkit-backdrop-filter: none; backdrop-filter: none;
             box-shadow: 0 2px 8px rgba(0,0,0,.13);
+            transition: background-color .25s ease, border-color .25s ease, box-shadow .25s ease;
         }
         .sftv-player-main { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
         .sftv-player-name { font-size: clamp(1.2rem, 4.5vw, 1.65rem); font-weight: 900; line-height: 1.12; color: #fff; overflow-wrap: anywhere; text-shadow: 0 1px 3px rgba(0,0,0,.5); }
         .sftv-player-color { flex: 0 0 auto; font-size: .76rem; font-weight: 800; color: #f0f4fb; white-space: nowrap; }
         .sftv-player-meta { margin-top: 2px; font-size: .78rem; line-height: 1.25; font-weight: 600; color: #e1e9f4; overflow-wrap: anywhere; }
-        .sftv-player.is-turn { background: rgba(255,255,255,.18); color: #fff; border-color: #69c8ff; box-shadow: 0 0 0 2px rgba(22,133,189,.26), 0 3px 12px rgba(0,0,0,.16); }
-        .sftv-player.is-turn .sftv-player-name { color: #bdeaff; }
+        /* El jugador que mou: fitxa blanca i nom en negre, perquè es vegi d'una ullada qui juga. */
+        .sftv-player.is-turn { background: #fff; color: #111; border-color: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,.32), 0 4px 16px rgba(0,0,0,.32); }
+        .sftv-player.is-turn .sftv-player-name { color: #111; text-shadow: none; }
+        .sftv-player.is-turn .sftv-player-color, .sftv-player.is-turn .sftv-player-meta { color: #333; }
         .sftv-status { text-align: center; font-size: 0.9rem; color: var(--text-secondary); margin-top: 4px; min-height: 1.3em; }
         .sftv-voice-hold { margin: 0 0 10px; padding: 8px 12px; border: 1px solid var(--accent-gold); border-radius: 10px; background: rgba(201,162,39,0.12); text-align: center; font-size: 0.86rem; line-height: 1.4; }
         .sftv-voice-hold[hidden] { display: none !important; }
@@ -3603,8 +3604,8 @@
             text-align: center; color: var(--text-primary); background: rgba(224,132,59,0.14); border: 1px solid rgba(224,132,59,0.55);
         }
         .sftv-player.is-user { border-color: #d07721; }
-        .sftv-player.is-user.is-turn { background: rgba(255,255,255,.18); color: #fff; box-shadow: 0 0 0 2px rgba(208,119,33,.25); }
-        .sftv-player.is-user.is-turn .sftv-player-name { color: #ffdab2; }
+        .sftv-player.is-user.is-turn { background: #fff; color: #111; border-color: #d07721; box-shadow: 0 0 0 3px rgba(208,119,33,.4), 0 4px 16px rgba(0,0,0,.32); }
+        .sftv-player.is-user.is-turn .sftv-player-name { color: #111; }
         #sftv-screen.is-your-turn #sftv-board .square-55d63 { cursor: pointer; }
         body.control-drag #sftv-screen.is-your-turn #sftv-board { touch-action: none; }
         :is(#sftv-board, #history-board, .broadcast-board) .square-55d63.sftv-sel { box-shadow: inset 0 0 0 4px #e0843b; }
@@ -3685,9 +3686,13 @@
             body.device-desktop .sftv-moves { max-height: 14em; }
         }
         /* En mode tinta electrònica, evita transparències per preservar la llegibilitat. */
-        body.epaper-mode .sftv-player, body.epaper-mode .sftv-player.is-turn, body.epaper-mode .sftv-player.is-user.is-turn { background: #fff; color: #111; border-color: #333; -webkit-backdrop-filter: none; backdrop-filter: none; }
-        body.epaper-mode .sftv-player-name, body.epaper-mode .sftv-player.is-turn .sftv-player-name, body.epaper-mode .sftv-player.is-user.is-turn .sftv-player-name { color: #111; text-shadow: none; }
+        body.epaper-mode .sftv-player { background: #fff; color: #111; border-color: #333; -webkit-backdrop-filter: none; backdrop-filter: none; transition: none; }
+        body.epaper-mode .sftv-player-name { color: #111; text-shadow: none; }
         body.epaper-mode .sftv-player-color, body.epaper-mode .sftv-player-meta { color: #333; }
+        /* Paper electrònic: les fitxes ja són blanques; el jugador que mou s'inverteix. */
+        body.epaper-mode .sftv-player.is-turn, body.epaper-mode .sftv-player.is-user.is-turn { background: #111; color: #fff; border-color: #111; box-shadow: none; }
+        body.epaper-mode .sftv-player.is-turn .sftv-player-name, body.epaper-mode .sftv-player.is-user.is-turn .sftv-player-name { color: #fff; }
+        body.epaper-mode .sftv-player.is-turn .sftv-player-color, body.epaper-mode .sftv-player.is-turn .sftv-player-meta { color: #eee; }
         body.epaper-mode .catalans-banner.sftv-banner { background: #fff; color: #000; border-color: #000; }
         body.epaper-mode .sftv-comment, body.epaper-mode .sftv-level-card, body.epaper-mode .sftv-result,
         body.epaper-mode .sftv-control-note, body.epaper-mode .sftv-promo { background: #fff; border-color: #000; color: #000; }
@@ -8035,12 +8040,13 @@
 
         <!-- LLIGA DE LLEGENDES TV: els 10 jugadors històrics de llegendes.js, cadascun amb el seu
              motor (Stockfish o Lozza) i perfil, amb l'anàlisi de Stockfish (stockfishtv.js).
+             El motor i el nivell de cada jugador són interns: la pantalla no els diu.
              Cada dispositiu genera les seves partides: no és cap emissió compartida. -->
         <div id="sftv-screen" class="screen-anim" style="display:none;">
             <div class="stats-header">
                 <div class="app-logo"><svg class="sftv-logo-ic" aria-hidden="true"><use href="#ic-tv"/></svg></div>
                 <h1>Lliga de llegendes TV</h1>
-                <div class="tutorial-sub">Deu llegendes dels escacs fan una lliga de dues voltes, cadascuna amb el seu motor (Stockfish o Lozza) i el seu perfil de joc. Les partides es generen al teu dispositiu i Stockfish n'analitza i en comenta les jugades.</div>
+                <div class="tutorial-sub">Deu llegendes dels escacs fan una lliga de dues voltes, cadascuna amb el seu estil de joc. Les partides es generen al teu dispositiu i l'Èlia i en Grau en comenten les jugades.</div>
             </div>
             <div class="sftv-topbar">
             <button type="button" class="sftv-expand" id="sftv-expand" aria-expanded="false" aria-controls="sftv-screen" title="Amplia el tauler a pantalla completa"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="sftv-icon-expand" d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/><path class="sftv-icon-shrink" d="M3 8h5V3m13 5h-5V3M3 16h5v5m13-5h-5v5"/></svg><span>Amplia el tauler</span></button>
@@ -8182,7 +8188,6 @@
                         <details class="sftv-legends-profiles-box">
                             <summary>Perfils dels jugadors</summary>
                             <ul id="sftv-legends-profiles" class="sftv-legends-profiles"></ul>
-                            <p class="sftv-league-muted">SF = Stockfish, LZ = Lozza. L'estil de Stockfish tria entre jugades gairebé iguals; Lozza juga amb una cerca curta. El nivell és el mateix per a tots: el que els distingeix és el motor i el perfil.</p>
                         </details>
                         <div class="sftv-league-muted">Lliga de dues voltes: cada parella es troba dues vegades, una amb cada color. Quan tothom ha jugat dues vegades amb tothom, la lliga s'acaba i en comença una de nova. Dades locals d'aquest dispositiu.</div>
                     </section>
@@ -10896,7 +10901,7 @@
     <script src="patrons.js?v=1.1.1"></script>
     <script src="jeropedagogia.js?v=1.2.1"></script>
     <script src="sons.js?v=1.0.0"></script>
-    <script src="tutorial.js?v=1.0.7"></script>
+    <script src="tutorial.js?v=1.0.8"></script>
     <script src="tallerobertures.js?v=1.3.1"></script>
     <script src="veuneural.js?v=1.2.3"></script>
     <script src="radioambient.js?v=2.5.0"></script>
@@ -10912,8 +10917,8 @@
     <script src="tvleague.js?v=1.0.0"></script>
     <script src="tvleague-ui.js?v=1.2.0"></script>
     <script src="visiograu.js?v=1.5.0"></script>
-    <script src="llegendes.js?v=1.3.0"></script>
-    <script src="stockfishtv.js?v=2.24.1"></script>
+    <script src="llegendes.js?v=1.4.0"></script>
+    <script src="stockfishtv.js?v=2.25.0"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.6"></script>
     <script src="catalans.js?v=1.2.10"></script>
