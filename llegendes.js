@@ -15,7 +15,8 @@
 //       (MultiPV) tria la que encaixa amb `weights` (vegeu tvMoveFeatures).
 //     - Lozza, amb la cerca curta que fixa la TV, juga d'instint tàctic: és
 //       l'estil propi del motor i no se li aplica cap pes artificial.
-//     Tria de disseny, no mesurada: vegeu LLEGENDES.md.
+//     Tria de disseny, no mesurada: vegeu LLEGENDES.md. El motor i el nivell
+//     són interns: ni la pantalla ni l'Èlia i en Grau no els diuen mai.
 //   · weights: pesos dels trets de la jugada. Només actuen amb Stockfish (o si
 //     Lozza no es pot carregar i Stockfish el substitueix).
 //   · remarks: observacions curtes lligades a un fet comprovat de la jugada
@@ -38,7 +39,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
     'use strict';
 
-    const VERSION = '1.3.0';
+    const VERSION = '1.4.0';
     // Sense prefix chess_/eltauler_: la sincronització al núvol no la recull
     // (com la resta de dades de la TV).
     const KEY = 'tauler_tv_legends_v1';
@@ -484,7 +485,8 @@
 
     // Presentació d'una partida en forma de diàleg: l'Èlia presenta (lliga,
     // jornada, noms i colors) i en Grau hi afegeix un detall que va canviant
-    // (estils, classificació, motors o el campió de la lliga anterior).
+    // (estils, classificació, qui són o el campió de la lliga anterior). El
+    // motor i el nivell de cada jugador no surten mai: són interns del sistema.
     // Retorna { text, turns }; `turns` és el diàleg (presenter / analyst).
     function introDialogue(ctx) {
         const c = ctx || {};
@@ -494,7 +496,6 @@
             return { text: plain, turns: null };
         }
         const seq = Number.isInteger(c.seq) ? c.seq : 1;
-        const engines = c.engines || { w: W.engine, b: B.engine };
         const rows = Array.isArray(c.table) ? c.table : [];
         const season = c.season || 1, round = c.round || 1, rounds = c.rounds || CONFIG.ROUNDS_PER_LEG * 2;
         const heads = [
@@ -518,9 +519,9 @@
                 details.push({ ask: variant(['Com arriben a la partida, Grau?', 'Grau, com està la classificació?', 'Què hi ha en joc, Grau?'], seq),
                     say: pairStanding(W.short, rw, B.short, rb, rows) + (tail ? ' ' + tail : '') });
             }
-            details.push({ ask: variant(['Grau, amb quins motors juguen?', 'I els motors, Grau?'], seq),
-                say: W.short + ' juga amb ' + ENGINE_NAME[engines.w] + '; ' + B.short + ', amb ' + ENGINE_NAME[engines.b] + '. '
-                    + (engines.w === engines.b ? 'El mateix motor: decidiran els perfils.' : 'Dos motors diferents, dues maneres de calcular.') });
+            // El motor i el nivell de cada jugador són interns: es parla de qui són.
+            details.push({ ask: variant(['Grau, ens recordes qui són?', 'Qui són, Grau?'], seq),
+                say: W.short + ': ' + lowerFirst(W.bio) + ' ' + B.short + ': ' + lowerFirst(B.bio) });
         }
         // El detall gira a part del començament: es recorren totes les combinacions.
         const k = c.lastSeason && !c.lastSeason.announced ? 0 : Math.max(0, Math.floor((seq - 1) / heads.length)) % details.length;
@@ -577,13 +578,14 @@
         return { text: text, turns: [{ role: 'presenter', text: first + ' ' + variant(asks, n), solo: first }, { role: 'analyst', text: rest }] };
     }
 
-    // Una línia sobre el motor i el perfil del jugador (informació fixa).
-    function profileLine(id, engine) {
+    function lowerFirst(text) { const t = String(text || ''); return t.charAt(0).toLowerCase() + t.slice(1); }
+
+    // Una línia sobre l'estil del jugador (informació fixa). El motor i el
+    // nivell amb què juga són interns del sistema: no es diuen mai.
+    function profileLine(id) {
         const p = legend(id);
         if (!p) return '';
-        const e = engine || p.engine;
-        if (e === p.engine) return p.short + ' juga amb ' + ENGINE_NAME[e] + ': ' + p.engineWhy + '.';
-        return p.short + ' juga amb ' + ENGINE_NAME[e] + ', amb el perfil següent: ' + p.style + '.';
+        return p.short + ', en una frase: ' + p.style + '.';
     }
 
     function emptyRemarkMemory() { return { last: -100, count: 0, profile: { w: false, b: false }, used: [], stakes: false, edge: false, attack: { w: false, b: false }, slump: false }; }
@@ -593,10 +595,7 @@
         n => 'Grau, ' + n + ' sembla menys precís. Què li passa?',
         n => 'Què li passa a ' + n + ', Grau? No sembla el mateix.'
     ];
-    const SLUMP_ANSWERS = {
-        stockfish: (n, mv) => 'Des de la jugada ' + mv + ', ' + n + ' juga amb menys precisió: el seu motor baixa de nivell. Ara és més fàcil que s’equivoqui.',
-        lozza: (n, mv) => 'Des de la jugada ' + mv + ', ' + n + ' juga amb menys precisió: el seu motor calcula menys. Ara és més fàcil que s’equivoqui.'
-    };
+    const SLUMP_ANSWER = (n, mv) => 'Des de la jugada ' + mv + ', ' + n + ' juga amb menys precisió: ja no calcula com abans. Ara és més fàcil que s’equivoqui.';
 
     // Fase d'atac (stockfishtv.js, tvLateAttack): per què s'hi entra i què fa cada motor.
     const ATTACK_ASKS = {
@@ -654,15 +653,14 @@
         const n = c.ply + m.count;
         let out = null;
         if (!m.profile[c.color]) {
-            const answer = profileLine(p.id, engine) + (engine === p.engine ? ' ' + p.style.charAt(0).toUpperCase() + p.style.slice(1) + '.' : '');
-            out = { kind: 'profile', text: profileLine(p.id, engine),
+            const answer = profileLine(p.id);
+            out = { kind: 'profile', text: answer,
                 turns: [{ role: 'presenter', text: lead + variant(PROFILE_ASKS, n)(p.short), solo: lead.trim() || null }, { role: 'analyst', text: answer }] };
             m.profile[c.color] = true;
         } else if (c.slump && !m.slump && legend(c.ids && c.ids[c.slump.color]) && c.ply >= c.slump.fromPly) {
             // Un dels dos ha començat a jugar amb menys precisió: es diu una sola vegada.
             const who = legend(c.ids[c.slump.color]);
-            const eng = c.engines && c.engines[c.slump.color] === 'lozza' ? 'lozza' : 'stockfish';
-            const answer = SLUMP_ANSWERS[eng](who.short, Math.floor(c.slump.fromPly / 2) + 1);
+            const answer = SLUMP_ANSWER(who.short, Math.floor(c.slump.fromPly / 2) + 1);
             out = { kind: 'slump', text: answer, id: who.id,
                 turns: [{ role: 'presenter', text: lead + variant(SLUMP_ASKS, n)(who.short), solo: lead.trim() || null }, { role: 'analyst', text: answer }] };
             m.slump = true;

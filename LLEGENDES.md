@@ -37,6 +37,11 @@ del motor (UCI_Elo; no és l'Elo històric del jugador); amb Lozza, profunditat 
 És la mateixa relació que `tvMatchPlan` feia servir per aparellar Stockfish i Lozza, i
 **no s'ha calibrat** (vegeu «Pendent»). El que distingeix els jugadors és el motor i el perfil.
 
+**El motor i el nivell són interns.** Ni la pantalla (fitxes, classificació, perfils, notes,
+estat) ni l'Èlia i en Grau no diuen mai amb quin motor ni a quin nivell juga cada jugador: és
+configuració del sistema. Es parla del jugador: qui és, el seu estil, la classificació i què li
+passa a la partida («Fase d'atac», «Menys precisió»).
+
 ## Format de la lliga
 
 - Dues voltes, 90 partides: cada parella es troba **dues vegades, una amb cada color**.
@@ -63,7 +68,8 @@ del motor (UCI_Elo; no és l'Elo històric del jugador); amb Lozza, profunditat 
 
 - **Presentació** (`LG.introDialogue`): diàleg. L'Èlia diu la lliga, la jornada, els noms i
   els colors i pregunta; en Grau respon amb un detall que va canviant (estils, classificació
-  dels dos amb què hi ha en joc, motors, o el campió de la lliga anterior).
+  dels dos amb què hi ha en joc, qui són —la biografia de cadascun— o el campió de la lliga
+  anterior). Mai el motor ni el nivell.
 - **Capa de noms** (`tvNameSides`, `tvNameComment` a `stockfishtv.js`): els comentaris que
   diuen «les blanques / les negres» passen a dir el jugador **sense tocar la concordança**:
   «per a les negres» → «per a Kasparov», «la dama blanca» → «la dama de Capablanca»,
@@ -78,7 +84,8 @@ del motor (UCI_Elo; no és l'Elo històric del jugador); amb Lozza, profunditat 
   línia»: hi ha diverses introduccions (sense repetir dos punts seguits).
 - **Observacions dels jugadors** (`LG.remark` + `tvLegendStep`), sempre en diàleg i com a
   molt 7 per partida, a partir de la semijugada 10 i amb 10 semijugades de distància:
-  1. el motor i el perfil del jugador que mou;
+  1. l'estil del jugador que mou («Capablanca, en una frase: claredat, simplificació i
+     tècnica de final.»);
   2. **què hi ha en joc**: lloc i punts dels dos i què passaria si en guanya un (calculat
      amb la classificació real i el desempat, `LG.stakes`);
   3. si l'anàlisi fiable dona un **avantatge decisiu** a un bàndol, on el portaria guanyar;
@@ -102,7 +109,11 @@ sempre surt el nom original. Si algun nom sona malament, es corregeix al camp `s
 - El comentari va **just després del tauler** (també al mòbil); després els controls i la
   classificació. Cada torn del diàleg porta l'etiqueta de qui parla (ÈLIA / GRAU).
 - Barra del partit sobre el tauler (`#sftv-matchbar`): lliga, jornada i partit de la jornada.
-  Les fitxes dels jugadors diuen el lloc i els punts a la lliga abans del motor.
+  Les fitxes dels jugadors diuen el lloc i els punts a la lliga i, si cal, «Fase d'atac» o
+  «Menys precisió»; mai el motor ni el nivell.
+- **Qui mou**: la fitxa del jugador que té el torn es pinta de blanc amb el nom en negre (en
+  paper electrònic, a l'inrevés: negra amb el nom en blanc) i la línia d'estat diu «Juga
+  Kasparov · blanques».
 - Ordinador: capçalera compacta, controls de veu en una fila, el tauler i les dues fitxes
   caben a la pantalla (`calc(100vh - 330px)`) i la columna lateral queda fixa i desplaçable.
 
@@ -144,7 +155,7 @@ decisives i el tram més llarg sense progrés de 21.
 ## Degradacions
 
 - **Lozza no es carrega**: els jugadors de Lozza juguen amb Stockfish i amb els pesos del seu
-  perfil; la TV avisa («Lozza no disponible…») i els textos diuen el motor real.
+  perfil. A la lliga no se n'avisa a la pantalla (el motor és intern) i els textos no canvien.
 - **`llegendes.js` no es carrega**: la TV torna al duel heretat Stockfish contra Lozza
   (`tvMatchPlan`, mode «Fins al mat»). Aquest codi es conserva només per a aquest cas.
 - Amb la lliga activa s'amaguen la barra de nivell, «Massa fàcil/difícil», «Fins al mat»,

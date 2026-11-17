@@ -1085,3 +1085,10 @@ funció d'`app.js` hi delegui, i afegeix el cas a `tests/`.
   reproduïble amb la mateixa llavor), el nivell efectiu abans i després de la
   jugada triada (Stockfish, Skill Level i Lozza), que al controlador només
   canvia el bàndol que defalleix i que en Grau ho explica una sola vegada.
+  **El motor i el nivell són interns**: cap presentació (tots els jugadors i
+  variants), perfil, observació ni comentari d'una partida de 60 semijugades no
+  diu Stockfish, Lozza, motor, nivell ni profunditat; la fitxa del jugador només
+  diu classificació, «Fase d'atac» i «Menys precisió»; la classificació i els
+  perfils no duen la marca SF/LZ, i l'estat diu «Juga Kasparov · blanques». A
+  `stockfishtv.test.js`, la fitxa del jugador que mou és blanca amb el nom en
+  negre (en paper electrònic, negra amb el nom en blanc).
