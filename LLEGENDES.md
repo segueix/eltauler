@@ -106,6 +106,40 @@ sempre surt el nom original. Si algun nom sona malament, es corregeix al camp `s
 - Ordinador: capçalera compacta, controls de veu en una fila, el tauler i les dues fitxes
   caben a la pantalla (`calc(100vh - 330px)`) i la columna lateral queda fixa i desplaçable.
 
+## Com s'acaben les partides (perquè no s'encallin)
+
+Amb els motors reals, dues partides de prova de cada sis s'arrossegaven: una amb un
+avantatge decisiu des de la semijugada 50 que no s'acabava fins a la 129 (el mínim per
+abandonar), una altra amb 41 semijugades seguides sense captures ni peons. Ara (paràmetres a
+`TV_CONFIG`, només a la lliga):
+
+- **Fase d'atac** (`LATE_ATTACK`, `tvLateAttack`): s'activa per a qui mou quan hi ha
+  `STALL_HALFMOVES` (8) semijugades sense captures ni peons a partir de la 50, quan una
+  posició es repeteix a partir de la 30, o sempre a partir de la 80. Stockfish tria entre
+  jugades fins a 90 cp pitjors que la del seu nivell (en lloc de 50) amb un perfil que
+  premia avançar peons (sobretot passats), escacs, amenaces, acostar-se al rei i activar el
+  rei als finals, i que castiga desfer la jugada anterior i repetir posicions; conserva la
+  meitat del perfil propi. Lozza no dona alternatives (ni `MultiPV` ni `searchmoves`):
+  calcula 2 nivells més profund i amb un 50 % més de temps. L'Èlia i en Grau ho anuncien un
+  cop i la fitxa del jugador ho diu.
+- **Defalliment** (`SLUMP`, `tvPlanSlump`, `tvSlumpSide`): a l'inici de cada partida es
+  decideix a l'atzar si n'hi haurà (3 de cada 4 partides), quin dels dos jugadors el patirà i
+  a partir de quina semijugada (entre la 30 i la 60). Des d'aquell moment, si juga amb
+  Stockfish baixa 300 d'Elo (o 3 nivells de «Skill Level»); si juga amb Lozza, calcula un
+  nivell menys i amb un 30 % menys de temps. L'Èlia i en Grau ho comenten un cop («Des de la
+  jugada 28, Kasparov juga amb menys precisió…»), la fitxa diu «Menys precisió» i el resultat
+  ho recorda. Amb la finestra inicial (40–80), a les partides de prova arribava massa tard:
+  la partida ja estava decantada i qui defallia sovint guanyava igualment.
+- **Abandonament** des de la semijugada 60 (`LEAGUE_RESIGN_MIN_PLY`; el duel heretat manté la 129).
+- **Taules per acord** (`tvAgreedDrawStep`): a partir de la semijugada 100, si l'anàlisi fiable
+  dona |valoració| ≤ 40 cp durant 20 semijugades seguides i fa 16 semijugades que no hi ha
+  captures ni peons (finals morts, com els d'alfils de colors oposats).
+
+Mesura amb els motors reals (simulador fora del repo; 6 partides per tanda, poques per
+treure'n percentatges): abans, durada mitjana de 98 semijugades, dues partides fins a la 129 i
+un tram de 41 sense progrés; amb la configuració final, mitjana de 76 (màxim 109), 5 de 6
+decisives i el tram més llarg sense progrés de 21.
+
 ## Degradacions
 
 - **Lozza no es carrega**: els jugadors de Lozza juguen amb Stockfish i amb els pesos del seu

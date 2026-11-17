@@ -294,6 +294,49 @@
         EXTENDED_GAP_PLIES: 3,
         // Fet de la jugada (captura o escac) + conseqüència: marge propi.
         LEAD_MAX_WORDS: 32,
+        // Lliga de llegendes: com s'acaben les partides.
+        // · Abandonament: com al duel, però a partir de la jugada 30 (no de la 65).
+        LEAGUE_RESIGN_MIN_PLY: 60,
+        // · Fase d'atac: quan la partida s'encalla (prou semijugades sense
+        //   captures ni moviments de peó, una posició repetida o una partida
+        //   llarga), els jugadors arrisquen per fer-la avançar. Stockfish tria
+        //   entre jugades fins a WINDOW_CP pitjors que la del seu nivell (en lloc
+        //   de STYLE_WINDOW_CP) amb un perfil que premia el progrés i castiga
+        //   desfer jugades i repetir posicions; Lozza calcula més profund.
+        LATE_ATTACK: {
+            FROM_PLY: 50,
+            STALL_HALFMOVES: 8,
+            ALWAYS_FROM_PLY: 80,
+            REPEAT_FROM_PLY: 30,
+            WINDOW_CP: 90,
+            STYLE_SHARE: 0.5,
+            LOZZA_DEPTH_BONUS: 2,
+            LOZZA_TIME_FACTOR: 1.5,
+            WEIGHTS: { check: 1, captureValue: 0.8, threat: 1, approach: 1, storm: 1.2, promotion: 4, pawnPush: 1.2,
+                passedPush: 2.5, kingCenter: 1.2, tradeAhead: 1.5, retreat: -1, quiet: -0.3, backtrack: -4, repeat: -8 }
+        },
+        // · Defalliment: en una partida de cada CHANCE (a l'atzar), un dels dos
+        //   jugadors (també a l'atzar) baixa de precisió a partir d'una semijugada
+        //   triada a l'atzar entre FROM_MIN_PLY i FROM_MAX_PLY: Stockfish baixa
+        //   ELO_DROP d'Elo (o SKILL_DROP nivells de «Skill Level»); Lozza calcula
+        //   LOZZA_DEPTH_DROP nivells menys i amb menys temps. Es decideix a l'inici
+        //   de la partida, i l'Èlia i en Grau ho comenten quan passa.
+        SLUMP: {
+            CHANCE: 0.75,
+            FROM_MIN_PLY: 30,
+            FROM_MAX_PLY: 60,
+            ELO_DROP: 300,
+            SKILL_DROP: 3,
+            LOZZA_DEPTH_DROP: 1,
+            LOZZA_TIME_FACTOR: 0.7
+        },
+        // · Taules per acord: posició igualada (|valoració| <= DRAW_CP durant
+        //   DRAW_PLIES semijugades seguides), sense captures ni peons des de fa
+        //   DRAW_HALFMOVES semijugades, a partir de DRAW_FROM_PLY.
+        DRAW_FROM_PLY: 100,
+        DRAW_CP: 40,
+        DRAW_PLIES: 20,
+        DRAW_HALFMOVES: 16,
         PREFS_KEY: 'tauler_tv_prefs',
         RIVALRY_HISTORY: 8,
         LOZZA_MAX_DEPTH: 9
@@ -719,7 +762,43 @@
 
     // Trets d'una jugada que importen als perfils (amb chess.js). `evalCp` és la
     // valoració de la posició des de qui mou (per saber si va per davant).
-    function tvMoveFeatures(ChessCtor, fen, uci, evalCp) {
+    // Clau de posició per a les repeticions (peces, torn, enrocs i al pas).
+    function tvPositionKey(fen) { return String(fen || '').split(' ').slice(0, 4).join(' '); }
+
+    // Context de la partida per a la tria de jugada: posicions ja vistes i
+    // les últimes jugades de cada bàndol (per detectar que es desfan).
+    function tvMoveContext(ChessCtor, startFen, history) {
+        const ctx = { seen: new Set(), recent: { w: [], b: [] } };
+        let g;
+        try { g = startFen ? new ChessCtor(startFen) : new ChessCtor(); } catch (err) { return ctx; }
+        ctx.seen.add(tvPositionKey(g.fen()));
+        for (const u of history || []) {
+            const color = g.turn();
+            const mv = g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : 'q' });
+            if (!mv) break;
+            ctx.recent[color] = ctx.recent[color].concat([{ from: mv.from, to: mv.to, piece: mv.piece }]).slice(-3);
+            ctx.seen.add(tvPositionKey(g.fen()));
+        }
+        return ctx;
+    }
+
+    // Peó passat: cap peó rival davant seu a la mateixa columna ni a les del costat.
+    function tvIsPassedPawn(board, sq, color) {
+        const fr = fileRank(sq);
+        if (!fr) return false;
+        for (let r = 0; r < 8; r++) {
+            const rank = 7 - r;
+            const ahead = color === 'w' ? rank > fr.rank : rank < fr.rank;
+            if (!ahead) continue;
+            for (let f = Math.max(0, fr.file - 1); f <= Math.min(7, fr.file + 1); f++) {
+                const p = board[r][f];
+                if (p && p.type === 'p' && p.color !== color) return false;
+            }
+        }
+        return true;
+    }
+
+    function tvMoveFeatures(ChessCtor, fen, uci, evalCp, context) {
         let g;
         try { g = new ChessCtor(fen); } catch (err) { return null; }
         const color = g.turn(), opp = other(color);
@@ -771,7 +850,15 @@
             centralization: mv.piece !== 'k' ? clamp(centerDist(from) - centerDist(to), -2, 2) : 0,
             development: (mv.piece === 'n' || mv.piece === 'b') && from.rank === (color === 'w' ? 0 : 7) && ply < 30 ? 1 : 0,
             rookFile: mv.piece === 'r' && !ownPawnsOnFile ? (anyPawnOnFile ? 1 : 2) : 0,
-            quiet: !mv.captured && !g.in_check() ? 1 : 0
+            quiet: !mv.captured && !g.in_check() ? 1 : 0,
+            // Progrés: un peó que avança (reinicia el comptador de les 50 jugades),
+            // un peó passat que avança i, al final, el rei que s'acosta al centre.
+            pawnPush: mv.piece === 'p' && !mv.captured ? 1 : 0,
+            passedPush: mv.piece === 'p' && tvIsPassedPawn(g.board(), mv.to, color) ? 1 : 0,
+            kingCenter: mv.piece === 'k' && !/[kq]/.test(mv.flags) && isPhaseEndgame(g.fen()) && centerDist(to) < centerDist(from) ? 1 : 0,
+            // Jugades que no fan avançar: tornar la peça d'on venia o repetir una posició.
+            backtrack: context && context.recent && (context.recent[color] || []).some(m => m.to === mv.from && m.from === mv.to) ? 1 : 0,
+            repeat: context && context.seen && context.seen.has(tvPositionKey(g.fen())) ? 1 : 0
         };
     }
 
@@ -794,7 +881,7 @@
     // nivell: el perfil decideix QUINA jugada, el nivell decideix COM DE BONA.
     // Amb un mat (a favor o en contra), o si la jugada del nivell no és entre
     // les línies, mana el nivell.
-    function tvPickStyledMove(ChessCtor, fen, infos, levelUci, style, windowCp) {
+    function tvPickStyledMove(ChessCtor, fen, infos, levelUci, style, windowCp, context) {
         const lines = Object.keys(infos || {}).map(k => infos[k]).filter(i => i && i.pv && i.pv.length);
         const base = { uci: levelUci, changed: false, score: null };
         if (!levelUci || !tvStyleProfile(style) || !lines.length) return base;
@@ -803,7 +890,7 @@
         const win = isNum(windowCp) ? windowCp : TV_CONFIG.STYLE_WINDOW_CP;
         let best = null;
         lines.filter(i => i.type === 'cp' && Math.abs(i.value - own.value) <= win).forEach((i) => {
-            const score = tvStyleScore(style, tvMoveFeatures(ChessCtor, fen, i.pv[0], own.value));
+            const score = tvStyleScore(style, tvMoveFeatures(ChessCtor, fen, i.pv[0], own.value, context));
             if (!best || score > best.score + 1e-9 || (Math.abs(score - best.score) < 1e-9 && i.pv[0] === levelUci)) best = { uci: i.pv[0], score: score };
         });
         if (!best) return base;
@@ -959,6 +1046,55 @@
             movetime: 110 + Math.round(ratio * 150), style: style };
     }
 
+    // Fase d'atac de la lliga: decideix si el bàndol que mou ha d'arriscar per
+    // desencallar la partida i amb quin perfil. Retorna null o
+    // { reason, style, windowCp, context, depthBonus, movetimeFactor }.
+    // ctx = { ChessCtor, fen, ply, startFen, history (UCI), baseStyle }
+    function tvLateAttack(ctx) {
+        const c = ctx || {};
+        const L = TV_CONFIG.LATE_ATTACK;
+        if (!c.ChessCtor || !c.fen || !isNum(c.ply)) return null;
+        const halfmoves = parseInt(String(c.fen).split(' ')[4], 10) || 0;
+        const context = tvMoveContext(c.ChessCtor, c.startFen, c.history || []);
+        // La posició actual ja havia sortit abans (sense comptar l'última vegada).
+        let repeated = false;
+        try {
+            const key = tvPositionKey(c.fen);
+            const g = c.startFen ? new c.ChessCtor(c.startFen) : new c.ChessCtor();
+            let count = tvPositionKey(g.fen()) === key ? 1 : 0;
+            for (const u of c.history || []) {
+                if (!g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : 'q' })) break;
+                if (tvPositionKey(g.fen()) === key) count++;
+            }
+            repeated = count >= 2;
+        } catch (err) { repeated = false; }
+        const reason = c.ply >= L.ALWAYS_FROM_PLY ? 'long'
+            : c.ply >= L.FROM_PLY && halfmoves >= L.STALL_HALFMOVES ? 'stalled'
+            : c.ply >= L.REPEAT_FROM_PLY && repeated ? 'repetition' : null;
+        if (!reason) return null;
+        // El perfil d'atac, amb una part del perfil propi del jugador.
+        const weights = {};
+        const base = tvStyleProfile(c.baseStyle);
+        if (base) Object.keys(base.weights).forEach((k) => { weights[k] = base.weights[k] * L.STYLE_SHARE; });
+        Object.keys(L.WEIGHTS).forEach((k) => { weights[k] = (weights[k] || 0) + L.WEIGHTS[k]; });
+        return { reason: reason, style: { id: 'atac', label: 'Fase d\'atac', weights: weights }, windowCp: L.WINDOW_CP,
+            context: context, depthBonus: L.LOZZA_DEPTH_BONUS, movetimeFactor: L.LOZZA_TIME_FACTOR };
+    }
+
+    // Taules per acord: la posició és igualada des de fa estona i no avança.
+    // Com tvResignStep: { state, end }.
+    function tvAgreedDrawStep(state, analysis, ply, fen) {
+        const prev = state && isNum(state.plies) ? state : { plies: 0 };
+        if (!analysis || !analysis.reliable || !analysis.best) return { state: prev, end: null };
+        const best = analysis.best;
+        const level = best.type === 'cp' && Math.abs(best.value) <= TV_CONFIG.DRAW_CP;
+        const next = { plies: level ? prev.plies + 1 : 0 };
+        const halfmoves = parseInt(String(fen || '').split(' ')[4], 10) || 0;
+        const agreed = level && ply >= TV_CONFIG.DRAW_FROM_PLY && next.plies >= TV_CONFIG.DRAW_PLIES && halfmoves >= TV_CONFIG.DRAW_HALFMOVES;
+        return { state: next, end: agreed ? { result: '½-½', winner: null, reason: 'agreed',
+            text: 'Taules per acord: la posició fa estona que està igualada i cap dels dos no la pot fer avançar.' } : null };
+    }
+
     // Nivell «de la partida» de la lliga: la mitjana dels nivells de Stockfish
     // (per als llindars d'abandonament). Els nivells de cada bàndol són al pla.
     function tvLegendLevel(caps, plan) {
@@ -969,14 +1105,37 @@
             reveal: null, mode: caps ? caps.mode : 'none', stockfish: null };
     }
 
+    // Defalliment de la partida (o null): quin bàndol i a partir de quina semijugada.
+    function tvPlanSlump(random) {
+        const r = typeof random === 'function' ? random : Math.random;
+        const S = TV_CONFIG.SLUMP;
+        if (!(r() < S.CHANCE)) return null;
+        const color = r() < 0.5 ? 'w' : 'b';
+        const span = Math.max(0, S.FROM_MAX_PLY - S.FROM_MIN_PLY);
+        return { color: color, fromPly: S.FROM_MIN_PLY + Math.floor(r() * (span + 1)) % (span + 1) };
+    }
+
+    // Configuració efectiva d'un bàndol en una semijugada: si ha començat el seu
+    // defalliment, menys nivell (Stockfish) o menys profunditat i temps (Lozza).
+    function tvSlumpSide(caps, side, slump, color, ply) {
+        if (!side) return side;
+        if (!slump || slump.color !== color || !isNum(ply) || ply < slump.fromPly) return Object.assign({}, side, { slumped: false });
+        const S = TV_CONFIG.SLUMP;
+        let level = side.level;
+        if (isNum(level) && caps && caps.mode === 'elo') level = tvSnapLevel(caps, clamp(level - S.ELO_DROP, caps.min, caps.max));
+        else if (isNum(level) && caps && caps.mode === 'skill') level = clamp(level - S.SKILL_DROP * (caps.step || 1), caps.min, caps.max);
+        return Object.assign({}, side, { level: level, depth: clamp(side.depth - S.LOZZA_DEPTH_DROP, 2, TV_CONFIG.LOZZA_MAX_DEPTH),
+            movetime: Math.max(60, Math.round(side.movetime * S.LOZZA_TIME_FACTOR)), slumped: true });
+    }
+
     // Pla d'una partida de la lliga: qui juga, amb quin motor, nivell i perfil.
-    function tvLegendPlan(LG, fixture, caps, lozzaReady) {
+    function tvLegendPlan(LG, fixture, caps, lozzaReady, random) {
         const W = LG.legend(fixture.white), B = LG.legend(fixture.black);
         const power = LG.CONFIG.POWER;
         const sides = { w: tvLegendSide(caps, W, lozzaReady, power), b: tvLegendSide(caps, B, lozzaReady, power) };
         return { legends: true, fixture: fixture, round: fixture.round, ids: { w: W.id, b: B.id },
             names: { w: W.short, b: B.short }, engines: { w: sides.w.engine, b: sides.b.engine }, sides: sides,
-            sharp: !!(W.tactical || B.tactical), untilMate: false, reason: '' };
+            sharp: !!(W.tactical || B.tactical), untilMate: false, reason: '', slump: tvPlanSlump(random) };
     }
 
     // «Massa fàcil» puja el nivell; «Massa difícil» l'abaixa. Retorna les
@@ -1163,12 +1322,13 @@
     // Una semijugada més de la sèrie: `analysis` és la de la posició que acaba
     // de quedar i `plies` les semijugades jugades. Una anàlisi absent o poc
     // fiable no compta, però tampoc no trenca la sèrie.
-    function tvResignStep(state, analysis, plies, thresholdCp) {
+    function tvResignStep(state, analysis, plies, thresholdCp, minPly) {
         const prev = state && state.side ? state : { side: null, plies: 0 };
         if (!analysis || !analysis.reliable) return { state: prev, end: null };
         const side = tvDecisiveSide(analysis.best, thresholdCp);
         const next = side ? { side: side, plies: side === prev.side ? prev.plies + 1 : 1 } : { side: null, plies: 0 };
-        const resigns = !!side && plies >= TV_CONFIG.RESIGN_MIN_PLY && next.plies >= TV_CONFIG.RESIGN_PLIES;
+        const from = isNum(minPly) ? minPly : TV_CONFIG.RESIGN_MIN_PLY;
+        const resigns = !!side && plies >= from && next.plies >= TV_CONFIG.RESIGN_PLIES;
         return { state: next, end: resigns ? tvResignEnd(side) : null };
     }
 
@@ -3702,7 +3862,8 @@
         const a = ctx.after;
         const edge = a && a.reliable ? tvDecisiveSide(a.best, TV_CONFIG.DECIDED_PACE_CP) : null;
         const out = L.api.remark({ ply: ctx.ply, color: ctx.move.color, features: features, ids: L.ids, engines: L.engines,
-            stakes: L.stakes || null, edge: edge, lead: lead, prepared: !!ctx.prepared, end: !!ctx.end }, memory.legend);
+            stakes: L.stakes || null, edge: edge, attack: L.attack || null, slump: L.slump || null, lead: lead,
+            prepared: !!ctx.prepared, end: !!ctx.end }, memory.legend);
         const next = Object.assign({}, memory, { legend: out.memory });
         if (!out.remark) return { comment: chosen, memory: next };
         const r = out.remark;
@@ -3710,7 +3871,7 @@
         const text = turns ? turns.map(t => t.text).join(' ') : r.text;
         const say = turns ? turns.map(t => t.role === 'presenter' && t.solo ? t.solo : t.text).join(' ') : r.text;
         return { comment: { kind: 'legend', text: text, leadText: r.text, say: say, family: 'legend',
-            variantId: ['profile', 'stakes', 'edge', 'trait'].indexOf(r.kind), explanatory: r.kind !== 'profile',
+            variantId: ['profile', 'stakes', 'edge', 'trait', 'attack', 'slump'].indexOf(r.kind), explanatory: r.kind !== 'profile',
             dialogue: turns ? turns.map(t => ({ role: t.role, text: t.text, ...(t.solo ? { solo: t.solo } : {}) })) : undefined,
             dialogueEvent: turns ? 'legend' : undefined, legend: { id: r.id, kind: r.kind } }, memory: next };
     }
@@ -4351,6 +4512,8 @@
                     engines: g.engines,
                     matchPlan: g.matchPlan,
                     names: g.matchPlan && g.matchPlan.legends ? g.matchPlan.names : null,
+                    attack: g.attack ? Object.assign({}, g.attack) : null,
+                    slumped: g.slumped ? Object.assign({}, g.slumped) : null,
                     leagueNote: g.leagueNote || '',
                     finalTable: g.finalTable || null,
                     finalSeason: g.finalSeason || null,
@@ -4461,7 +4624,7 @@
                 saveLeague();
             }
             const untilMate = !fixture && S.lozzaReady && prefs.untilMate;
-            const duel = fixture ? tvLegendPlan(LG, fixture, S.caps, S.lozzaReady)
+            const duel = fixture ? tvLegendPlan(LG, fixture, S.caps, S.lozzaReady, random)
                 : untilMate ? tvMateMatch(prefs.mateSeries, random)
                 : S.lozzaReady ? tvMatchPlan(tvRivalryHistory(prefs.recent, S.caps), {
                 caps: S.caps, target: target.value, unequal: prefs.unequal,
@@ -4666,9 +4829,19 @@
             const mate = g.matchPlan && g.matchPlan.untilMate ? g.matchPlan : null;
             const mode = S.caps ? S.caps.mode : 'none';
             // Lliga de llegendes: cada jugador té el seu nivell, profunditat i perfil.
-            const side = g.matchPlan && g.matchPlan.legends ? g.matchPlan.sides[color] : null;
-            const movetime = mate ? mate.movetime : lozzaTurn ? (side ? side.movetime : g.matchPlan.lozzaMovetime) : TV_CONFIG.PLAYER_MOVETIME_MS[mode] || 500;
-            const style = side ? (lozzaTurn ? null : side.style) : (!lozzaTurn && g.styles ? g.styles[color] : null);
+            // Si ha començat el defalliment d'aquest bàndol, juga amb menys precisió.
+            const side = g.matchPlan && g.matchPlan.legends
+                ? tvSlumpSide(S.caps, g.matchPlan.sides[color], g.matchPlan.slump, color, ply) : null;
+            if (side && side.slumped && !g.slumped) g.slumped = { color: color, fromPly: g.matchPlan.slump.fromPly };
+            // Si la partida s'encalla, fase d'atac: Stockfish arrisca amb un perfil de
+            // progrés i un marge més ample; Lozza calcula més profund.
+            const late = side ? tvLateAttack({ ChessCtor: d.ChessCtor, fen: fen, ply: ply, startFen: g.startFen, history: uciMoves, baseStyle: side.style }) : null;
+            if (late) {
+                g.attack = Object.assign({}, g.attack || {});
+                if (!g.attack[color]) g.attack[color] = late.reason;
+            }
+            const movetime = mate ? mate.movetime : lozzaTurn ? (side ? Math.round(side.movetime * (late ? late.movetimeFactor : 1)) : g.matchPlan.lozzaMovetime) : TV_CONFIG.PLAYER_MOVETIME_MS[mode] || 500;
+            const style = side ? (lozzaTurn ? null : (late ? late.style : side.style)) : (!lozzaTurn && g.styles ? g.styles[color] : null);
             const job = {
                 tag: { gameId: g.id, ply: ply, fen: fen, kind: 'move', engine: lozzaTurn ? 'lozza' : 'stockfish' },
                 position: tvPositionCommand(uciMoves, g.startFen),
@@ -4677,7 +4850,7 @@
                 multipv: style ? TV_CONFIG.STYLE_MULTIPV : 1,
                 // Lozza no declara Skill Level ni UCI_Elo. La profunditat és un
                 // límit de càlcul, mai una valoració d'Elo equivalent.
-                go: mate || lozzaTurn ? 'go depth ' + (mate ? mate.depth : side ? side.depth : g.matchPlan.lozzaDepth) + ' movetime ' + movetime
+                go: mate || lozzaTurn ? 'go depth ' + (mate ? mate.depth : side ? side.depth + (late ? late.depthBonus : 0) : g.matchPlan.lozzaDepth) + ' movetime ' + movetime
                     : 'go movetime ' + movetime,
                 movetime: movetime
             };
@@ -4693,7 +4866,8 @@
                 if (!res || !res.bestUci) { fail('engine'); return null; }
             }
             if (!res) return null;
-            return style ? tvPickStyledMove(d.ChessCtor, fen, res.infos, res.bestUci, style).uci : res.bestUci;
+            return style ? tvPickStyledMove(d.ChessCtor, fen, res.infos, res.bestUci, style,
+                late ? late.windowCp : undefined, late ? late.context : undefined).uci : res.bestUci;
         }
 
         function gameEnd(g, chess) {
@@ -4744,8 +4918,12 @@
                 // l'espera) i així la veu es pot preparar mentre es veu la jugada
                 // anterior: quan surti la jugada, l'àudio ja hi és.
                 // Amb control manual l'usuari decideix quan s'acaba: el motor no abandona per ell.
-                const resign = S.control || (g.matchPlan && g.matchPlan.untilMate) ? null : tvResignStep(g.resign, after, ply + 1, tvResignThresholdCp(S.caps, g.level.value));
-                const plan = planMove(g, uci, fenBefore, prepared, before, after, resign);
+                const inLeague = !!(g.matchPlan && g.matchPlan.legends);
+                const resign = S.control || (g.matchPlan && g.matchPlan.untilMate) ? null : tvResignStep(g.resign, after, ply + 1,
+                    tvResignThresholdCp(S.caps, g.level.value), inLeague ? TV_CONFIG.LEAGUE_RESIGN_MIN_PLY : undefined);
+                // Lliga: taules per acord si la posició fa estona que està igualada i no avança.
+                const draw = inLeague && !S.control ? tvAgreedDrawStep(g.drawWatch, after, ply + 1, applied.fen) : null;
+                const plan = planMove(g, uci, fenBefore, prepared, before, after, resign, draw);
                 if (!plan) { fail('illegal'); return; }
                 if (plan.chosen && d.voice && typeof d.voice.prefetch === 'function') {
                     const planned = { ...plan.chosen, speech: tvSpeechText(plan.chosen.say || plan.chosen.text), ply };
@@ -4793,7 +4971,7 @@
 
         // Calcula la jugada i el seu comentari sense tocar la partida visible
         // (sobre una còpia amb tot l'historial, per a la repetició i els finals).
-        function planMove(g, uci, fenBefore, prepared, before, after, resign) {
+        function planMove(g, uci, fenBefore, prepared, before, after, resign, draw) {
             const ply = g.moves.length;
             const prevMove = ply ? g.moves[ply - 1].verbose : null;
             const copy = new d.ChessCtor(g.startFen);
@@ -4803,7 +4981,7 @@
             const mv = copy.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : 'q' });
             if (!mv) return null;
             const fenAfter = copy.fen();
-            const end = gameEnd(g, copy) || (resign && resign.end) || null;
+            const end = gameEnd(g, copy) || (resign && resign.end) || (draw && draw.end) || null;
             // La memòria de la retransmissió només s'actualitza quan la jugada
             // es mostra de debò (reveal): si una pausa descarta aquest pla, la
             // memòria visible continua intacta.
@@ -4813,11 +4991,12 @@
                 end: end, ply: ply, memory: g.memory, expression: d.expression, narrative: d.narrative, quality: d.quality,
                 patterns: d.patterns, art: d.art, gameId: g.id, visio: d.visio,
                 legends: g.matchPlan && g.matchPlan.legends && LG ? { api: LG, ids: g.matchPlan.ids, engines: g.matchPlan.engines,
-                    names: g.matchPlan.names, stakes: g.matchPlan.stakes || null } : null,
+                    names: g.matchPlan.names, stakes: g.matchPlan.stakes || null, attack: g.attack ? Object.assign({}, g.attack) : null,
+                    slump: g.slumped ? Object.assign({}, g.slumped) : null } : null,
                 opening: openingDialogueContext(g, mv, fenBefore, fenAfter, prepared)
             });
             return { ply: ply, fenAfter: fenAfter, end: end, chosen: step.comment, memory: step.memory,
-                resign: resign ? resign.state : undefined, decided: tvIsDecided(after) };
+                resign: resign ? resign.state : undefined, drawWatch: draw ? draw.state : undefined, decided: tvIsDecided(after) };
         }
 
         function reveal(g, uci, prepared, plan, epoch) {
@@ -4837,7 +5016,7 @@
         function commitMove(g, uci, prepared, plan, byUser) {
             const ply = g.moves.length;
             const fenBefore = g.chess.fen();
-            const undo = { fenBefore: fenBefore, memory: g.memory, identified: g.identified, resign: g.resign };
+            const undo = { fenBefore: fenBefore, memory: g.memory, identified: g.identified, resign: g.resign, drawWatch: g.drawWatch };
             const mv = g.chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : 'q' });
             if (!mv || ply !== plan.ply) { fail('illegal'); return null; }
             const fenAfter = g.chess.fen();
@@ -4850,6 +5029,7 @@
             g.comment = null;
             g.memory = plan.memory;
             if (plan.resign !== undefined) g.resign = plan.resign;
+            if (plan.drawWatch !== undefined) g.drawWatch = plan.drawWatch;
             if (plan.chosen) attachComment(g, entry, plan.chosen);
             return entry;
         }
@@ -5132,6 +5312,7 @@
                 g.memory = entry.undo.memory;
                 g.identified = entry.undo.identified;
                 g.resign = entry.undo.resign || { side: null, plies: 0 };
+                g.drawWatch = entry.undo.drawWatch;
                 g.comments = g.comments.filter(c => c.ply < g.moves.length);
                 g.end = null;
                 g.pairScore = '';
@@ -5756,8 +5937,12 @@
         const mine = (color) => !!(state.control && state.control.color === color);
         // Amb nivells desiguals, el nivell de cada bàndol només es veu en acabar.
         const sideText = (color) => mate ? 'profunditat màxima ' + mate.depth : legends
-            ? (g.engines[color] === 'lozza' ? 'profunditat ' + legends.sides[color].depth
-                : tvLevelLabel(caps, legends.sides[color].level).short)
+            ? (() => {
+                const eff = tvSlumpSide(caps, legends.sides[color], g.slumped && !g.end ? legends.slump : null, color, g.moves ? g.moves.length : 0);
+                return g.engines[color] === 'lozza'
+                    ? 'profunditat ' + clamp(eff.depth + (g.attack && g.attack[color] && !g.end ? TV_CONFIG.LATE_ATTACK.LOZZA_DEPTH_BONUS : 0), 2, TV_CONFIG.LOZZA_MAX_DEPTH + TV_CONFIG.LATE_ATTACK.LOZZA_DEPTH_BONUS)
+                    : tvLevelLabel(caps, eff.level).short;
+            })()
             : g && g.matchPlan
             ? (g.engines[color] === 'lozza' ? 'profunditat ' + g.matchPlan.lozzaDepth
                 : tvLevelLabel(caps, g.matchPlan.stockfishLevel).short)
@@ -5783,7 +5968,9 @@
                     + LGm.points(row.points) + ' · ' : '';
             if (meta) meta.textContent = !g ? 'Preparant els motors…'
                 : mine(color) ? 'Control manual · ' + sideText(color)
-                : standingText + (g.engines && g.engines[color] === 'lozza' ? 'Motor Lozza · ' : 'Motor Stockfish · ') + sideText(color);
+                : standingText + (g.engines && g.engines[color] === 'lozza' ? 'Motor Lozza · ' : 'Motor Stockfish · ') + sideText(color)
+                    + (legends && g.attack && g.attack[color] && !g.end ? ' · Fase d\'atac' : '')
+                    + (legends && g.slumped && g.slumped.color === color && !g.end ? ' · Menys precisió' : '');
             if (box) box.setAttribute('aria-label',
                 (color === 'w' ? 'Blanques: ' : 'Negres: ') + playerName
                 + (g ? ', ' + (mine(color) ? 'control manual' : sideText(color)) : ''));
@@ -6159,6 +6346,8 @@
                 + '<div class="sftv-result-text">' + escapeHtml(g.end.text) + '</div>'
                 + (g.level && g.level.reveal ? '<div class="sftv-result-reveal">' + escapeHtml(g.level.reveal) + '</div>' : '')
                 + (inLeague && g.leagueNote ? '<div class="sftv-result-reveal">' + escapeHtml(g.leagueNote) + '</div>' : '')
+                + (inLeague && g.slumped && g.names ? '<div class="sftv-result-reveal">' + escapeHtml(g.names[g.slumped.color]
+                    + ' va jugar amb menys precisió a partir de la jugada ' + (Math.floor(g.slumped.fromPly / 2) + 1) + '.') + '</div>' : '')
                 + (g.matchPlan && !inLeague ? '<div class="sftv-result-reveal">' +
                     (g.matchPlan.untilMate ? '' : 'Adaptació de la rivalitat: ') + escapeHtml(g.matchPlan.reason) + '</div>' : '')
                 + (g.pairScore ? '<div class="sftv-result-reveal">' + escapeHtml(g.pairScore) + '</div>' : '')
@@ -6560,6 +6749,12 @@
         tvLegendPlan,
         tvLegendLevel,
         tvLegendStep,
+        tvLateAttack,
+        tvAgreedDrawStep,
+        tvPlanSlump,
+        tvSlumpSide,
+        tvMoveContext,
+        tvPositionKey,
         tvNameSides,
         tvNameComment,
         tvPickStyles,
