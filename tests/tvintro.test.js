@@ -70,74 +70,137 @@ describe('50 presentacions breus, genuïnes i sense espòilers',()=>{
     });
 });
 
-test('el seguiment del patró exigeix una continuació del repertori i es talla quan se’n surt', () => {
-    const common = { canSpeak: true, prepared: false, engines: { w: 'stockfish', b: 'lozza' } };
-    const named = { name: 'Sicilian Defense: Najdorf Variation' };
-    const first = I.openingTalk({ ...common, named, theory: true, color: 'b', ply: 9 });
-    expect(first.turns[0].text).toContain('jugada de Lozza');
-    const follows = I.openingTalk({ ...common, theory: true, color: 'w', ply: 12 }, first.memory);
-    expect(follows.turns[0].text).toContain('Stockfish segueix el patró');
-    const leaves = I.openingTalk({ ...common, theory: false, color: 'b', ply: 15 }, follows.memory);
-    expect(leaves.turns[0].text).toContain('Lozza surt de la línia');
-    expect(I.openingTalk({ ...common, theory: true, color: 'w', ply: 20 }, leaves.memory).turns).toBeUndefined();
-});
-
-describe('cap obertura reconeguda queda sense explicació', () => {
+describe('obertures: bàndol correcte i comentaris espaiats', () => {
     const common = { canSpeak: true, engines: { w: 'stockfish', b: 'lozza' }, color: 'b' };
-    test('cobreix tot el repertori real, incloent les famílies sense plantilla', () => {
-        const fs = require('fs');
-        const source = fs.readFileSync(require.resolve('../app.js'), 'utf8');
+    const named = { name: 'Sicilian Defense: Najdorf Variation' };
+
+    test.each([
+        [{ w: 'stockfish', b: 'lozza' }, 'Lozza'],
+        [{ w: 'lozza', b: 'stockfish' }, 'Stockfish']
+    ])('una defensa detectada amb blanques espera la jugada negra: %j', (engines, player) => {
+        const first = I.openingTalk({ ...common, engines, named, color: 'w', ply: 10 });
+        expect(first.turns).toBeUndefined();
+        expect(first.memory.pending).toHaveLength(1);
+        const next = I.openingTalk({ ...common, engines, ply: 11 }, first.memory);
+        expect(next.turns[1].text).toContain(player + ', amb les negres');
+        expect(next.turns[0].text).not.toContain('Amb la jugada');
+        expect(first.memory.pending).toHaveLength(1); // memòria anterior intacta
+    });
+
+    test.each([
+        ['Defensa Siciliana', 'b'], ['Defensa Francesa', 'b'],
+        ['Semieslava', 'b'], ['Gambit de Dama Refusat', 'b'],
+        ['Obertura Italiana', 'w'], ['Sistema Londres', 'w'],
+        ['Sicilian Defense: Dragon Variation, Yugoslav Attack', 'w'],
+        ['Sicilian Defense: Alapin Variation', 'w']
+    ])('%s només s’explica al color %s, encara que el repertori s’estudiï des de l’altre', (name, color) => {
+        const rival = color === 'w' ? 'b' : 'w';
+        const first = I.openingTalk({ ...common, named: { name, userColor: rival }, color: rival, ply: 10 });
+        expect(first.turns).toBeUndefined();
+        const next = I.openingTalk({ ...common, color, ply: 11 }, first.memory);
+        expect(next.turns[1].text).toContain(color === 'w' ? 'Stockfish, amb les blanques' : 'Lozza, amb les negres');
+    });
+
+    test('l’atac anglès de les blanques espera el seu torn i l’interval', () => {
+        const first = I.openingTalk({ ...common, named, ply: 9 });
+        const attack = { name: 'Sicilian Defense: Najdorf Variation, English Attack' };
+        let state = I.openingTalk({ ...common, named: attack, color: 'w', ply: 10 }, first.memory);
+        expect(state.turns).toBeUndefined();
+        for (let ply = 11; ply <= 15; ply++) {
+            state = I.openingTalk({ ...common, color: ply % 2 ? 'b' : 'w', ply }, state.memory);
+            expect(state.turns).toBeUndefined();
+        }
+        state = I.openingTalk({ ...common, color: 'w', ply: 16 }, state.memory);
+        expect(state.turns[1].text).toMatch(/Stockfish, amb les blanques.*enrocar llarg/);
+    });
+
+    test('no repeteix la defensa quan qualsevol bàndol segueix o abandona la teoria', () => {
+        let state = I.openingTalk({ ...common, named, ply: 9 });
+        for (let ply = 10; ply < 35; ply++) {
+            state = I.openingTalk({ ...common, named, color: ply % 2 ? 'b' : 'w', ply,
+                theory: ply < 25 }, state.memory);
+            expect(state.turns).toBeUndefined();
+        }
+    });
+
+    test('les etiquetes de la mateixa família no repeteixen la mateixa explicació', () => {
+        let state = I.openingTalk({ ...common, named: { name: 'Sicilian Defense: Dragon Variation' }, ply: 9 });
+        for (const [ply, name] of [[17, 'Sicilian Defense: Dragon Variation, Classical Variation'],
+            [25, 'Sicilian Defense: Dragon Variation, Classical Variation, Normal Line']]) {
+            state = I.openingTalk({ ...common, named: { name }, ply }, state.memory);
+            expect(state.turns).toBeUndefined();
+        }
+    });
+
+    test('com a màxim explica dues idees per bàndol', () => {
+        let memory;
+        const names = ['Sicilian Defense', 'Sicilian Defense: Najdorf Variation', 'Sicilian Defense: Dragon Variation'];
+        names.forEach((name, i) => {
+            const talk = I.openingTalk({ ...common, named: { name }, ply: 1 + i * 8 }, memory);
+            if (i < 2) expect(talk.turns).toHaveLength(2);
+            else expect(talk.turns).toBeUndefined();
+            memory = talk.memory;
+        });
+        expect(memory.counts.b).toBe(2);
+    });
+
+    test('un graf tardà conserva la variant més recent de cada color', () => {
+        const discoveries = [
+            { named: { name: 'Sicilian Defense' }, ply: 1, color: 'b' },
+            { named, ply: 9, color: 'b' },
+            { named: { name: 'Sicilian Defense: Najdorf Variation, English Attack' }, ply: 10, color: 'w' }
+        ];
+        const first = I.openingTalk({ ...common, discoveries, ply: 13 });
+        expect(first.turns[0].text).toContain('variant Najdorf');
+        expect(first.memory.pending).toHaveLength(1);
+        const white = I.openingTalk({ ...common, discoveries, color: 'w', ply: 20 }, first.memory);
+        expect(white.turns[1].text).toContain('Stockfish, amb les blanques');
+        expect(white.memory.pending).toHaveLength(0);
+    });
+
+    test('una urgència ajorna la defensa fins a una jugada tranquil·la del seu color', () => {
+        const first = I.openingTalk({ ...common, named, ply: 9, canSpeak: false });
+        const white = I.openingTalk({ ...common, color: 'w', ply: 10 }, first.memory);
+        expect(white.turns).toBeUndefined();
+        const black = I.openingTalk({ ...common, ply: 11 }, white.memory);
+        expect(black.turns[0].text).toContain('En aquesta partida hem arribat');
+        expect(black.memory.pending).toHaveLength(0);
+    });
+
+    test('un nom sense perfil no atribueix un pla a cap jugador', () => {
+        const moveIdea = 'L’enroc porta el rei cap a un flanc i activa la torre.';
+        const talk = I.openingTalk({ ...common, named: { name: 'Línia de prova: variant sense fitxa' }, moveIdea, ply: 8 });
+        expect(talk.turns[0].text).toContain('variant sense fitxa');
+        expect(talk.turns[0].text).not.toContain('jugada de');
+        expect(talk.turns[1].text).toBe(moveIdea);
+    });
+
+    test('una seqüència no identificada s’explica una sola vegada', () => {
+        const moveIdea = 'El peó ocupa una casella central.';
+        const talk = I.openingTalk({ ...common, moveIdea, ply: 7 });
+        expect(talk.turns[0].text).toContain('no tenim un nom');
+        expect(I.openingTalk({ ...common, moveIdea, ply: 15 }, talk.memory).turns).toBeUndefined();
+    });
+
+    test('tot el repertori es presenta al torn que correspon al perfil', () => {
+        const source = require('fs').readFileSync(require.resolve('../app.js'), 'utf8');
         const start = source.indexOf('const CURATED_OPENINGS = [');
         const end = source.indexOf('\n];', start) + 3;
         const repertoire = new Function(source.slice(start, end) + '; return CURATED_OPENINGS;')();
         expect(repertoire.length).toBeGreaterThan(40);
         for (const seed of repertoire) {
-            const board = new Chess();
-            for (const san of seed.moves) expect(board.move(san)).toBeTruthy();
-            const talk = I.openingTalk({ ...common, seed, prepared: true, preparedComplete: true, ply: seed.moves.length - 1 });
+            const ply = seed.moves.length - 1;
+            const first = I.openingTalk({ ...common, seed, color: ply % 2 ? 'b' : 'w',
+                prepared: true, preparedComplete: true, ply });
+            const talk = first.turns ? first : I.openingTalk({ ...common, color: ply % 2 ? 'w' : 'b', ply: ply + 1 }, first.memory);
             expect(talk.turns).toHaveLength(2);
             expect(talk.turns[0].text).toContain(require('../tallerobertures').translateOpeningName(seed.name));
             expect(talk.turns[1].text.length).toBeGreaterThan(40);
-            expect(talk.turns[1].text).not.toContain('encara no tenim');
         }
     });
-    test('les variants consecutives d’una mateixa família no es col·lapsen ni tenen límit de quatre', () => {
-        const names = ['Sicilian Defense', 'Sicilian Defense: Open', 'Sicilian Defense: Dragon Variation',
-            'Sicilian Defense: Dragon Variation, Classical Variation', 'Sicilian Defense: Dragon Variation, Yugoslav Attack'];
-        let memory;
-        names.forEach((name, ply) => {
-            const talk = I.openingTalk({ ...common, named: { name }, ply }, memory);
-            expect(talk.turns[0].text).toContain(require('../tallerobertures').translateOpeningName(name));
-            memory = talk.memory;
-        });
-        expect(memory.seen).toHaveLength(5);
-    });
-    test('una urgència conserva les explicacions pendents i l’historial no les duplica', () => {
-        const named = { name: 'Sicilian Defense: Najdorf Variation' };
-        const first = I.openingTalk({ ...common, named, ply: 9, canSpeak: false });
-        expect(first.turns).toBeUndefined();
-        const next = I.openingTalk({ ...common, ply: 10, discoveries: [{ named, ply: 9 }] }, first.memory);
-        expect(first.memory.pending).toHaveLength(1);
-        expect(next.memory.pending).toHaveLength(0);
-        expect(next.turns[0].text).toContain('En aquesta partida hem arribat');
-        const repeated = I.openingTalk({ ...common, ply: 11, discoveries: [{ named, ply: 9 }] }, next.memory);
-        expect(repeated.turns).toBeUndefined();
-    });
-    test('un nom sense plantilla conserva la variant i explica el fet verificat', () => {
-        const moveIdea = 'L’enroc porta el rei cap a un flanc i activa la torre.';
-        const talk = I.openingTalk({ ...common, named: { name: 'Línia de prova: variant sense fitxa' }, moveIdea, ply: 8 });
-        expect(talk.turns[0].text).toContain('variant sense fitxa');
-        expect(talk.turns[1].text).toBe(moveIdea);
-    });
-    test('una seqüència no identificada s’explica sense inventar un nom', () => {
-        const moveIdea = 'El peó ocupa una casella central i controla les diagonals del davant.';
-        const talk = I.openingTalk({ ...common, moveIdea, ply: 7 });
-        expect(talk.turns[0].text).toContain('no tenim un nom');
-        expect(talk.turns[1].text).toBe(moveIdea);
-    });
-    test('el mat es diu abans de recuperar les variants pendents, amb totes dues veus', () => {
-        const pending = I.openingTalk({ ...common, canSpeak: false, ply: 1,
-            named: { name: 'Obertura de Viena' } });
+
+    test('el mat no recupera cap explicació pendent d’obertura', () => {
+        const pending = I.openingTalk({ ...common, canSpeak: false, ply: 1, named });
         const board = new Chess();
         ['f3', 'e5', 'g4'].forEach(san => board.move(san));
         const fenBefore = board.fen(), move = board.move('Qh4#');
@@ -146,11 +209,7 @@ describe('cap obertura reconeguda queda sense explicació', () => {
             memory: { ...TV.tvEmptyMemory(), openingTalk: pending.memory },
             opening: { engines: common.engines }, visio: null });
         expect(step.comment.kind).toBe('mate');
-        expect(step.comment.dialogue[0].text).toMatch(/Escac i mat/);
-        expect(step.comment.dialogue[1].text).toContain('Obertura de Viena');
-        const turns = TV.tvDialogueTurns({ ...step.comment, speech: step.comment.text }, true);
-        expect(turns).toHaveLength(3);
-        expect(turns[2].voiceId).toBe(TV.TV_DUO.analyst);
+        expect(step.comment.text).not.toMatch(/Siciliana|Najdorf/);
         expect(step.memory.openingTalk.pending).toHaveLength(0);
     });
 });

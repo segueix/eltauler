@@ -127,7 +127,7 @@ describe('Stockfish vs Lozza TV · flux real del controlador', () => {
       const chess = new Chess();
       return sans.map(san => { chess.move(san); return chess.fen(); });
     });
-    const played = ['e2e4', 'c7c5', 'g1f3', 'd7d6', 'd2d4', 'c5d4', 'f3d4', 'g8f6', 'b1c3', 'a7a6', 'c1e3'];
+    const played = ['e2e4', 'c7c5', 'g1f3', 'd7d6', 'd2d4', 'c5d4', 'f3d4', 'g8f6', 'b1c3', 'a7a6', 'c1e3', 'e7e6', 'f1e2', 'f8e7', 'e1g1', 'e8g8', 'd1d2'];
     const ctl = TV.createTvController({
       ChessCtor: Chess, engine: mockEngine('stockfish', played), lozzaEngine: mockEngine('lozza', played),
       random: () => 0.9, loadPrefs: () => ({ speed: 'quick' }),
@@ -144,9 +144,11 @@ describe('Stockfish vs Lozza TV · flux real del controlador', () => {
     expect(najdorf.dialogue[0].text).toContain('jugada de Lozza');
     expect(najdorf.dialogue[0].text).toContain('Defensa Siciliana: variant Najdorf');
     expect(najdorf.dialogue[1].text).toContain('Lozza, amb les negres');
-    const attack = moves[10].commentObj;
+    expect(moves[10].commentObj.dialogueEvent).not.toBe('opening');
+    const attack = moves[16].commentObj;
     expect(attack.dialogueEvent).toBe('opening');
-    expect(attack.dialogue[0].text).toContain('jugada de Stockfish');
+    expect(attack.dialogue[0].text).toContain('En aquesta partida hem arribat');
+    expect(moves.filter(m => m.commentObj?.dialogueEvent === 'opening' && !m.commentObj.text.includes('no tenim un nom')).map(m => m.color)).toEqual(['b', 'w']);
     expect(attack.dialogue[0].text).toContain('variant Najdorf, atac anglès');
     expect(attack.dialogue[1].text).toMatch(/Stockfish, amb les blanques.*enrocar llarg/);
     ctl.close();
@@ -176,8 +178,10 @@ describe('Stockfish vs Lozza TV · flux real del controlador', () => {
     expect(ctl.state().game.moves.length).toBeGreaterThanOrEqual(10);
     ready = true;
     while (!comments.some(c => c.text.includes('variant Najdorf')) && jest.now() - start < 360000) await jest.advanceTimersByTimeAsync(1000);
-    const openings = comments.filter(c => c.dialogueEvent === 'opening');
-    expect(openings.some(c => c.text.includes('«Defensa Siciliana»'))).toBe(true);
+    const openings = comments.filter(c => c.dialogueEvent === 'opening' && !c.text.includes('no tenim un nom'));
+    expect(openings.some(c => c.text.includes('«Defensa Siciliana»'))).toBe(false);
+    expect(openings).toHaveLength(1);
+    expect(openings[0].ply % 2).toBe(1);
     expect(openings.some(c => c.text.includes('variant Najdorf'))).toBe(true);
     ctl.close();
   });

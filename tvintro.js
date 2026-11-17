@@ -7,7 +7,7 @@
     else root.ElTaulerTvIntro=api;
 })(typeof self!=='undefined'?self:this,function(root){
     'use strict';
-    const VERSION='1.3.0';
+    const VERSION='1.4.0';
     const OPENINGS=Object.freeze([
         'Tot és a punt per a un nou duel entre Stockfish i Lozza.',
         'Stockfish i Lozza es preparen per compartir el tauler.',
@@ -99,9 +99,11 @@
         [/budapest/i, 'Gambit Budapest', 'b', 'Les negres cedeixen un peó per activar ràpidament les peces i crear amenaces.'],
         [/albin/i, 'Contragambit Albin', 'b', 'Les negres ofereixen un peó per obtenir un peó central avançat que dificulta el desplegament blanc.'],
         [/sveshnikov/i, 'Siciliana Sveshnikov', 'b', 'El peó avançat disputa el centre i guanya temps atacant el cavall blanc.'],
-        [/najdorf.*english attack/i, 'Atac Anglès de la Siciliana Najdorf', 'w', 'Les peces blanques es coordinen per poder enrocar llarg i avançar els peons del flanc de rei.'],
+        [/najdorf.*(?:english attack|atac anglès)/i, 'Atac Anglès de la Siciliana Najdorf', 'w', 'Les peces blanques es coordinen per poder enrocar llarg i avançar els peons del flanc de rei.'],
         [/najdorf/i, 'Siciliana Najdorf', 'b', 'El peó de torre negre treu una casella al cavall blanc i prepara joc al flanc de dama.'],
         [/accelerat.*drag|drag.*accelerat/i, 'Siciliana del Dragó accelerat', 'b', 'L’alfil negre entra ràpid a la gran diagonal i encara es pot obrir el centre amb el peó de dama.'],
+        [/yugoslav attack|atac iugoslau/i, 'Atac Iugoslau', 'w', 'Les blanques preparen l’enroc llarg i un avanç de peons contra el rei negre.'],
+        [/sicilian.*alapin|siciliana.*alapin/i, 'Variant Alapin', 'w', 'Les blanques sostenen l’avanç del peó de dama amb el peó d’alfil per construir un centre de peons.'],
         [/dragon|dragó/i, 'Siciliana del Dragó', 'b', 'L’alfil de rei pressiona per la gran diagonal i dona suport al contrajoc al flanc de dama.'],
         [/rossolimo/i, 'Siciliana Rossolimo', 'w', 'Les blanques pressionen el cavall amb l’alfil i poden alterar l’estructura negra amb el canvi.'],
         [/taimanov/i, 'Siciliana Taimanov', 'b', 'Les negres conserven opcions de desplegament i mantenen oberta la possibilitat de trencar pel centre.'],
@@ -140,86 +142,84 @@
             const lab = root?.ElTaulerOpeningLab || (typeof require === 'function' ? require('./tallerobertures') : null);
             name = lab?.translateOpeningName(name) || name;
         } catch (err) { /* conservem el nom exacte del repertori */ }
-        // El nom COMPLET és la identitat: dues variants de la mateixa família
-        // no s'han de fondre en un sol comentari. La idea familiar s'identifica
-        // com a tal, sense atribuir-li detalls d'una variant no documentada.
-        return { name, color: profile?.[2] || entry.userColor || null,
+        // Conservem el nom complet. La narració agrupa després les variants
+        // que només repetirien la mateixa idea familiar.
+        return { name, color: profile?.[2] || null,
             strength: profile ? profile[3] : entry.idea || moveIdea ||
                 'El nom descriu la seqüència jugada; encara no tenim una explicació específica d’aquesta línia.',
             family: profile?.[1] || null };
     }
 
+    // Una explicació inicial i, com a màxim, una idea nova per bàndol.
+    // Sis semijugades separen les intervencions; el nom a pantalla és independent.
+    const OPENING_TALK_GAP = 6;
+    const OPENING_TALK_LIMIT = 2;
     function openingTalk(ctx, previous) {
         const c = ctx;
         const memory = JSON.parse(JSON.stringify(previous || {}));
         memory.pending = memory.pending || [];
         memory.seen = memory.seen || [];
+        memory.explained = memory.explained || [];
+        memory.counts = memory.counts || { w: 0, b: 0 };
         const engineName = color => c.engines?.[color] === 'lozza' ? 'Lozza' : 'Stockfish';
+        // No recuperem noms d'obertura en un mat ni al final de la partida.
+        if (c.flush) { memory.pending = []; return { memory }; }
         const enqueue = (entry, event) => {
             const profile = openingProfile(entry, event.moveIdea || c.moveIdea);
-            if (!profile) return;
-            if (memory.seen.includes(profile.name)) return;
-            memory.active = profile;
+            if (!profile || memory.seen.includes(profile.name)) return;
             memory.seen.push(profile.name);
-            memory.pending.push({ profile, ...event });
+            // El perfil estableix de qui és el pla, no el jugador que acaba
+            // de moure ni el color des del qual s'estudia el repertori.
+            const color = profile.color || event.color || c.color;
+            if (!['w', 'b'].includes(color)) return;
+            const idea = color + ':' + (profile.family || profile.name);
+            if (memory.counts[color] >= OPENING_TALK_LIMIT || memory.explained.includes(idea)) return;
+            // Si el graf arriba tard, conservem la variant més recent de cada
+            // bàndol, sense recitar totes les etiquetes intermèdies.
+            memory.pending = memory.pending.filter(item => item.color !== color);
+            memory.pending.push({ ...event, profile, color, idea });
         };
-        // Recupera també les posicions reconegudes mentre el graf carregava.
         for (const found of c.discoveries || []) enqueue(found.named, found);
-        const reached = openingProfile(c.named, c.moveIdea);
-        if (reached) enqueue(c.named, { ply: c.ply, color: c.color, prepared: c.prepared });
-        if (reached) memory.active = reached;
+        if (c.named) enqueue(c.named, { ply: c.ply, color: c.color, prepared: c.prepared });
         if (c.preparedComplete && !memory.prepared) {
-            enqueue(c.seed, { ply: c.ply, prepared: true });
+            // El nom de la posició actual ja és més precís que el repertori.
+            if (!c.named) enqueue(c.seed, { ply: c.ply, prepared: true });
             memory.prepared = true;
         }
-        const known = reached || memory.active;
-        if (c.theory !== true && !reached) memory.active = null;
-        // Una urgència ajorna l'explicació; mai no la dona per pronunciada.
-        if (!c.canSpeak) return { memory };
-        let turns;
-        if (memory.pending.length) {
-            const events = c.flush ? memory.pending.splice(0) : [memory.pending.shift()];
-            const names = events.map(e => '«' + e.profile.name + '»').join(', ');
-            const first = events[0];
-            const solo = events.length > 1 ? 'Les obertures i variants que hem recorregut són ' + names + '.'
-                : first.prepared ? 'La línia preparada ens porta a ' + names + '.'
-                : first.ply === c.ply ? 'Amb la jugada de ' + engineName(first.color) + ' arribem a ' + names + '.'
-                : 'En aquesta partida hem arribat a ' + names + '.';
-            const explanations = events.map(({ profile }) => {
-                const side = profile.color === 'w' ? 'les blanques' : 'les negres';
-                const owner = profile.color ? 'El recurs és per a ' + engineName(profile.color) + ', amb ' + side + '. ' : '';
-                const family = profile.family && profile.name !== profile.family ? 'La idea de la família «' + profile.family + '» és aquesta: ' : '';
-                return (events.length > 1 ? '«' + profile.name + '»: ' : '') + owner + family + profile.strength;
-            });
-            turns = [
-                { role: 'presenter', text: solo + ' Quin sentit té aquesta tria?', solo },
-                { role: 'analyst', text: explanations.join(' ') }
-            ];
-            memory.lastName = events[events.length - 1].profile.name;
-        } else if (c.ply - (memory.lastPly ?? -10) >= 3 && !c.prepared && known) {
-            const player = engineName(c.color), pattern = player + ':' + known.name;
-            let solo;
-            if (c.theory === true && memory[pattern] !== 'theory') {
-                solo = player + ' segueix el patró de «' + known.name + '».';
-                memory[pattern] = 'theory';
-            } else if (c.theory === false && memory[pattern] !== 'outside') {
-                solo = player + ' surt de la línia d’obertura recollida al repertori.';
-                memory[pattern] = 'outside';
-            }
-            if (solo) turns = [
-                { role: 'presenter', text: solo + ' Quina idea hi havia al darrere?', solo },
-                { role: 'analyst', text: 'Veníem de «' + known.name + '». ' + known.strength }
-            ];
-        } else if (!memory.seen.length && !memory.unidentified && c.ply >= 7 && !c.prepared && c.moveIdea) {
+        if (!c.canSpeak || c.ply - (memory.lastPly ?? -100) < OPENING_TALK_GAP) return { memory };
+        const index = memory.pending.findIndex(item => item.color === c.color);
+        if (index >= 0) {
+            const event = memory.pending.splice(index, 1)[0];
+            const { profile, color, idea } = event;
+            const side = color === 'w' ? 'les blanques' : 'les negres';
+            const player = engineName(color);
+            // Un nom reconegut després d'una jugada rival no implica que
+            // aquell rival hagi triat la defensa. Tampoc ho afirmem en diferit.
+            const solo = event.prepared
+                ? 'La línia preparada ens porta a «' + profile.name + '».'
+                : event.ply === c.ply && profile.color === c.color
+                    ? 'Amb la jugada de ' + player + ' arribem a «' + profile.name + '».'
+                    : 'En aquesta partida hem arribat a «' + profile.name + '».';
+            const owner = profile.color ? 'El pla és de ' + player + ', amb ' + side + '. ' : '';
+            memory.explained.push(idea);
+            memory.counts[color]++;
+            memory.lastPly = c.ply;
+            return { memory, turns: [
+                { role: 'presenter', text: solo + ' Quin sentit té aquest pla?', solo },
+                { role: 'analyst', text: owner + profile.strength }
+            ] };
+        }
+        // Seguir o abandonar la teoria no justifica repetir el nom i el pla.
+        // Les jugades següents reben el comentari tàctic habitual.
+        if (!memory.seen.length && !memory.unidentified && c.ply >= 7 && !c.prepared && c.moveIdea) {
             const solo = 'Encara no tenim un nom d’obertura verificat per a aquesta seqüència.';
-            turns = [
+            memory.unidentified = true;
+            return { memory, turns: [
                 { role: 'presenter', text: solo + ' Què ens diu la jugada?', solo },
                 { role: 'analyst', text: c.moveIdea }
-            ];
-            memory.unidentified = true;
+            ] };
         }
-        if (turns) memory.lastPly = c.ply;
-        return { memory, ...(turns ? { turns } : {}) };
+        return { memory };
     }
 
     function scene(options){
