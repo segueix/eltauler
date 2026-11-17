@@ -120,8 +120,9 @@ abandonar), una altra amb 41 semijugades seguides sense captures ni peons. Ara (
   premia avançar peons (sobretot passats), escacs, amenaces, acostar-se al rei i activar el
   rei als finals, i que castiga desfer la jugada anterior i repetir posicions; conserva la
   meitat del perfil propi. Lozza no dona alternatives (ni `MultiPV` ni `searchmoves`):
-  calcula 2 nivells més profund i amb un 50 % més de temps. L'Èlia i en Grau ho anuncien un
-  cop i la fitxa del jugador ho diu.
+  calcula 2 nivells més profund i amb un 50 % més de temps. Un cop un jugador hi entra, s'hi
+  queda fins al final de la partida. L'Èlia i en Grau ho anuncien un cop i la fitxa del
+  jugador ho diu.
 - **Defalliment** (`SLUMP`, `tvPlanSlump`, `tvSlumpSide`): a l'inici de cada partida es
   decideix a l'atzar si n'hi haurà (3 de cada 4 partides), quin dels dos jugadors el patirà i
   a partir de quina semijugada (entre la 30 i la 60). Des d'aquell moment, si juga amb

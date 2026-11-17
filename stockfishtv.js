@@ -1049,7 +1049,9 @@
     // Fase d'atac de la lliga: decideix si el bàndol que mou ha d'arriscar per
     // desencallar la partida i amb quin perfil. Retorna null o
     // { reason, style, windowCp, context, depthBonus, movetimeFactor }.
-    // ctx = { ChessCtor, fen, ply, startFen, history (UCI), baseStyle }
+    // ctx = { ChessCtor, fen, ply, startFen, history (UCI), baseStyle, force }
+    // `force` (un motiu ja vist) la manté activa: un cop comença, dura fins al
+    // final de la partida, com diu l'anunci de l'Èlia i en Grau.
     function tvLateAttack(ctx) {
         const c = ctx || {};
         const L = TV_CONFIG.LATE_ATTACK;
@@ -1068,7 +1070,7 @@
             }
             repeated = count >= 2;
         } catch (err) { repeated = false; }
-        const reason = c.ply >= L.ALWAYS_FROM_PLY ? 'long'
+        const reason = c.force ? c.force : c.ply >= L.ALWAYS_FROM_PLY ? 'long'
             : c.ply >= L.FROM_PLY && halfmoves >= L.STALL_HALFMOVES ? 'stalled'
             : c.ply >= L.REPEAT_FROM_PLY && repeated ? 'repetition' : null;
         if (!reason) return null;
@@ -4835,7 +4837,9 @@
             if (side && side.slumped && !g.slumped) g.slumped = { color: color, fromPly: g.matchPlan.slump.fromPly };
             // Si la partida s'encalla, fase d'atac: Stockfish arrisca amb un perfil de
             // progrés i un marge més ample; Lozza calcula més profund.
-            const late = side ? tvLateAttack({ ChessCtor: d.ChessCtor, fen: fen, ply: ply, startFen: g.startFen, history: uciMoves, baseStyle: side.style }) : null;
+            // Un cop un bàndol hi ha entrat, s'hi queda (la fitxa i l'anunci ho diuen així).
+            const late = side ? tvLateAttack({ ChessCtor: d.ChessCtor, fen: fen, ply: ply, startFen: g.startFen, history: uciMoves,
+                baseStyle: side.style, force: g.attack && g.attack[color] ? g.attack[color] : null }) : null;
             if (late) {
                 g.attack = Object.assign({}, g.attack || {});
                 if (!g.attack[color]) g.attack[color] = late.reason;
