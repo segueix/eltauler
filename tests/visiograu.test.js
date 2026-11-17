@@ -103,13 +103,15 @@ describe('la intenció de cada jugada, sense caselles', () => {
 });
 
 describe('el pla d’en Grau', () => {
-    test('l’Èlia diu la jugada i pregunta; en Grau explica dues jugades de cada bàndol i la lògica', () => {
+    test('l’Èlia pregunta pel temps guanyat i en Grau explica el perquè abans de llegir la variant', () => {
         const { ctx, memory } = ctxAfter(RUY, RUY_PV);
         const p = V.plan(ctx, memory);
         expect(p).not.toBeNull();
         expect(p.turns[0].role).toBe('presenter');
         expect(p.turns[0].text.startsWith('Les blanques porten el cavall a f3.')).toBe(true);
-        expect(p.turns[0].text.endsWith('?')).toBe(true);
+        expect(p.turns[0].text).toMatch(/guanyaria un temps|guanyaria temps/);
+        expect(p.turns[1].text).toMatch(/guanyar un temps|guanyarien un temps/);
+        expect(p.turns[1].text).not.toMatch(/cavall de la dama/);
         expect(p.turns[0].solo).not.toMatch(/\?$/);
         const grau = grauText(p.turns);
         expect(grau).not.toMatch(SQUARE);
@@ -179,9 +181,9 @@ describe('el pla d’en Grau', () => {
         }
         return { san: ctx.move.san, plan: V.plan(ctx, memory) };
     }
-    // Els textos del tema de material (l'última resposta d'en Grau).
+    // La resposta estratègica es dona abans de la variant.
     const GAIN = /guanyen (un|una|la|dos|tres) |de més|guany net per a /;
-    const logicText = turns => turns.filter(t => t.role === 'analyst').slice(-1).map(t => t.text).join(' ');
+    const logicText = turns => turns.find(t => t.role === 'analyst').text;
 
     test('una recaptura no es presenta com a material guanyat', () => {
         const { san, plan } = planAt(FIXTURES[0], 36);
@@ -239,7 +241,7 @@ describe('seguiment de la previsió', () => {
         expect(r.memory.forecast).toBeNull();
     });
 
-    test('si un bàndol se’n surt, en Grau diu què esperava Stockfish i què li costa', () => {
+    test('si un bàndol se’n surt, en Grau diu què esperava i què costa la desviació', () => {
         const r = play(planned(), ['d7d6'], ['d2d4']);
         expect(r.event).toEqual({ kind: 'miss', ply: 2, index: 0, expected: 'b8c6', side: 'b' });
         const fenPlan = ctxAfter(RUY, RUY_PV).ctx.fenAfter;
@@ -302,6 +304,11 @@ describe('integració amb la retransmissió', () => {
         }
         expect(plans).toBeGreaterThanOrEqual(20);
         expect(follows).toBeGreaterThanOrEqual(5);
+    });
+
+    test('en Grau presenta les valoracions i previsions amb veu pròpia', () => {
+        expect(grauTurns.some(text => /Veig la posició equilibrada|ho veig equilibrat|veig un lleuger avantatge/i.test(text))).toBe(true);
+        grauTurns.forEach(text => expect(text).not.toMatch(/\bStockfish\b/));
     });
 
     test('en Grau no diu mai cap casella', () => {
@@ -380,7 +387,7 @@ describe('integració amb la retransmissió', () => {
     test('varietat: les frases de lògica no es repeteixen seguides', () => {
         for (const g of FIXTURES) {
             const logic = simulate(g, 'mid').filter(r => r.dialogueEvent === 'plan')
-                .map(r => r.dialogue.filter(t => t.role === 'analyst').slice(-1)[0].text.split('. ')[0]);
+                .map(r => r.dialogue.find(t => t.role === 'analyst').text.split('. ')[0]);
             for (let i = 1; i < logic.length; i++) expect(logic[i]).not.toBe(logic[i - 1]);
         }
     });
@@ -438,12 +445,13 @@ describe('la veu de l’Èlia, també sense caselles', () => {
 describe('banc de textos', () => {
     test('totes les famílies tenen diverses maneres de dir-ho, i cap casella', () => {
         const T = V.TEXTS;
-        expect(T.PLAN_QUESTIONS.length).toBeGreaterThanOrEqual(12);
-        expect(T.WHY_QUESTIONS.length).toBeGreaterThanOrEqual(8);
+        for (const questions of Object.values(T.THEME_QUESTIONS)) {
+            expect(questions.length).toBeGreaterThanOrEqual(2);
+            questions.forEach(q => expect(q).toMatch(/\?$/));
+        }
         expect(T.LINE_OPENERS.length).toBeGreaterThanOrEqual(8);
         Object.keys(T.THEME_TEXTS).forEach(k => expect(T.THEME_TEXTS[k].length).toBeGreaterThanOrEqual(2));
-        const names = { me: 'les blanques', opp: 'les negres', S: 'les negres' };
-        T.PLAN_QUESTIONS.forEach(q => expect(q(names)).toMatch(/\?$/));
+        T.PROOF_QUESTIONS.forEach(q => expect(q).toMatch(/\?$/));
         T.HIT_QUESTIONS.forEach(q => expect(q({})).toMatch(/\?$/));
         T.MISS_QUESTIONS.forEach(q => expect(q({ side: 'les negres' })).toMatch(/\?$/));
         const p = { S: 'Les negres', s: 'les negres', Opp: 'Les blanques', opp: 'les blanques', oppAdj: 'blanc', word: 'un peó', because: '',

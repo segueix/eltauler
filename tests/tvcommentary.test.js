@@ -29,6 +29,30 @@ function simulateFixture(game, tier) {
     return TV.tvSimulateCommentary(Chess, { startFen: game.startFen, moves: game.moves, analyses: game.analyses, prepared: game.prepared, tier: tier || 'mid' });
 }
 
+describe('el fil principal durant la retransmissió', () => {
+    test('recupera el mateix peó passat quan el rei el bloqueja i quan deixa el pas lliure', () => {
+        const rows = simulateSan(['d6', 'Kf8', 'Kf1', 'Ke8', 'Ke1', 'Kd7', 'Ke2', 'Ke6'], {
+            startFen: '6k1/1p3ppp/8/2pP4/8/8/5PPP/R5K1 w - - 0 1'
+        });
+        expect(rows[0].kind).toBe('passed-advance');
+        expect(rows[5].dialogueEvent).toBe('defence');
+        expect(rows[5].dialogue[0].text).toMatch(/peó passat blanc.*Com el frenen/);
+        expect(rows[5].dialogue[1].text).toMatch(/el rei negre.*el bloqueja/);
+        expect(rows[7].dialogueEvent).toBe('transformed');
+        expect(rows[7].dialogue[0].text).toMatch(/peó passat blanc.*li ha obert el pas/);
+        expect(rows[7].dialogue[1].text).toContain('La casella del davant ha quedat lliure');
+    });
+
+    test('la pregunta sobre una alternativa rep la resposta tàctica de la variant', () => {
+        const game = FIXTURES[0];
+        const rows = TV.tvSimulateCommentary(Chess, { ...game, gameId: game.name });
+        const dilemma = rows[96];
+        expect(dilemma.dialogueEvent).toBe('variant');
+        expect(dilemma.dialogue[0].text).toMatch(/I si haguessin triat capturar l’alfil amb l’alfil, amb escac/);
+        expect(dilemma.dialogue[1].text).toMatch(/En la línia que analitzo, les negres recuperarien la peça/);
+    });
+});
+
 // ---------------------------------------------------------------------------
 // 1. Cobertura i proporció de comentaris explicatius
 // ---------------------------------------------------------------------------
@@ -273,7 +297,7 @@ describe('fets correctes i prudència', () => {
                 // que ja és al tauler. Les prediccions sí que demanen anàlisi.
                 const withoutMaterial = r.comment.replace(/han guanyat la qualitat \(torre per (?:alfil|cavall)\)/gi, '');
                 if (/guany|\bperd/.test(withoutMaterial) && !/Guanyen les/.test(r.comment))
-                    expect(r.comment).toMatch(/anàlisi/);
+                    expect(r.comment).toMatch(/anàlisi|\bveig\b|\bdiria\b/);
             });
         });
     });
