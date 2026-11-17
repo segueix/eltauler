@@ -1,0 +1,527 @@
+// ============================================================================
+// llegendes.js — «Lliga de llegendes TV»: 10 jugadors històrics, un motor per
+// a cada perfil, calendari de lliga doble i classificació.
+// ============================================================================
+// Aquest mòdul és LÒGICA PURA (sense DOM, xarxa ni motors): dades dels perfils,
+// calendari, classificació, rotació de lliga i textos amb els noms dels jugadors.
+// stockfishtv.js hi posa els motors i la partida.
+//
+// Els 10 jugadors són una tria editorial (campions que van definir com
+// s'entén el joc). Per canviar-ne un, n'hi ha prou amb editar LEGENDS.
+//
+// Cada perfil té:
+//   · engine: 'stockfish' o 'lozza', segons el que s'adapta millor al jugador.
+//     - Stockfish admet un perfil d'estil: entre les jugades gairebé iguals
+//       (MultiPV) tria la que encaixa amb `weights` (vegeu tvMoveFeatures).
+//     - Lozza, amb la cerca curta que fixa la TV, juga d'instint tàctic: és
+//       l'estil propi del motor i no se li aplica cap pes artificial.
+//     Tria de disseny, no mesurada: vegeu LLEGENDES.md.
+//   · weights: pesos dels trets de la jugada. Només actuen amb Stockfish (o si
+//     Lozza no es pot carregar i Stockfish el substitueix).
+//   · remarks: observacions curtes lligades a un fet comprovat de la jugada
+//     (escac, canvi, enroc…) que expliquen el tret històric del jugador.
+//
+// La lliga és de dues voltes (90 partides): cada parella es troba dues
+// vegades, una amb cada color. Són 18 jornades de 5 partides; l'ordre de les
+// jornades i de les parelles és aleatori, i dins la jornada es juga en ordre
+// aleatori. Quan tothom ha jugat dues vegades amb tothom, la lliga s'acaba, es
+// proclama el campió i en comença una de nova.
+//
+// Es carrega com a:
+//   - Navegador: <script src="llegendes.js"> → window.ElTaulerLlegendes
+//   - Node/Jest: require('./llegendes') → module.exports
+// ============================================================================
+(function (root, factory) {
+    const api = factory();
+    if (typeof module === 'object' && module.exports) module.exports = api;
+    else root.ElTaulerLlegendes = api;
+})(typeof self !== 'undefined' ? self : this, function () {
+    'use strict';
+
+    const VERSION = '1.0.0';
+    // Sense prefix chess_/eltauler_: la sincronització al núvol no la recull
+    // (com la resta de dades de la TV).
+    const KEY = 'tauler_tv_legends_v1';
+
+    const CONFIG = {
+        // Força de joc de tots els jugadors, de 0 a 1 sobre l'escala del motor.
+        // Mateixa relació que fa servir la TV per aparellar un nivell de
+        // Stockfish amb una profunditat de Lozza (vegeu tvMatchPlan). Tots dos
+        // juguen igual de fort: els distingeix el motor i el perfil.
+        POWER: 0.62,
+        PLAYERS: 10,
+        ROUNDS_PER_LEG: 9,
+        SEASON_GAMES: 90,
+        HISTORY: 12,
+        // Observacions durant la partida: no abans d'aquesta semijugada, amb
+        // aquesta distància entre dues i un màxim per partida.
+        REMARK_FIRST_PLY: 10,
+        REMARK_GAP_PLIES: 10,
+        REMARKS_PER_GAME: 6
+    };
+
+    const ENGINE_NAME = { stockfish: 'Stockfish', lozza: 'Lozza' };
+
+    // Cada `when` és un tret de tvMoveFeatures (vegeu TRAITS més avall).
+    const LEGENDS = Object.freeze([
+        {
+            id: 'morphy', name: 'Paul Morphy', short: 'Morphy', born: 1837, died: 1884, country: 'Estats Units',
+            bio: 'Nord-americà de Nova Orleans, considerat el campió del món no oficial a finals de la dècada de 1850.',
+            style: 'joc obert, desenvolupament ràpid i atac directe al rei',
+            engine: 'lozza', engineWhy: 'cerca curta i instint tàctic, com el seu atac ràpid', tactical: true,
+            weights: { check: 3, approach: 1.2, storm: 1, sacrifice: 1.2, development: 1.8, threat: 0.8, trade: -1, retreat: -0.8 },
+            remarks: [
+                { when: 'check', text: 'Morphy dona escac: l’atac directe al rei és el seu segell.' },
+                { when: 'development', text: 'Morphy desplega una peça: sempre va donar prioritat al desenvolupament ràpid.' },
+                { when: 'sacrifice', text: 'Morphy ofereix material: li agradava sacrificar per obrir línies contra el rei.' }
+            ]
+        },
+        {
+            id: 'steinitz', name: 'Wilhelm Steinitz', short: 'Steinitz', born: 1836, died: 1900, country: 'Àustria-Hongria',
+            bio: 'Primer campió oficial del món (1886–1894) i pare de l’escola posicional.',
+            style: 'acumula petits avantatges i construeix la posició pas a pas',
+            engine: 'stockfish', engineWhy: 'tria, entre jugades gairebé iguals, la més posicional', tactical: false,
+            weights: { centralization: 1.4, development: 1.4, castle: 1.5, quiet: 0.6, trade: 0.4, sacrifice: -2, storm: -1, check: -0.5, kingMove: -0.5 },
+            remarks: [
+                { when: 'centralization', text: 'Steinitz centralitza una peça: va ensenyar que la posició es construeix pas a pas.' },
+                { when: 'development', text: 'Steinitz desplega una peça: acumular petits avantatges era la base de la seva escola.' },
+                { when: 'trade', text: 'Steinitz canvia peces: el seu joc buscava conservar el petit avantatge que havia guanyat.' }
+            ]
+        },
+        {
+            id: 'lasker', name: 'Emanuel Lasker', short: 'Lasker', born: 1868, died: 1941, country: 'Alemanya',
+            bio: 'Campió del món durant 27 anys (1894–1921), el regnat més llarg de la història.',
+            style: 'lluita pràctica, defensa tenaç i problemes constants per al rival',
+            engine: 'lozza', engineWhy: 'cerca curta que crea complicacions tàctiques, com la seva lluita pràctica', tactical: false,
+            weights: { threat: 1.4, captureValue: 0.6, rookFile: 1, centralization: 0.6, check: 0.4, trade: -0.3 },
+            remarks: [
+                { when: 'threat', text: 'Lasker crea una amenaça: era un gran lluitador i plantejava problemes pràctics al rival.' },
+                { when: 'sacrifice', text: 'Lasker ofereix material: jugava tant contra el rival com contra la posició.' },
+                { when: 'rookFile', text: 'Lasker activa una torre: la defensa tenaç i el contraatac formaven part del seu joc.' }
+            ]
+        },
+        {
+            id: 'capablanca', name: 'José Raúl Capablanca', short: 'Capablanca', born: 1888, died: 1942, country: 'Cuba',
+            bio: 'Cubà, campió del món entre 1921 i 1927, mestre de la claredat i de la tècnica de final.',
+            style: 'claredat, simplificació i tècnica de final',
+            engine: 'stockfish', engineWhy: 'tria, entre jugades gairebé iguals, la que simplifica i aclareix', tactical: false,
+            weights: { trade: 1, tradeAhead: 2, tradeBehind: -1, centralization: 1, quiet: 0.6, rookFile: 1.2, development: 1, castle: 1.5, sacrifice: -2, storm: -1.2, check: -0.5 },
+            remarks: [
+                { when: 'trade', text: 'Capablanca canvia peces: era un mestre en simplificar cap a un final favorable.' },
+                { when: 'centralization', text: 'Capablanca centralitza una peça: la claredat posicional era el seu segell.' },
+                { when: 'rookFile', text: 'Capablanca activa una torre: la seva tècnica de final és llegendària.' }
+            ]
+        },
+        {
+            id: 'alekhine', name: 'Alexander Alekhine', short: 'Alekhine', born: 1892, died: 1946, country: 'Rússia i França',
+            bio: 'Campió del món el 1927–1935 i el 1937–1946, temut pels atacs combinatoris.',
+            style: 'atacs combinatoris i complicacions profundes',
+            engine: 'lozza', engineWhy: 'cerca curta que busca combinacions, com els seus atacs', tactical: true,
+            weights: { threat: 1.6, check: 1.5, sacrifice: 1.5, approach: 1, storm: 0.8, captureValue: 0.5, trade: -1.2 },
+            remarks: [
+                { when: 'threat', text: 'Alekhine crea una amenaça: era un especialista en combinacions complicades.' },
+                { when: 'check', text: 'Alekhine dona escac: els seus atacs podien ser molt profunds.' },
+                { when: 'sacrifice', text: 'Alekhine ofereix material: no li feia por sacrificar per obtenir l’atac.' }
+            ]
+        },
+        {
+            id: 'botvinnik', name: 'Mikhail Botvinnik', short: 'Botvinnik', born: 1911, died: 1995, country: 'Unió Soviètica',
+            bio: 'Campió del món en tres etapes entre 1948 i 1963 i impulsor de l’escola soviètica.',
+            style: 'preparació sistemàtica, joc estratègic i control del centre',
+            engine: 'stockfish', engineWhy: 'tria, entre jugades gairebé iguals, la més estratègica', tactical: false,
+            weights: { development: 1.5, centralization: 1.4, rookFile: 1.8, castle: 1, quiet: 0.4, trade: 0.3, sacrifice: -1 },
+            remarks: [
+                { when: 'rookFile', text: 'Botvinnik activa una torre: la preparació sistemàtica era el segell de l’escola soviètica.' },
+                { when: 'centralization', text: 'Botvinnik centralitza una peça: buscava el control del centre abans d’atacar.' },
+                { when: 'castle', text: 'Botvinnik enroca: prioritzava una posició sòlida abans de llançar-se a l’atac.' }
+            ]
+        },
+        {
+            id: 'fischer', name: 'Bobby Fischer', short: 'Fischer', born: 1943, died: 2008, country: 'Estats Units',
+            bio: 'Nord-americà, va guanyar el títol mundial el 1972 a Reykjavík.',
+            style: 'precisió, obertures ben preparades i joc directe',
+            engine: 'stockfish', engineWhy: 'juga amb precisió i tria jugades directes', tactical: false,
+            weights: { development: 1.5, castle: 1.5, centralization: 1, rookFile: 1, threat: 0.8, check: 0.2, trade: 0.4, sacrifice: -0.6 },
+            remarks: [
+                { when: 'development', text: 'Fischer desplega una peça: la seva preparació d’obertura era impecable.' },
+                { when: 'castle', text: 'Fischer enroca: la precisió en el desplegament era la base del seu joc.' },
+                { when: 'threat', text: 'Fischer crea una amenaça: jugava de manera directa i precisa.' }
+            ]
+        },
+        {
+            id: 'karpov', name: 'Anatoly Karpov', short: 'Karpov', born: 1951, died: null, country: 'Unió Soviètica i Rússia',
+            bio: 'Campió del món entre 1975 i 1985, conegut per l’estrangulament posicional.',
+            style: 'estrangulament posicional i prevenció del contrajoc',
+            engine: 'stockfish', engineWhy: 'tria, entre jugades gairebé iguals, la que restringeix el rival', tactical: false,
+            weights: { quiet: 1.2, centralization: 1.2, retreat: 0.8, kingMove: -1, storm: -1.5, sacrifice: -2.5, check: -1, trade: 0.5, development: 0.8, castle: 1.2 },
+            remarks: [
+                { when: 'quiet', text: 'Karpov fa una jugada tranquil·la: l’estrangulament posicional era la seva especialitat.' },
+                { when: 'centralization', text: 'Karpov centralitza una peça: restringia el joc rival a poc a poc.' },
+                { when: 'trade', text: 'Karpov canvia peces: simplificava quan això li treia el contrajoc al rival.' }
+            ]
+        },
+        {
+            id: 'kasparov', name: 'Garry Kasparov', short: 'Kasparov', born: 1963, died: null, country: 'Unió Soviètica i Rússia',
+            bio: 'Campió del món entre 1985 i 2000, conegut per l’energia i la preparació d’obertures.',
+            style: 'iniciativa, dinamisme i preparació d’obertures',
+            engine: 'lozza', engineWhy: 'cerca curta d’instint tàctic, com la seva iniciativa', tactical: true,
+            weights: { check: 1.5, storm: 1.5, sacrifice: 1, approach: 1.2, threat: 1, development: 1, trade: -0.8 },
+            remarks: [
+                { when: 'check', text: 'Kasparov dona escac: la iniciativa i el dinamisme definien el seu joc.' },
+                { when: 'sacrifice', text: 'Kasparov ofereix material: sabia sacrificar per mantenir la iniciativa.' },
+                { when: 'storm', text: 'Kasparov avança peons contra el rei rival: l’atac dinàmic era el seu estil.' }
+            ]
+        },
+        {
+            id: 'carlsen', name: 'Magnus Carlsen', short: 'Carlsen', born: 1990, died: null, country: 'Noruega',
+            bio: 'Noruec, campió del món del 2013 al 2023 i amb el millor Elo mai registrat (2882).',
+            style: 'joc universal: pressiona posicions iguals i exprimeix els finals',
+            engine: 'stockfish', engineWhy: 'tria, entre jugades gairebé iguals, la més universal i flexible', tactical: false,
+            weights: { trade: 0.6, tradeAhead: 1.2, quiet: 0.8, centralization: 0.8, rookFile: 0.8, threat: 0.5, sacrifice: -1, storm: -0.4, development: 0.6 },
+            remarks: [
+                { when: 'trade', text: 'Carlsen canvia peces: és conegut per exprimir finals en posicions aparentment iguals.' },
+                { when: 'rookFile', text: 'Carlsen activa una torre: la seva tècnica de final és molt reconeguda.' },
+                { when: 'centralization', text: 'Carlsen centralitza una peça: un estil universal que s’adapta a cada posició.' }
+            ]
+        }
+    ]);
+    const BY_ID = {};
+    LEGENDS.forEach(p => { BY_ID[p.id] = p; });
+    const IDS = LEGENDS.map(p => p.id);
+
+    // Condicions sobre els trets de tvMoveFeatures (stockfishtv.js). Només
+    // fets comprovats amb chess.js: cap interpretació d'intencions.
+    const TRAITS = {
+        check: f => f.check === 1,
+        sacrifice: f => f.sacrifice === 1,
+        development: f => f.development === 1,
+        castle: f => f.castle === 1,
+        trade: f => f.trade === 1,
+        rookFile: f => f.rookFile >= 1,
+        centralization: f => f.centralization >= 1,
+        storm: f => f.storm === 1,
+        threat: f => f.threat >= 1,
+        quiet: f => f.quiet === 1 && f.centralization >= 1,
+        capture: f => f.captureValue >= 3,
+        promotion: f => f.promotion === 1
+    };
+
+    // ------------------------------------------------------------------
+    // Utilitats
+    // ------------------------------------------------------------------
+    function legend(id) { return Object.prototype.hasOwnProperty.call(BY_ID, id) ? BY_ID[id] : null; }
+    function isId(id) { return typeof id === 'string' && legend(id) !== null; }
+    function clone(x) { return JSON.parse(JSON.stringify(x)); }
+    function rnd(random) { return typeof random === 'function' ? random : Math.random; }
+    function shuffle(list, random) {
+        const r = rnd(random), a = list.slice();
+        for (let i = a.length - 1; i > 0; i--) {
+            const j = Math.floor(r() * (i + 1)) % (i + 1);
+            const t = a[i]; a[i] = a[j]; a[j] = t;
+        }
+        return a;
+    }
+    function pick(list, random) { return list[Math.floor(rnd(random)() * list.length) % list.length]; }
+    function de(name) { return /^[AEIOUÀÈÉÍÒÓÚ]/i.test(name) ? 'd’' + name : 'de ' + name; }
+    function fmt(n) { return String(n).replace('.', ','); }
+    function points(n) { return fmt(n) + (n === 1 ? ' punt' : ' punts'); }
+    const RESULTS = ['1-0', '0-1', '1/2'];
+
+    // Perfil públic d'un jugador (per a la interfície i les proves).
+    function roster() {
+        return LEGENDS.map(p => ({ id: p.id, name: p.name, short: p.short, born: p.born, died: p.died, country: p.country,
+            bio: p.bio, style: p.style, engine: p.engine, engineWhy: p.engineWhy, tactical: p.tactical }));
+    }
+
+    // ------------------------------------------------------------------
+    // Calendari: lliga doble tots contra tots (mètode del cercle)
+    // ------------------------------------------------------------------
+    // Cada jornada aparella tots els jugadors. A la segona volta es repeteixen
+    // les parelles amb els colors canviats: cada jugador té 9 partides amb
+    // blanques i 9 amb negres, i cada parella es troba dues vegades.
+    function buildFixtures(season, random) {
+        const ids = shuffle(IDS, random);
+        const n = ids.length;
+        let rot = ids.slice(1);
+        const legRounds = [];
+        for (let r = 0; r < n - 1; r++) {
+            const arr = [ids[0]].concat(rot);
+            const games = [];
+            for (let i = 0; i < n / 2; i++) {
+                const a = arr[i], b = arr[n - 1 - i];
+                games.push(((i + r) % 2 === 0) ? { white: a, black: b } : { white: b, black: a });
+            }
+            legRounds.push(games);
+            rot = [rot[rot.length - 1]].concat(rot.slice(0, -1));
+        }
+        const first = shuffle(legRounds, random);
+        const second = shuffle(legRounds, random).map(g => g.map(x => ({ white: x.black, black: x.white })));
+        const fixtures = [];
+        first.concat(second).forEach((games, k) => {
+            games.forEach((g) => {
+                fixtures.push({ id: season + ':' + g.white + '>' + g.black, round: k + 1, white: g.white, black: g.black,
+                    result: null, plies: 0, reason: '' });
+            });
+        });
+        return fixtures;
+    }
+
+    function newSeason(season, random) {
+        const s = Number.isSafeInteger(season) && season >= 1 ? season : 1;
+        return { version: 1, season: s, fixtures: buildFixtures(s, random), current: null, history: [], lastSeason: null };
+    }
+
+    function validFixtures(list, season) {
+        if (!Array.isArray(list) || list.length !== CONFIG.SEASON_GAMES) return false;
+        const pairs = new Set(), perRound = {};
+        for (const f of list) {
+            if (!f || !isId(f.white) || !isId(f.black) || f.white === f.black) return false;
+            if (f.id !== season + ':' + f.white + '>' + f.black) return false;
+            if (!Number.isInteger(f.round) || f.round < 1 || f.round > CONFIG.ROUNDS_PER_LEG * 2) return false;
+            if (f.result !== null && !RESULTS.includes(f.result)) return false;
+            pairs.add(f.white + '>' + f.black);
+            perRound[f.round] = (perRound[f.round] || 0) + 1;
+        }
+        if (pairs.size !== CONFIG.SEASON_GAMES) return false;
+        for (let r = 1; r <= CONFIG.ROUNDS_PER_LEG * 2; r++) if (perRound[r] !== CONFIG.PLAYERS / 2) return false;
+        return true;
+    }
+
+    function cleanHistory(list) {
+        return (Array.isArray(list) ? list : []).filter(h => h && Number.isSafeInteger(h.season) && isId(h.champion)
+            && typeof h.points === 'number' && isFinite(h.points)).slice(0, CONFIG.HISTORY)
+            .map(h => ({ season: h.season, champion: h.champion, points: h.points }));
+    }
+
+    function cleanLast(x) {
+        if (!x || !Number.isSafeInteger(x.season) || !isId(x.champion) || typeof x.points !== 'number' || !isFinite(x.points)) return null;
+        return { season: x.season, champion: x.champion, points: x.points, announced: x.announced === true };
+    }
+
+    // Estat desat → estat vàlid. Si el calendari no és coherent (o no hi ha
+    // res desat), comença una lliga nova sense perdre l'historial vàlid.
+    function normalize(raw, random) {
+        const src = raw && typeof raw === 'object' ? raw : null;
+        const season = src && Number.isSafeInteger(src.season) && src.season >= 1 ? src.season : 1;
+        const history = cleanHistory(src && src.history);
+        const last = cleanLast(src && src.lastSeason);
+        if (!src || src.version !== 1 || !validFixtures(src.fixtures, season)) {
+            const fresh = newSeason(season, random);
+            fresh.history = history;
+            fresh.lastSeason = last;
+            return fresh;
+        }
+        const fixtures = src.fixtures.map(f => ({ id: f.id, round: f.round, white: f.white, black: f.black,
+            result: f.result,
+            plies: Number.isSafeInteger(f.plies) && f.plies >= 0 ? f.plies : 0,
+            reason: typeof f.reason === 'string' ? f.reason.slice(0, 40) : '' }));
+        const current = typeof src.current === 'string' && fixtures.some(f => f.id === src.current && !f.result) ? src.current : null;
+        return { version: 1, season, fixtures, current, history, lastSeason: last };
+    }
+
+    // ------------------------------------------------------------------
+    // Classificació
+    // ------------------------------------------------------------------
+    function table(state) {
+        const rows = {};
+        IDS.forEach((id) => { rows[id] = { id, name: legend(id).name, short: legend(id).short, played: 0, wins: 0, draws: 0, losses: 0, points: 0 }; });
+        const h2h = {};
+        const give = (a, b, p) => { h2h[a + '|' + b] = (h2h[a + '|' + b] || 0) + p; };
+        ((state && state.fixtures) || []).forEach((f) => {
+            if (!f.result) return;
+            const w = rows[f.white], b = rows[f.black];
+            w.played++; b.played++;
+            if (f.result === '1-0') { w.wins++; b.losses++; w.points += 1; give(f.white, f.black, 1); }
+            else if (f.result === '0-1') { b.wins++; w.losses++; b.points += 1; give(f.black, f.white, 1); }
+            else { w.draws++; b.draws++; w.points += 0.5; b.points += 0.5; give(f.white, f.black, 0.5); give(f.black, f.white, 0.5); }
+        });
+        // Punts, després enfrontaments directes, victòries i ordre alfabètic.
+        const out = IDS.map(id => rows[id]).sort((a, b) =>
+            b.points - a.points
+            || (h2h[b.id + '|' + a.id] || 0) - (h2h[a.id + '|' + b.id] || 0)
+            || b.wins - a.wins
+            || a.short.localeCompare(b.short, 'ca'));
+        out.forEach((r, i) => { r.rank = i + 1; });
+        return out;
+    }
+
+    function progress(state) {
+        const fixtures = (state && state.fixtures) || [];
+        const played = fixtures.filter(f => f.result).length;
+        const pending = fixtures.filter(f => !f.result);
+        const round = pending.length ? Math.min.apply(null, pending.map(f => f.round)) : CONFIG.ROUNDS_PER_LEG * 2;
+        const inRound = fixtures.filter(f => f.round === round);
+        return { season: state ? state.season : 1, round, rounds: CONFIG.ROUNDS_PER_LEG * 2,
+            played, total: fixtures.length, roundPlayed: inRound.filter(f => f.result).length, roundTotal: inRound.length };
+    }
+
+    // ------------------------------------------------------------------
+    // Partits: el següent (aleatori dins la jornada) i el resultat
+    // ------------------------------------------------------------------
+    function publicFixture(f) { return { id: f.id, round: f.round, white: f.white, black: f.black }; }
+
+    // Tria a l'atzar una de les partides pendents de la jornada en curs. Es
+    // recorda fins que es juga, perquè reobrir la TV no canviï el partit.
+    function pickFixture(state, random) {
+        let s = clone(state);
+        let pending = s.fixtures.filter(f => !f.result);
+        if (!pending.length) { s = normalize(null, random); pending = s.fixtures.slice(); }
+        const round = Math.min.apply(null, pending.map(f => f.round));
+        const inRound = pending.filter(f => f.round === round);
+        let f = inRound.find(x => x.id === s.current);
+        if (!f) { f = pick(inRound, random); s.current = f.id; }
+        return { state: s, fixture: publicFixture(f) };
+    }
+
+    // «Nova partida»: la que estava en curs no es juga; se'n torna a triar una.
+    function skipCurrent(state) {
+        const s = clone(state);
+        s.current = null;
+        return s;
+    }
+
+    // Anota el resultat d'una partida. Retorna l'estat nou i què ha passat:
+    // { recorded, roundDone, finished } on `finished` (si la lliga s'ha acabat)
+    // porta { season, champion, points, table }. Llavors `state` ja és la lliga
+    // nova (el calendari nou s'ordena amb `random`).
+    function record(state, fixtureId, outcome, random) {
+        const s = clone(state);
+        const f = s.fixtures.find(x => x.id === fixtureId);
+        const result = outcome && outcome.result;
+        if (!f || f.result || !RESULTS.includes(result)) return { state: s, recorded: false, roundDone: false, finished: null };
+        f.result = result;
+        f.plies = Number.isSafeInteger(outcome.plies) && outcome.plies >= 0 ? outcome.plies : 0;
+        f.reason = typeof outcome.reason === 'string' ? outcome.reason.slice(0, 40) : '';
+        if (s.current === f.id) s.current = null;
+        const roundDone = s.fixtures.filter(x => x.round === f.round).every(x => x.result);
+        if (!s.fixtures.every(x => x.result)) return { state: s, recorded: true, roundDone, finished: null };
+        const rows = table(s);
+        const champion = rows[0];
+        const finished = { season: s.season, champion: champion.id, points: champion.points, table: rows };
+        const next = newSeason(s.season + 1, random);
+        next.history = [{ season: s.season, champion: champion.id, points: champion.points }].concat(s.history).slice(0, CONFIG.HISTORY);
+        next.lastSeason = { season: s.season, champion: champion.id, points: champion.points, announced: false };
+        return { state: next, recorded: true, roundDone: true, finished };
+    }
+
+    // La presentació de la lliga nova ja ha esmentat el campió anterior.
+    function markAnnounced(state) {
+        const s = clone(state);
+        if (s.lastSeason) s.lastSeason.announced = true;
+        return s;
+    }
+
+    // ------------------------------------------------------------------
+    // Textos: presentació, resultat i observacions durant la partida
+    // ------------------------------------------------------------------
+    function rankOf(rows, id) { const r = rows.find(x => x.id === id); return r || null; }
+
+    // Presentació d'una partida: lliga, jornada, noms i colors, i un detall que
+    // va canviant (estils, classificació, motors o campió de la lliga anterior).
+    function intro(ctx) {
+        const c = ctx || {};
+        const W = legend(c.white), B = legend(c.black);
+        if (!W || !B) return 'Comença una partida de la lliga de llegendes.';
+        const seq = Number.isInteger(c.seq) ? c.seq : 1;
+        const engines = c.engines || { w: W.engine, b: B.engine };
+        const rows = Array.isArray(c.table) ? c.table : [];
+        const season = c.season || 1, round = c.round || 1, rounds = c.rounds || CONFIG.ROUNDS_PER_LEG * 2;
+        const heads = [
+            'Lliga de llegendes, lliga ' + season + ', jornada ' + round + ' de ' + rounds + ': ' + W.short + ' amb les blanques contra ' + B.short + '.',
+            'Jornada ' + round + ' de la lliga ' + season + ': ' + W.short + ' porta les blanques i ' + B.short + ', les negres.',
+            'Torna la lliga de llegendes, jornada ' + round + ': les blanques són ' + de(W.short) + ' i les negres, ' + de(B.short) + '.'
+        ];
+        const head = heads[((seq % heads.length) + heads.length) % heads.length];
+        const details = [];
+        if (c.lastSeason && !c.lastSeason.announced && legend(c.lastSeason.champion)) {
+            details.push('Acaba de començar una lliga nova: la lliga ' + c.lastSeason.season + ' va ser per a '
+                + legend(c.lastSeason.champion).short + ', amb ' + points(c.lastSeason.points) + '.');
+        } else {
+            details.push(W.short + ': ' + W.style + '. ' + B.short + ': ' + B.style + '.');
+            const rw = rankOf(rows, W.id), rb = rankOf(rows, B.id);
+            if (rw && rb && (rw.played || rb.played)) {
+                details.push(W.short + ' és al lloc ' + rw.rank + ' de la classificació amb ' + points(rw.points)
+                    + '; ' + B.short + ', al lloc ' + rb.rank + ' amb ' + points(rb.points) + '.');
+            }
+            details.push(W.short + ' juga amb ' + ENGINE_NAME[engines.w] + '; ' + B.short + ', amb ' + ENGINE_NAME[engines.b] + '.');
+        }
+        // El detall gira a part del començament: es recorren totes les combinacions.
+        const k = Math.max(0, Math.floor((seq - 1) / heads.length)) % details.length;
+        return head + ' ' + details[k];
+    }
+
+    // Resum curt en acabar la partida, amb la nova classificació.
+    function resultNote(ctx) {
+        const c = ctx || {};
+        const W = legend(c.white), B = legend(c.black);
+        if (!W || !B || !RESULTS.includes(c.result)) return '';
+        const rows = Array.isArray(c.table) ? c.table : [];
+        const before = Array.isArray(c.before) ? c.before : [];
+        const parts = [];
+        if (c.result === '1/2') parts.push('Taules: mig punt per a cadascú.');
+        else {
+            const win = c.result === '1-0' ? W : B, lose = c.result === '1-0' ? B : W;
+            parts.push('Victòria ' + de(win.short) + ' davant ' + de(lose.short) + '.');
+            const now = rankOf(rows, win.id), was = rankOf(before, win.id);
+            if (now) {
+                if (now.rank === 1) parts.push(win.short + ' lidera la lliga amb ' + points(now.points) + '.');
+                else if (was && was.rank > now.rank) parts.push(win.short + ' puja al lloc ' + now.rank + ' amb ' + points(now.points) + '.');
+                else parts.push(win.short + ' és al lloc ' + now.rank + ' amb ' + points(now.points) + '.');
+            }
+        }
+        if (c.roundDone) parts.push('Acaba la jornada ' + c.round + '.');
+        if (c.finished && legend(c.finished.champion)) {
+            parts.push('Acaba la lliga ' + c.finished.season + ': ' + legend(c.finished.champion).short
+                + ' és el campió amb ' + points(c.finished.points) + '. Comença la lliga ' + (c.finished.season + 1) + '.');
+        }
+        return parts.join(' ');
+    }
+
+    // Una línia sobre el motor i el perfil del jugador (informació fixa).
+    function profileLine(id, engine) {
+        const p = legend(id);
+        if (!p) return '';
+        const e = engine || p.engine;
+        if (e === p.engine) return p.short + ' juga amb ' + ENGINE_NAME[e] + ': ' + p.engineWhy + '.';
+        return p.short + ' juga amb ' + ENGINE_NAME[e] + ', amb el perfil següent: ' + p.style + '.';
+    }
+
+    function emptyRemarkMemory() { return { last: -100, count: 0, profile: { w: false, b: false }, used: [] }; }
+
+    // Observació sobre el jugador que acaba de moure: primer el seu motor i
+    // perfil (informació fixa) i, després, un tret històric quan la jugada ho
+    // confirma (comprovat amb chess.js). Mai no diu caselles ni inventa plans.
+    // ctx = { ply, color, features, ids: {w,b}, engines: {w,b}, prepared, end }
+    function remark(ctx, memory) {
+        const c = ctx || {};
+        const m = Object.assign(emptyRemarkMemory(), memory || {});
+        m.profile = Object.assign({ w: false, b: false }, m.profile || {});
+        m.used = Array.isArray(m.used) ? m.used.slice() : [];
+        const none = { memory: m, remark: null };
+        if (c.end || c.prepared || !Number.isInteger(c.ply) || !['w', 'b'].includes(c.color)) return none;
+        if (c.ply < CONFIG.REMARK_FIRST_PLY || c.ply - m.last < CONFIG.REMARK_GAP_PLIES || m.count >= CONFIG.REMARKS_PER_GAME) return none;
+        const p = legend(c.ids && c.ids[c.color]);
+        if (!p) return none;
+        const engine = c.engines && c.engines[c.color] ? c.engines[c.color] : p.engine;
+        let text = null, kind = null;
+        if (!m.profile[c.color]) {
+            text = profileLine(p.id, engine);
+            kind = 'profile';
+            m.profile[c.color] = true;
+        } else if (c.features) {
+            const r = p.remarks.find(x => TRAITS[x.when] && TRAITS[x.when](c.features) && !m.used.includes(p.id + ':' + x.when));
+            if (r) { text = r.text; kind = 'trait'; m.used.push(p.id + ':' + r.when); }
+        }
+        if (!text) return none;
+        m.last = c.ply;
+        m.count++;
+        return { memory: m, remark: { text, kind, color: c.color, id: p.id } };
+    }
+
+    return {
+        VERSION, KEY, CONFIG, LEGENDS, IDS, ENGINE_NAME, TRAITS,
+        legend, roster, buildFixtures, newSeason, normalize, table, progress,
+        pickFixture, skipCurrent, record, markAnnounced,
+        intro, resultNote, profileLine, remark, emptyRemarkMemory, de, points
+    };
+});

@@ -17,7 +17,7 @@ dos enllaços).
   `UCI_LimitStrength` i `UCI_Elo` 1320–3190, que Stockfish calibra amb l'Elo
   CCRL de partides ràpides entre motors.
 - On es fa servir: Stockfish 19 és l'única versió de Stockfish a
-  **Stockfish vs Lozza TV**, al **generador de jeroglífics** i al
+  **Lliga de llegendes TV**, al **generador de jeroglífics** i al
   **Rival Antídot**. També cerca les jugades del **rival de les partides amb
   rellotge** (worker propi, força calibrada perquè cada ROC jugui com abans;
   vegeu `ANALISI_RELLOTGE.md` §16) i del **rival de lliga**, també sense

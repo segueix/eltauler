@@ -12,7 +12,7 @@ Els patrons geomètrics no afirmen que la jugada guanyi material ni que la combi
 
 ## On s'utilitzen
 
-- **Stockfish vs Lozza TV**: candidats explicatius posicionals de prioritat moderada que no desplacen els comentaris crítics de mat, forquilla, amenaça o error important.
+- **Lliga de llegendes TV**: candidats explicatius posicionals de prioritat moderada que no desplacen els comentaris crítics de mat, forquilla, amenaça o error important.
 - **Partides i entrenaments**: `gamebroadcast.js` i `boardexperience.js` afegeixen un comentari sobre patrons verificats **després** del moviment que ha fet el jugador; no revelen la resposta del rival ni interfereixen amb el rellotge.
 - **Jeroglífics**: `jeropedagogia.js` recomputa els detectors després de cada jugada legal del jugador en la línia certificada per `hieroclosure.js`. Només es revelen els patrons del pas ja resolt; en acabar s'expliquen tots tres passos.
 

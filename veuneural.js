@@ -16,8 +16,8 @@
 //
 // És una veu EN LÍNIA: el text que es llegeix s'envia al servidor del BSC.
 // Si no hi ha xarxa, el servei dorm o triga massa, qui la fa servir torna a
-// la veu del dispositiu (i durant un minut no s'hi torna a provar). Stockfish
-// vs Lozza TV, en canvi, atura la partida i hi torna a provar (speak amb
+// la veu del dispositiu (i durant un minut no s'hi torna a provar). La Lliga
+// de llegendes TV, en canvi, atura la partida i hi torna a provar (speak amb
 // force) fins que Matxa respon; una síntesi correcta acaba la pausa.
 //
 // Es carrega com a:

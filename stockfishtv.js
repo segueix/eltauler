@@ -1,10 +1,15 @@
 // ============================================================================
-// stockfishtv.js — «Stockfish vs Lozza TV»: duel amb anàlisi de Stockfish
+// stockfishtv.js — «Lliga de llegendes TV»: partides amb anàlisi de Stockfish
 // ============================================================================
-// Cada dispositiu GENERA la seva pròpia partida en temps real (no és cap
-// emissió compartida): Stockfish juga contra Lozza, amb nivells adaptatius i una anàlisi
-// independent sense límit de força i comentaris breus en català basats en
-// fets verificats (regles amb chess.js i anàlisi fiable del motor).
+// Cada dispositiu GENERA les seves pròpies partides en temps real (no és cap
+// emissió compartida): els 10 jugadors històrics de llegendes.js fan una lliga
+// de dues voltes. Cada jugador té el seu motor (Stockfish o Lozza), el seu
+// perfil de joc i el seu nivell; una anàlisi independent sense límit de força
+// i comentaris breus en català basats en fets verificats (regles amb chess.js
+// i anàlisi fiable del motor) expliquen cada partida i en diuen els noms.
+//
+// Mode heretat: si no es passa el mòdul de llegendes (llegendes.js no s'ha
+// carregat), la TV torna al duel Stockfish contra Lozza amb nivells adaptatius.
 //
 // Peces del mòdul:
 //   · LÒGICA PURA (exportada a Node per als tests): lectura de les opcions
@@ -764,8 +769,15 @@
         };
     }
 
+    // Un perfil és un id de TV_STYLES o un objecte { label, weights } (els
+    // perfils dels jugadors de la lliga de llegendes duen els seus pesos).
+    function tvStyleProfile(style) {
+        if (style && typeof style === 'object') return style.weights && typeof style.weights === 'object' ? style : null;
+        return Object.prototype.hasOwnProperty.call(TV_STYLES, style) ? TV_STYLES[style] : null;
+    }
+
     function tvStyleScore(style, features) {
-        const profile = TV_STYLES[style];
+        const profile = tvStyleProfile(style);
         if (!profile || !features) return 0;
         return Object.keys(profile.weights).reduce((sum, k) => sum + profile.weights[k] * (features[k] || 0), 0);
     }
@@ -779,7 +791,7 @@
     function tvPickStyledMove(ChessCtor, fen, infos, levelUci, style, windowCp) {
         const lines = Object.keys(infos || {}).map(k => infos[k]).filter(i => i && i.pv && i.pv.length);
         const base = { uci: levelUci, changed: false, score: null };
-        if (!levelUci || !TV_STYLES[style] || !lines.length) return base;
+        if (!levelUci || !tvStyleProfile(style) || !lines.length) return base;
         const own = lines.find(i => i.pv[0] === levelUci);
         if (!own || own.type !== 'cp' || lines.some(i => i.type === 'mate')) return base;
         const win = isNum(windowCp) ? windowCp : TV_CONFIG.STYLE_WINDOW_CP;
@@ -919,6 +931,46 @@
         if (!level) return null;
         const turn = String(fen || '').split(' ')[1] === 'b' ? 'b' : 'w';
         return level.sides ? level.sides[turn] : level.value;
+    }
+
+    // ------------------------------------------------------------------
+    // Lliga de llegendes: la configuració de cada jugador (llegendes.js)
+    // ------------------------------------------------------------------
+    // Motor, nivell i perfil d'un jugador. `power` (0–1) situa el nivell dins
+    // l'escala del motor; amb Lozza es converteix en profunditat i temps de
+    // cerca amb la mateixa relació que fa servir tvMatchPlan. Si Lozza no està
+    // disponible, el jugador juga amb Stockfish i amb els pesos del seu perfil.
+    function tvLegendSide(caps, player, lozzaReady, power) {
+        const ratio = isNum(power) ? clamp(power, 0, 1) : 0.62;
+        const engine = player.engine === 'lozza' && lozzaReady ? 'lozza' : 'stockfish';
+        let level = null;
+        if (caps && caps.mode === 'elo') level = tvSnapLevel(caps, clamp(Math.round(caps.min + ratio * (caps.max - caps.min)), caps.min, caps.max));
+        else if (caps && caps.mode === 'skill') level = clamp(Math.round((caps.min + ratio * (caps.max - caps.min)) / caps.step) * caps.step, caps.min, caps.max);
+        const style = engine === 'stockfish' && caps && caps.mode !== 'none' && player.weights
+            ? { id: player.id, label: player.short, weights: player.weights } : null;
+        return { id: player.id, name: player.short, engine: engine, preferred: player.engine, level: level,
+            depth: clamp(3 + Math.round(ratio * 5), 2, TV_CONFIG.LOZZA_MAX_DEPTH),
+            movetime: 110 + Math.round(ratio * 150), style: style };
+    }
+
+    // Nivell «de la partida» de la lliga: la mitjana dels nivells de Stockfish
+    // (per als llindars d'abandonament). Els nivells de cada bàndol són al pla.
+    function tvLegendLevel(caps, plan) {
+        const vals = ['w', 'b'].map(c => plan.sides[c].level).filter(isNum);
+        const value = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+        return { value: value, sides: null, stronger: null,
+            label: { short: 'Lliga de llegendes', long: 'Lliga de llegendes: cada jugador té el seu motor, el seu nivell i el seu perfil' },
+            reveal: null, mode: caps ? caps.mode : 'none', stockfish: null };
+    }
+
+    // Pla d'una partida de la lliga: qui juga, amb quin motor, nivell i perfil.
+    function tvLegendPlan(LG, fixture, caps, lozzaReady) {
+        const W = LG.legend(fixture.white), B = LG.legend(fixture.black);
+        const power = LG.CONFIG.POWER;
+        const sides = { w: tvLegendSide(caps, W, lozzaReady, power), b: tvLegendSide(caps, B, lozzaReady, power) };
+        return { legends: true, fixture: fixture, round: fixture.round, ids: { w: W.id, b: B.id },
+            names: { w: W.short, b: B.short }, engines: { w: sides.w.engine, b: sides.b.engine }, sides: sides,
+            sharp: !!(W.tactical || B.tactical), untilMate: false, reason: '' };
     }
 
     // «Massa fàcil» puja el nivell; «Massa difícil» l'abaixa. Retorna les
@@ -1070,11 +1122,13 @@
         return null;
     }
 
-    function tvResultHeadline(end) {
+    // Amb `names` ({ w, b }, a la lliga de llegendes) diu qui guanya pel nom.
+    function tvResultHeadline(end, names) {
         if (!end) return '';
-        if (end.result === '1-0') return '1-0 · Guanyen les blanques';
-        if (end.result === '0-1') return '0-1 · Guanyen les negres';
-        return '½-½ · Taules';
+        const named = !!(names && names.w && names.b);
+        if (end.result === '1-0') return named ? '1-0 · Guanya ' + names.w : '1-0 · Guanyen les blanques';
+        if (end.result === '0-1') return named ? '0-1 · Guanya ' + names.b : '0-1 · Guanyen les negres';
+        return named ? '½-½ · Taules entre ' + names.w + ' i ' + names.b : '½-½ · Taules';
     }
 
     // ------------------------------------------------------------------
@@ -1592,6 +1646,8 @@
             conflicts: [], lastDialoguePly: -100, lastVariantPly: -100, questionIndex: null, conflictSeq: 0, dialogueFacts: {},
             // Previsions i plans d'en Grau (visiograu.js), també per desfer.
             visio: null,
+            // Observacions sobre els jugadors de la lliga de llegendes (llegendes.js).
+            legend: null,
             art: null // memòria de màximes, inclosa als estats per desfer
         };
     }
@@ -3480,10 +3536,38 @@
         }
         const artStep = tvArtStep(c, chosen, memory, candidates);
         chosen = artStep.comment;
-        // El que diu (i mostra) l'Èlia: intencions, sense caselles.
-        if (chosen && vision) chosen = Object.assign({}, chosen, { say: tvEliaSay(c, chosen, vision, artStep.memory) });
-        const next = tvCommitComment(artStep.memory, chosen, { ply: c.ply, fenAfter: c.fenAfter, move: c.move, candidates: candidates });
+        // Lliga de llegendes: una observació amb el nom del jugador que ha mogut.
+        const legendStep = tvLegendStep(c, chosen, artStep.memory);
+        chosen = legendStep.comment;
+        // El que diu (i mostra) l'Èlia: intencions, sense caselles. Les
+        // observacions dels jugadors ja són text parlat (no duen caselles).
+        if (chosen && vision && chosen.kind !== 'legend') chosen = Object.assign({}, chosen, { say: tvEliaSay(c, chosen, vision, legendStep.memory) });
+        const next = tvCommitComment(legendStep.memory, chosen, { ply: c.ply, fenAfter: c.fenAfter, move: c.move, candidates: candidates });
         return { comment: chosen, memory: next, candidates: candidates };
+    }
+
+    // Observació sobre el jugador que acaba de moure (lliga de llegendes). Només
+    // ocupa un silenci o una jugada de simple descripció: mai no substitueix un
+    // avís tàctic ni un diàleg. El fet que la motiva (escac, canvi, enroc…) es
+    // comprova amb chess.js (tvMoveFeatures); la resta és informació fixa del
+    // perfil. Sense `ctx.legends`, no fa res.
+    function tvLegendStep(ctx, chosen, memory) {
+        const L = ctx && ctx.legends;
+        if (!L || !L.api || typeof L.api.remark !== 'function' || !ctx.move || ctx.end || ctx.prepared) return { comment: chosen, memory: memory };
+        if (chosen && (chosen.kind !== 'describe' || chosen.dialogue)) return { comment: chosen, memory: memory };
+        let features = null;
+        try {
+            const mv = ctx.move;
+            features = tvMoveFeatures(ctx.ChessCtor, ctx.fenBefore, mv.from + mv.to + (mv.promotion || ''), null);
+        } catch (err) { features = null; }
+        const out = L.api.remark({ ply: ctx.ply, color: ctx.move.color, features: features, ids: L.ids, engines: L.engines,
+            prepared: !!ctx.prepared, end: !!ctx.end }, memory.legend);
+        const next = Object.assign({}, memory, { legend: out.memory });
+        if (!out.remark) return { comment: chosen, memory: next };
+        const text = out.remark.text;
+        return { comment: { kind: 'legend', text: text, leadText: text, say: text, family: 'legend',
+            variantId: out.remark.kind === 'profile' ? 0 : 1, explanatory: out.remark.kind === 'trait',
+            legend: { id: out.remark.id, kind: out.remark.kind } }, memory: next };
     }
 
     // Repassa una partida sencera amb el mateix pas de retransmissió (per a
@@ -4005,6 +4089,16 @@
         const random = d.random || Math.random;
         const view = d.view || {};
         const notify = (name, payload) => { try { if (typeof view[name] === 'function') view[name](payload); } catch (err) {} };
+        // Lliga de llegendes (llegendes.js). Sense el mòdul, la TV fa el duel heretat.
+        const LG = d.legends && typeof d.legends.pickFixture === 'function' ? d.legends : null;
+        let league = LG ? LG.normalize(typeof d.loadLeague === 'function' ? d.loadLeague() : null, random) : null;
+        function saveLeague() { if (LG && league && typeof d.saveLeague === 'function') { try { d.saveLeague(league); } catch (err) {} } }
+        function leagueView() {
+            const g = S.game;
+            return { season: league.season, progress: LG.progress(league), table: LG.table(league),
+                lastSeason: league.lastSeason ? Object.assign({}, league.lastSeason) : null, history: league.history.slice(),
+                fixture: g && g.matchPlan && g.matchPlan.legends ? Object.assign({}, g.matchPlan.fixture) : null };
+        }
 
         const S = {
             open: false,
@@ -4083,6 +4177,7 @@
                 unequal: prefs.unequal,
                 profiles: prefs.profiles,
                 untilMate: prefs.untilMate,
+                legends: league ? leagueView() : null,
                 lozzaReady: S.lozzaReady,
                 recentResults: g && g.matchPlan && g.matchPlan.untilMate ? prefs.mateRecent.slice()
                     : S.caps ? tvRivalryHistory(prefs.recent, S.caps) : prefs.recent.slice(),
@@ -4106,6 +4201,10 @@
                     styles: g.styles,
                     engines: g.engines,
                     matchPlan: g.matchPlan,
+                    names: g.matchPlan && g.matchPlan.legends ? g.matchPlan.names : null,
+                    leagueNote: g.leagueNote || '',
+                    finalTable: g.finalTable || null,
+                    finalSeason: g.finalSeason || null,
                     recorded: !!g.recorded,
                     hadManualControl: !!g.hadManualControl,
                     opening: g.opening ? { name: g.opening.name, eco: g.opening.eco, idea: g.opening.idea || null,
@@ -4158,7 +4257,8 @@
             if (g.startFen) return null;
             const lastPrepared = g.prepared.length - 1;
             const context = {
-                engines: g.engines, seed: g.opening, moveIdea: openingMoveIdea(move),
+                engines: g.engines, names: g.matchPlan && g.matchPlan.legends ? g.matchPlan.names : null,
+                seed: g.opening, moveIdea: openingMoveIdea(move),
                 preparedComplete: lastPrepared >= 0 && g.prepared.length === g.opening?.moves?.length &&
                     (ply === lastPrepared && !!prepared || g.moves[lastPrepared]?.prepared === true),
                 discoveries: []
@@ -4202,8 +4302,18 @@
             // aviat: les partides es decideixen abans sense tocar el nivell.
             const v = viewer();
             const target = tvResolveTarget(S.caps, v, prefs);
-            const untilMate = S.lozzaReady && prefs.untilMate;
-            const duel = untilMate ? tvMateMatch(prefs.mateSeries, random)
+            // Lliga de llegendes: el partit el decideix el calendari (aleatori
+            // dins de la jornada); els jugadors, els motors i els nivells, els perfils.
+            let fixture = null;
+            if (LG && league) {
+                const picked = LG.pickFixture(league, random);
+                league = picked.state;
+                fixture = picked.fixture;
+                saveLeague();
+            }
+            const untilMate = !fixture && S.lozzaReady && prefs.untilMate;
+            const duel = fixture ? tvLegendPlan(LG, fixture, S.caps, S.lozzaReady)
+                : untilMate ? tvMateMatch(prefs.mateSeries, random)
                 : S.lozzaReady ? tvMatchPlan(tvRivalryHistory(prefs.recent, S.caps), {
                 caps: S.caps, target: target.value, unequal: prefs.unequal,
                 gameSeq: S.gameSeq, random: random
@@ -4218,7 +4328,7 @@
             }
             S.control = null;
             const levels = duel ? null : tvGameLevels(S.caps, target.value, prefs.unequal, random);
-            const styles = !untilMate && prefs.profiles && S.caps && S.caps.mode !== 'none' ? tvPickStyles(random) : null;
+            const styles = !untilMate && !fixture && prefs.profiles && S.caps && S.caps.mode !== 'none' ? tvPickStyles(random) : null;
             const startFen = untilMate ? pick.opening.fen : undefined;
             S.game = {
                 id: ++S.gameSeq,
@@ -4228,7 +4338,7 @@
                 uci: [],
                 // El nivell queda FIXAT per a tota la partida. `value` és l'objectiu
                 // triat; `sides`, el de cada jugador (diferents amb nivells desiguals).
-                level: { value: target.value, sides: levels && levels.stronger ? { w: levels.w, b: levels.b } : null,
+                level: fixture ? tvLegendLevel(S.caps, duel) : { value: target.value, sides: levels && levels.stronger ? { w: levels.w, b: levels.b } : null,
                     stronger: levels ? levels.stronger : null,
                     label: untilMate ? { short: 'Fins al mat', long: 'Fins al mat' }
                         : duel ? tvLevelLabel(S.caps, target.value) : tvGameLevelLabel(S.caps, levels, target.value),
@@ -4256,14 +4366,22 @@
                 nextGameAt: null
             };
             if (d.engine) d.engine.newGame();
-            if (duel && d.lozzaEngine) d.lozzaEngine.newGame();
+            if (duel && S.lozzaReady && d.lozzaEngine) d.lozzaEngine.newGame();
             S.nextRevealAt = now() + TV_CONFIG.INTRO_DELAY_MS;
             // Presenta el repte del duel sense avançar les jugades dels motors.
             // El context prové exclusivament de les decisions ja preses
             // per tvMatchPlan, tvPickOpening i tvPickStyles.
             const I = getTvIntro();
-            if (I && typeof I.scene === 'function' && (duel || pick.opening)) {
-                const intro = I.scene({
+            let intro = null;
+            if (fixture) {
+                // Lliga de llegendes: els noms, els colors, la jornada i un detall.
+                intro = LG.intro({ white: duel.ids.w, black: duel.ids.b, season: league.season, round: duel.round,
+                    rounds: LG.progress(league).rounds, seq: S.game.id, engines: duel.engines,
+                    table: LG.table(league), lastSeason: league.lastSeason });
+                duel.reason = 'Lliga ' + league.season + ' · jornada ' + duel.round + ' de ' + LG.progress(league).rounds;
+                if (league.lastSeason && !league.lastSeason.announced) { league = LG.markAnnounced(league); saveLeague(); }
+            } else if (I && typeof I.scene === 'function' && (duel || pick.opening)) {
+                intro = I.scene({
                     gameSeq: S.game.id, duel: duel,
                     preparedPlies: S.game.prepared.length,
                     sharpOpening: tvIsSharpOpening(pick.opening),
@@ -4272,6 +4390,8 @@
                         (S.caps.mode === 'elo' || S.caps.mode === 'skill')),
                     styles: styles
                 });
+            }
+            if (intro) {
                 S.game.comment = { kind: 'intro', text: intro, speech: tvSpeechText(intro), ply: 0, gameId: S.game.id };
                 S.game.intro = S.game.comment;
                 S.nextRevealAt = Math.max(S.nextRevealAt, now() + tvReadingTimeMs(intro, v.tier));
@@ -4386,17 +4506,19 @@
             if (!engine) return null;
             const mate = g.matchPlan && g.matchPlan.untilMate ? g.matchPlan : null;
             const mode = S.caps ? S.caps.mode : 'none';
-            const movetime = mate ? mate.movetime : lozzaTurn ? g.matchPlan.lozzaMovetime : TV_CONFIG.PLAYER_MOVETIME_MS[mode] || 500;
-            const style = !lozzaTurn && g.styles ? g.styles[color] : null;
+            // Lliga de llegendes: cada jugador té el seu nivell, profunditat i perfil.
+            const side = g.matchPlan && g.matchPlan.legends ? g.matchPlan.sides[color] : null;
+            const movetime = mate ? mate.movetime : lozzaTurn ? (side ? side.movetime : g.matchPlan.lozzaMovetime) : TV_CONFIG.PLAYER_MOVETIME_MS[mode] || 500;
+            const style = side ? (lozzaTurn ? null : side.style) : (!lozzaTurn && g.styles ? g.styles[color] : null);
             const job = {
                 tag: { gameId: g.id, ply: ply, fen: fen, kind: 'move', engine: lozzaTurn ? 'lozza' : 'stockfish' },
                 position: tvPositionCommand(uciMoves, g.startFen),
                 strength: lozzaTurn ? [] : tvStrengthCommands(S.caps, mate ? 'analysis' : 'player',
-                    g.matchPlan ? g.matchPlan.stockfishLevel : tvSideLevel(g.level, fen)),
+                    side ? side.level : g.matchPlan ? g.matchPlan.stockfishLevel : tvSideLevel(g.level, fen)),
                 multipv: style ? TV_CONFIG.STYLE_MULTIPV : 1,
                 // Lozza no declara Skill Level ni UCI_Elo. La profunditat és un
                 // límit de càlcul, mai una valoració d'Elo equivalent.
-                go: mate || lozzaTurn ? 'go depth ' + (mate ? mate.depth : g.matchPlan.lozzaDepth) + ' movetime ' + movetime
+                go: mate || lozzaTurn ? 'go depth ' + (mate ? mate.depth : side ? side.depth : g.matchPlan.lozzaDepth) + ' movetime ' + movetime
                     : 'go movetime ' + movetime,
                 movetime: movetime
             };
@@ -4531,6 +4653,8 @@
                 before: before, after: after, tier: g.tier, prepared: !!prepared, phrase: prepared ? prepared.phrase : null,
                 end: end, ply: ply, memory: g.memory, expression: d.expression, narrative: d.narrative, quality: d.quality,
                 patterns: d.patterns, art: d.art, gameId: g.id, visio: d.visio,
+                legends: g.matchPlan && g.matchPlan.legends && LG ? { api: LG, ids: g.matchPlan.ids, engines: g.matchPlan.engines,
+                    names: g.matchPlan.names } : null,
                 opening: openingDialogueContext(g, mv, fenBefore, fenAfter, prepared)
             });
             return { ply: ply, fenAfter: fenAfter, end: end, chosen: step.comment, memory: step.memory,
@@ -4621,7 +4745,24 @@
         async function scheduleNextGame(g, epoch) {
             // Només compten partides íntegrament automàtiques i acabades.
             // El comptador és idempotent en pauses i reobertures.
-            if (g.end && !g.recorded && !g.hadManualControl && g.matchPlan) {
+            if (g.end && !g.recorded && !g.hadManualControl && g.matchPlan && g.matchPlan.legends && LG && league) {
+                // Lliga de llegendes: el resultat entra a la classificació. Quan
+                // tothom ha jugat dues vegades amb tothom, la lliga s'acaba i en comença una de nova.
+                g.recorded = true;
+                const plan = g.matchPlan;
+                const result = g.end.result === '1-0' ? '1-0' : g.end.result === '0-1' ? '0-1' : '1/2';
+                const outcome = LG.record(league, plan.fixture.id, { result: result, plies: g.moves.length, reason: g.end.reason }, random);
+                if (outcome.recorded) {
+                    const before = LG.table(league);
+                    const after = outcome.finished ? outcome.finished.table : LG.table(outcome.state);
+                    g.leagueNote = LG.resultNote({ white: plan.ids.w, black: plan.ids.b, result: result, round: plan.round,
+                        table: after, before: before, roundDone: outcome.roundDone, finished: outcome.finished });
+                    // L'última partida de la lliga: la classificació final es veu fins que comença la nova.
+                    if (outcome.finished) { g.finalTable = outcome.finished.table; g.finalSeason = outcome.finished.season; }
+                    league = outcome.state;
+                    saveLeague();
+                }
+            } else if (g.end && !g.recorded && !g.hadManualControl && g.matchPlan) {
                 g.recorded = true;
                 const winningColor = g.end.result === '1-0' ? 'w' : g.end.result === '0-1' ? 'b' : null;
                 const winner = winningColor ? g.engines[winningColor] : 'draw';
@@ -4752,6 +4893,8 @@
                 if (!S.open || !S.caps) return;
                 S.userPaused = false;
                 if (S.hidden) return;
+                // El partit de la lliga que estava en curs no es juga: se'n triarà un altre.
+                if (LG && league) { league = LG.skipCurrent(league); saveLeague(); }
                 startGame();
             },
             setSpeed(id) {
@@ -4870,6 +5013,7 @@
             currentFen() { return S.game ? S.game.chess.fen() : null; },
             isActive() { return S.open && !S.userPaused && !S.hidden; },
             // Per als tests i el diagnòstic.
+            _league: () => league,
             _internal: S
         };
         return api;
@@ -4909,6 +5053,16 @@
             const current = loadPrefsRaw() || {};
             localStorage.setItem(TV_CONFIG.PREFS_KEY, JSON.stringify(Object.assign({}, current, p)));
         } catch (e) {}
+    }
+    // La lliga de llegendes es desa a part, amb una clau sense prefix chess_/
+    // eltauler_ (la sincronització al núvol no la recull, com les preferències).
+    function loadLeagueRaw() {
+        const LG = root.ElTaulerLlegendes;
+        try { return JSON.parse(localStorage.getItem(LG ? LG.KEY : 'tauler_tv_legends_v1') || 'null'); } catch (e) { return null; }
+    }
+    function saveLeagueRaw(state) {
+        const LG = root.ElTaulerLlegendes;
+        try { localStorage.setItem(LG ? LG.KEY : 'tauler_tv_legends_v1', JSON.stringify(state)); } catch (e) {}
     }
 
     function escapeHtml(text) {
@@ -5419,14 +5573,19 @@
         const g = state.game;
         const levelText = g ? g.level.label.short : '—';
         const mate = g && g.matchPlan && g.matchPlan.untilMate ? g.matchPlan : null;
-        const nextMate = state.lozzaReady && state.untilMate;
+        const nextMate = !state.legends && state.lozzaReady && state.untilMate;
+        // Lliga de llegendes: cada bàndol és un jugador amb el seu motor, nivell i perfil.
+        const legends = g && g.matchPlan && g.matchPlan.legends ? g.matchPlan : null;
         const mine = (color) => !!(state.control && state.control.color === color);
         // Amb nivells desiguals, el nivell de cada bàndol només es veu en acabar.
-        const sideText = (color) => mate ? 'profunditat màxima ' + mate.depth : g && g.matchPlan
+        const sideText = (color) => mate ? 'profunditat màxima ' + mate.depth : legends
+            ? (g.engines[color] === 'lozza' ? 'profunditat ' + legends.sides[color].depth
+                : tvLevelLabel(caps, legends.sides[color].level).short)
+            : g && g.matchPlan
             ? (g.engines[color] === 'lozza' ? 'profunditat ' + g.matchPlan.lozzaDepth
                 : tvLevelLabel(caps, g.matchPlan.stockfishLevel).short)
             : g && g.end && g.level.sides ? tvLevelLabel(caps, g.level.sides[color]).short : levelText;
-        const who = (color) => g && g.engines && g.engines[color] === 'lozza' ? 'Lozza' : 'Stockfish 19';
+        const who = (color) => legends ? legends.names[color] : g && g.engines && g.engines[color] === 'lozza' ? 'Lozza' : 'Stockfish 19';
         // Separa visualment el nom de l'enginy (gran) de color i nivell (petits).
         // La versió del motor es conserva en canviar els colors de cada duel.
         const showPlayer = (color, suffix) => {
@@ -5459,6 +5618,7 @@
         const hard = $id('sftv-too-hard');
         if (cur) cur.textContent = mate
             ? 'Fins al mat · fins a ' + mate.depth + ' semijugades i ' + mate.movetime + ' ms de cerca per a cada motor.'
+            : legends ? 'Lliga de llegendes · ' + legends.reason + '. Cada jugador juga amb el seu motor, el seu nivell i el seu perfil.'
             : g ? (g.matchPlan ? 'Objectiu Stockfish: ' + g.level.label.long + '. Lozza juga amb profunditat limitada, sense Elo equiparable.'
                 + (g.end && g.level.reveal ? ' ' + g.level.reveal : '')
                 : 'Aquesta partida: ' + g.level.label.long + (caps && caps.mode !== 'none' && !g.level.sides ? ' (tots dos jugadors)' : '')
@@ -5480,7 +5640,13 @@
             profiles.disabled = !!nextMate;
         }
         const stylesBox = $id('sftv-styles');
-        if (stylesBox) {
+        if (stylesBox && legends && root.ElTaulerLlegendes) {
+            // Perfil de cada jugador: l'estil i el motor amb què juga avui.
+            const LGm = root.ElTaulerLlegendes;
+            const line = (color) => { const p = LGm.legend(legends.ids[color]); return p.short + ' (' + LGm.ENGINE_NAME[g.engines[color]] + '): ' + p.style + '.'; };
+            stylesBox.textContent = 'Perfils: ' + line('w') + ' ' + line('b');
+            stylesBox.style.display = '';
+        } else if (stylesBox) {
             const st = g && g.styles;
             stylesBox.textContent = st ? (g.matchPlan
                 ? 'Stockfish: ' + TV_STYLES[st[g.matchPlan.engines.w === 'stockfish' ? 'w' : 'b']].label
@@ -5498,7 +5664,12 @@
         }
         renderLadder(state, nextMate);
         const rivalry = $id('sftv-rivalry');
-        if (rivalry) {
+        if (rivalry && state.legends) {
+            const pg = state.legends.progress;
+            rivalry.textContent = 'Lliga ' + state.legends.season + ': ' + pg.played + ' de ' + pg.total + ' partides jugades.'
+                + (g && g.leagueNote ? ' ' + g.leagueNote : '');
+            rivalry.style.display = '';
+        } else if (rivalry) {
             const recent = state.recentResults || [];
             const wins = { stockfish: 0, lozza: 0, draw: 0 };
             recent.forEach(x => { if (Object.prototype.hasOwnProperty.call(wins, x.winner)) wins[x.winner]++; });
@@ -5513,7 +5684,8 @@
             let text = '';
             if (caps && caps.mode === 'elo') text = 'És un objectiu de força configurat al motor (UCI_Elo ' + caps.min + '–' + caps.max + '). Stockfish el calibra amb l\'Elo CCRL de partides ràpides entre motors: no és una equivalència garantida amb l\'Elo FIDE.';
             else if (caps) text = tvCompatibilityNote(caps) || '';
-            help.textContent = nextMate ? '' : text;
+            help.textContent = state.legends ? 'Els nivells de Stockfish són objectius d\'Elo del motor, no pas l\'Elo històric dels jugadors. Lozza juga amb una profunditat de cerca limitada, que no es pot equiparar amb cap Elo.'
+                : nextMate ? '' : text;
         }
         const adjustable = !nextMate && !!(caps && caps.mode !== 'none');
         if (easy) easy.disabled = !adjustable || state.nextLevel === null || state.nextLevel >= caps.max;
@@ -5525,7 +5697,79 @@
             if (!v.known) t = 'Encara no tenim el teu nivell: comencem pel mínim de la TV, amb explicacions senzilles i ritme pausat.';
             else if (v.belowEngineMin) t = 'El motor no juga més fluix que aquest mínim: per això els comentaris són més senzills i el ritme més pausat.';
             viewerNote.textContent = t;
-            viewerNote.style.display = t && !nextMate ? '' : 'none';
+            viewerNote.style.display = t && !nextMate && !state.legends ? '' : 'none';
+        }
+        if (state.legends) {
+            // Lliga de llegendes: el nivell, el mode «fins al mat» i els perfils
+            // aleatoris no s'hi apliquen (cada jugador té el seu). Es fixa a la configuració del jugador.
+            ['sftv-ladder', 'sftv-level-next'].forEach((id) => { const e = $id(id); if (e) e.style.display = 'none'; });
+            ['sftv-too-easy', 'sftv-until-mate', 'sftv-unequal', 'sftv-profiles'].forEach((id) => {
+                const e = $id(id);
+                const holder = e && e.closest ? e.closest('.sftv-unequal-row, .sftv-level-actions') : null;
+                if (holder) holder.style.display = 'none';
+            });
+        }
+    }
+
+    // Classificació de la lliga de llegendes: la fila dels jugadors de la
+    // partida actual queda destacada; els perfils es pinten una sola vegada.
+    let legendsProfilesBuilt = false;
+    function renderLegends(state) {
+        const panel = $id('sftv-legends');
+        if (!panel) return;
+        const lg = state.legends, LGm = root.ElTaulerLlegendes;
+        panel.hidden = !lg || !LGm;
+        if (!lg || !LGm) return;
+        const text = (id, value) => { const e = $id(id); if (e) e.textContent = value; };
+        const g = state.game;
+        const plan = g && g.matchPlan && g.matchPlan.legends ? g.matchPlan : null;
+        const pg = lg.progress;
+        // En acabar l'última partida de la lliga, es mostra la classificació final.
+        const finalView = !!(g && g.end && g.finalTable);
+        const rows = finalView ? g.finalTable : lg.table;
+        text('sftv-legends-round', finalView ? 'Lliga ' + g.finalSeason + ' · classificació final' : 'Lliga ' + lg.season + ' · jornada ' + pg.round + ' de ' + pg.rounds);
+        text('sftv-legends-now', plan ? plan.names.w + ' (blanques) contra ' + plan.names.b + ' (negres)' : 'Preparant la partida…');
+        const bar = $id('sftv-legends-progress');
+        if (bar) { bar.max = pg.total; bar.value = finalView ? pg.total : pg.played; }
+        text('sftv-legends-progress-text', finalView ? pg.total + ' de ' + pg.total + ' partides jugades · comença una lliga nova'
+            : pg.played + ' de ' + pg.total + ' partides jugades · cada parella es troba dues vegades');
+        const body = $id('sftv-legends-body');
+        if (body) {
+            body.textContent = '';
+            rows.forEach((row) => {
+                const tr = document.createElement('tr');
+                if (plan && plan.ids.w === row.id) tr.className = 'is-white';
+                else if (plan && plan.ids.b === row.id) tr.className = 'is-black';
+                const cell = (value, cls) => { const td = document.createElement('td'); td.textContent = value; if (cls) td.className = cls; tr.appendChild(td); return td; };
+                cell(String(row.rank), 'sftv-legends-pos');
+                const who = cell(row.short, 'sftv-legends-name');
+                const badge = document.createElement('span');
+                const engine = LGm.legend(row.id).engine;
+                badge.className = 'sftv-legends-eng';
+                badge.textContent = engine === 'lozza' ? 'LZ' : 'SF';
+                badge.title = 'Motor: ' + LGm.ENGINE_NAME[engine];
+                who.appendChild(badge);
+                cell(String(row.played));
+                cell(row.wins + '-' + row.draws + '-' + row.losses);
+                cell(String(row.points).replace('.', ','), 'sftv-legends-pts');
+                body.appendChild(tr);
+            });
+        }
+        const prev = lg.lastSeason && LGm.legend(lg.lastSeason.champion);
+        text('sftv-legends-note', prev ? 'Lliga ' + lg.lastSeason.season + ': campió ' + prev.short + ' amb ' + LGm.points(lg.lastSeason.points) + '.' : '');
+        if (!legendsProfilesBuilt) {
+            const list = $id('sftv-legends-profiles');
+            if (list) {
+                legendsProfilesBuilt = true;
+                LGm.roster().forEach((p) => {
+                    const li = document.createElement('li');
+                    const strong = document.createElement('strong');
+                    strong.textContent = p.name + ' (' + p.born + (p.died ? '–' + p.died : '') + '). ';
+                    li.appendChild(strong);
+                    li.appendChild(document.createTextNode(p.bio + ' Estil: ' + p.style + '. Motor: ' + LGm.ENGINE_NAME[p.engine] + ' (' + p.engineWhy + ').'));
+                    list.appendChild(li);
+                });
+            }
         }
     }
 
@@ -5609,7 +5853,7 @@
         let text = '';
         if (state.error) text = state.error === 'engine' ? 'No s\'ha pogut arrencar el motor en aquest dispositiu.' : 'La partida s\'ha aturat per un error intern.';
         else if (!g) text = 'Preparant el motor…';
-        else if (g.end) text = tvResultHeadline(g.end) + (state.control ? ' · control manual' : '');
+        else if (g.end) text = tvResultHeadline(g.end, g.names) + (state.control ? ' · control manual' : '');
         else if (state.control) {
             const ctl = state.control;
             if (ctl.yourTurn) text = 'Et toca: mous ' + COLOR[ctl.color].pl;
@@ -5715,10 +5959,12 @@
         if (!g || !g.end) { el.style.display = 'none'; return; }
         const paint = () => {
             const left = g.nextGameAt && !state.paused ? Math.max(0, Math.ceil((g.nextGameAt - Date.now()) / 1000)) : null;
-            el.innerHTML = '<div class="sftv-result-head">' + escapeHtml(tvResultHeadline(g.end)) + '</div>'
+            const inLeague = !!(g.matchPlan && g.matchPlan.legends);
+            el.innerHTML = '<div class="sftv-result-head">' + escapeHtml(tvResultHeadline(g.end, g.names)) + '</div>'
                 + '<div class="sftv-result-text">' + escapeHtml(g.end.text) + '</div>'
                 + (g.level && g.level.reveal ? '<div class="sftv-result-reveal">' + escapeHtml(g.level.reveal) + '</div>' : '')
-                + (g.matchPlan ? '<div class="sftv-result-reveal">' +
+                + (inLeague && g.leagueNote ? '<div class="sftv-result-reveal">' + escapeHtml(g.leagueNote) + '</div>' : '')
+                + (g.matchPlan && !inLeague ? '<div class="sftv-result-reveal">' +
                     (g.matchPlan.untilMate ? '' : 'Adaptació de la rivalitat: ') + escapeHtml(g.matchPlan.reason) + '</div>' : '')
                 + (g.pairScore ? '<div class="sftv-result-reveal">' + escapeHtml(g.pairScore) + '</div>' : '')
                 + '<div class="sftv-result-next">' + (left !== null ? 'La partida següent comença d\'aquí a ' + left + ' s.'
@@ -5806,6 +6052,7 @@
                 applyHighlight();
             }
             renderLevel(state);
+            renderLegends(state);
             if (root.ElTaulerTvLeagueUI && typeof root.ElTaulerTvLeagueUI.update === 'function') {
                 try { root.ElTaulerTvLeagueUI.update(state); } catch (err) {}
             }
@@ -5907,6 +6154,9 @@
             getViewer: () => { try { return typeof bridge.getViewer === 'function' ? bridge.getViewer() : null; } catch (e) { return null; } },
             getOpenings: () => { try { return typeof bridge.getCuratedOpenings === 'function' ? bridge.getCuratedOpenings() : []; } catch (e) { return []; } },
             getOpeningGraph: () => { try { return typeof bridge.getOpeningGraph === 'function' ? bridge.getOpeningGraph() : null; } catch (e) { return null; } },
+            legends: root.ElTaulerLlegendes || null,
+            loadLeague: loadLeagueRaw,
+            saveLeague: saveLeagueRaw,
             loadPrefs: loadPrefsRaw,
             savePrefs: (p) => savePrefsRaw({ speed: p.speed, offsets: p.offsets, openingIndex: p.openingIndex, unequal: p.unequal,
                 profiles: p.profiles, recent: p.recent, untilMate: p.untilMate, mateSeries: p.mateSeries, mateRecent: p.mateRecent })
@@ -6093,6 +6343,11 @@
         tvIsDecided,
         tvIsSharpOpening,
         TV_STYLES,
+        tvStyleProfile,
+        tvLegendSide,
+        tvLegendPlan,
+        tvLegendLevel,
+        tvLegendStep,
         tvPickStyles,
         tvMoveFeatures,
         tvStyleScore,
