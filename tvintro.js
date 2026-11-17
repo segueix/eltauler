@@ -1,4 +1,6 @@
-// tvintro.js — Presentacions breus i variades de Stockfish vs Lozza TV.
+// tvintro.js — Presentacions breus i variades de la Lliga de llegendes TV.
+// (Les presentacions de la lliga són a llegendes.js; aquí hi queden les del
+// duel heretat Stockfish contra Lozza i la narració de les obertures.)
 // Les presentacions descriuen les condicions reals del duel. A la revenja
 // es recupera el resultat de l'anada i es confirmen els colors nous.
 (function(root,factory){
@@ -7,7 +9,7 @@
     else root.ElTaulerTvIntro=api;
 })(typeof self!=='undefined'?self:this,function(root){
     'use strict';
-    const VERSION='1.4.0';
+    const VERSION='1.5.0';
     const OPENINGS=Object.freeze([
         'Tot és a punt per a un nou duel entre Stockfish i Lozza.',
         'Stockfish i Lozza es preparen per compartir el tauler.',
@@ -161,7 +163,9 @@
         memory.seen = memory.seen || [];
         memory.explained = memory.explained || [];
         memory.counts = memory.counts || { w: 0, b: 0 };
-        const engineName = color => c.engines?.[color] === 'lozza' ? 'Lozza' : 'Stockfish';
+        // A la lliga de llegendes, el jugador és el nom del personatge.
+        const engineName = color => c.names?.[color] || (c.engines?.[color] === 'lozza' ? 'Lozza' : 'Stockfish');
+        const de = name => /^[AEIOUÀÈÉÍÒÓÚ]/i.test(name) ? 'd’' + name : 'de ' + name;
         // No recuperem noms d'obertura en un mat ni al final de la partida.
         if (c.flush) { memory.pending = []; return { memory }; }
         const enqueue = (entry, event) => {
@@ -198,9 +202,9 @@
             const solo = event.prepared
                 ? 'La línia preparada ens porta a «' + profile.name + '».'
                 : event.ply === c.ply && profile.color === c.color
-                    ? 'Amb la jugada de ' + player + ' arribem a «' + profile.name + '».'
+                    ? 'Amb la jugada ' + de(player) + ' arribem a «' + profile.name + '».'
                     : 'En aquesta partida hem arribat a «' + profile.name + '».';
-            const owner = profile.color ? 'El pla és de ' + player + ', amb ' + side + '. ' : '';
+            const owner = profile.color ? 'El pla és ' + de(player) + ', amb ' + side + '. ' : '';
             memory.explained.push(idea);
             memory.counts[color]++;
             memory.lastPly = c.ply;

@@ -70,7 +70,7 @@
 
     <!-- Aplica el color abans de pintar la pàgina: evita el flaix del tema antic. -->
     <script src="fonscolors.js?v=1.1.0"></script>
-    <!-- Manté el mòbil despert en qualsevol secció, inclosa Stockfish vs Lozza TV. -->
+    <!-- Manté el mòbil despert en qualsevol secció, inclosa la Lliga de llegendes TV. -->
     <script src="pantallaactiva.js?v=1.0.0"></script>
     <script src="rendiment.js?v=1.0.0"></script>
     <style>
@@ -3373,6 +3373,26 @@
         body.epaper-mode .sftv-league { background: #fff; border-color: #333; }
         body.epaper-mode .sftv-predict button { background: #fff; color: #000; border-color: #333; }
         body.epaper-mode .sftv-predict button.is-picked { background: #ddd; }
+        /* Classificació de la Lliga de llegendes TV (llegendes.js). */
+        .sftv-legends-progress { width: 100%; height: 8px; margin: 6px 0 4px; accent-color: var(--accent-gold); }
+        .sftv-legends-table { width: 100%; border-collapse: collapse; margin: 8px 0 6px; font-size: .78rem; font-variant-numeric: tabular-nums; }
+        .sftv-legends-caption { text-align: left; font-size: .7rem; color: var(--text-secondary); padding-bottom: 4px; }
+        .sftv-legends-table th { font-size: .68rem; font-weight: 700; color: var(--text-secondary); text-align: right; padding: 4px 5px; border-bottom: 1px solid rgba(201,162,39,.35); }
+        .sftv-legends-table th:nth-child(2) { text-align: left; }
+        .sftv-legends-table td { text-align: right; padding: 5px; border-bottom: 1px solid rgba(255,255,255,.06); }
+        .sftv-legends-table td.sftv-legends-name { text-align: left; font-weight: 700; }
+        .sftv-legends-table td.sftv-legends-pos { color: var(--text-secondary); width: 1.8em; }
+        .sftv-legends-table td.sftv-legends-pts { font-weight: 800; color: var(--accent-gold); }
+        .sftv-legends-table tr.is-white td, .sftv-legends-table tr.is-black td { background: rgba(201,162,39,.12); }
+        .sftv-legends-table tr.is-white td.sftv-legends-name::before { content: "♔ "; }
+        .sftv-legends-table tr.is-black td.sftv-legends-name::before { content: "♚ "; }
+        .sftv-legends-eng { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 6px; font-size: .62rem; font-weight: 700; color: var(--text-secondary); border: 1px solid rgba(201,162,39,.35); vertical-align: middle; }
+        .sftv-legends-profiles-box { margin: 8px 0; font-size: .78rem; }
+        .sftv-legends-profiles-box summary { cursor: pointer; font-weight: 700; padding: 6px 0; }
+        .sftv-legends-profiles { margin: 4px 0 6px; padding-left: 18px; line-height: 1.4; }
+        .sftv-legends-profiles li { margin-bottom: 6px; }
+        body.epaper-mode .sftv-legends-table tr.is-white td, body.epaper-mode .sftv-legends-table tr.is-black td { background: #e6e6e6; }
+        body.epaper-mode .sftv-legends-eng { border-color: #333; }
         .sftv-voicebar { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; margin: 0 0 12px; }
         .sftv-voice-activate { min-width: 0; width: auto; max-width: 320px; flex: 0 1 auto; padding-left: 22px; padding-right: 22px; margin: 0; }
         .sftv-voice-toggle {
@@ -7325,7 +7345,7 @@
 
             <div class="home-sections">
                 <!-- Inici net: a la portada només hi ha Juga (Nova partida i la lliga),
-                     les partides col·lectives i Stockfish vs Lozza TV; la resta d'El Tauler és a «Més», en
+                     les partides col·lectives i la Lliga de llegendes TV; la resta d'El Tauler és a «Més», en
                      seccions de segon nivell (data-view) que s'obren des de les rajoles
                      (data-home-open) i tornen a la portada amb «Inici» (data-home-back)
                      o amb el botó enrere. app.js (setHomeView) posa data-home-view a
@@ -7471,15 +7491,15 @@
                     </button>
                 </section>
 
-                <!-- MIRA: Stockfish vs Lozza TV (stockfishtv.js), partida entre
-                     motors GENERADA AL DISPOSITIU, amb comentaris breus. -->
+                <!-- MIRA: Lliga de llegendes TV (stockfishtv.js + llegendes.js), partides
+                     de la lliga dels 10 jugadors històrics GENERADES AL DISPOSITIU, amb comentaris breus. -->
                 <section class="home-sec home-sec--tv" aria-labelledby="home-sec-tv">
                     <div class="home-sec-head"><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-tv">Mira</h2></div>
-                    <button class="hb hb--ocean" id="btn-sftv-banner" aria-label="Stockfish vs Lozza TV">
+                    <button class="hb hb--ocean" id="btn-sftv-banner" aria-label="Lliga de llegendes TV">
                         <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-tv"/></svg></span>
                         <span class="hb-text">
-                            <span class="hb-title">Stockfish vs Lozza TV</span>
-                            <span class="hb-sub">Dos motors diferents, rivalitat adaptativa i comentaris en català</span>
+                            <span class="hb-title">Lliga de llegendes TV</span>
+                            <span class="hb-sub">Deu llegendes dels escacs, una lliga de dues voltes i comentaris en català</span>
                         </span>
                         <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
                     </button>
@@ -7957,13 +7977,14 @@
             </div>
         </div>
 
-        <!-- STOCKFISH VS LOZZA TV: duel entre motors amb anàlisi Stockfish (stockfishtv.js).
-             Cada dispositiu genera la seva partida: no és cap emissió compartida. -->
+        <!-- LLIGA DE LLEGENDES TV: els 10 jugadors històrics de llegendes.js, cadascun amb el seu
+             motor (Stockfish o Lozza) i perfil, amb l'anàlisi de Stockfish (stockfishtv.js).
+             Cada dispositiu genera les seves partides: no és cap emissió compartida. -->
         <div id="sftv-screen" class="screen-anim" style="display:none;">
             <div class="stats-header">
                 <div class="app-logo"><svg class="sftv-logo-ic" aria-hidden="true"><use href="#ic-tv"/></svg></div>
-                <h1>Stockfish vs Lozza TV</h1>
-                <div class="tutorial-sub">Stockfish contra Lozza, amb anàlisi i comentaris de Stockfish. Les partides es generen al teu dispositiu i el duel següent s'adapta als resultats anteriors.</div>
+                <h1>Lliga de llegendes TV</h1>
+                <div class="tutorial-sub">Deu llegendes dels escacs fan una lliga de dues voltes, cadascuna amb el seu motor (Stockfish o Lozza) i el seu perfil de joc. Les partides es generen al teu dispositiu i Stockfish n'analitza i en comenta les jugades.</div>
             </div>
             <div class="sftv-topbar">
             <button type="button" class="sftv-expand" id="sftv-expand" aria-expanded="false" aria-controls="sftv-screen" title="Amplia el tauler a pantalla completa"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="sftv-icon-expand" d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/><path class="sftv-icon-shrink" d="M3 8h5V3m13 5h-5V3M3 16h5v5m13-5h-5v5"/></svg><span>Amplia el tauler</span></button>
@@ -8049,7 +8070,7 @@
                             <output id="sftv-radio-volume-value" for="sftv-radio-volume">20%</output>
                         </label>
                     </div>
-                    <p class="setting-help">Canvia al moment i es desa per a Stockfish vs Lozza TV. Sona mentre la veu Matxa Ràdio està activada, baixa sola quan parla la veu i s’atura en pausar o sortir. A cada partida sona una de les deu melodies, triada a l’atzar. Totes es generen al dispositiu. Si aquí no hi ha música, la de tota l’app (Configuració › Veus de lectura) acompanya igualment la veu; si allà l’apagues, tampoc no sona aquesta.</p>
+                    <p class="setting-help">Canvia al moment i es desa per a la Lliga de llegendes TV. Sona mentre la veu Matxa Ràdio està activada, baixa sola quan parla la veu i s’atura en pausar o sortir. A cada partida sona una de les deu melodies, triada a l’atzar. Totes es generen al dispositiu. Si aquí no hi ha música, la de tota l’app (Configuració › Veus de lectura) acompanya igualment la veu; si allà l’apagues, tampoc no sona aquesta.</p>
                     <p class="setting-help" id="sftv-radio-status" role="status"></p>
                 </fieldset>
             </details>
@@ -8086,6 +8107,24 @@
                     </div>
                 </div>
                 <div class="sftv-side">
+                    <section id="sftv-legends" class="sftv-league sftv-legends" hidden aria-label="Classificació de la lliga de llegendes">
+                        <div class="sftv-league-head"><span>🏆 Lliga de llegendes</span><strong id="sftv-legends-round">Lliga 1 · jornada 1</strong></div>
+                        <div class="sftv-league-next" id="sftv-legends-now" aria-live="polite"></div>
+                        <progress id="sftv-legends-progress" class="sftv-legends-progress" max="90" value="0" aria-label="Partides jugades de la lliga"></progress>
+                        <div class="sftv-league-muted" id="sftv-legends-progress-text"></div>
+                        <table class="sftv-legends-table">
+                            <caption class="sftv-legends-caption">Classificació: punts, després enfrontaments directes i victòries</caption>
+                            <thead><tr><th scope="col" title="Posició">#</th><th scope="col">Jugador</th><th scope="col" title="Partides jugades">PJ</th><th scope="col" title="Victòries, taules i derrotes">V-T-D</th><th scope="col" title="Punts: victòria 1, taules ½">Pts</th></tr></thead>
+                            <tbody id="sftv-legends-body"></tbody>
+                        </table>
+                        <div class="sftv-league-muted" id="sftv-legends-note"></div>
+                        <details class="sftv-legends-profiles-box">
+                            <summary>Perfils dels jugadors</summary>
+                            <ul id="sftv-legends-profiles" class="sftv-legends-profiles"></ul>
+                            <p class="sftv-league-muted">SF = Stockfish, LZ = Lozza. L'estil de Stockfish tria entre jugades gairebé iguals; Lozza juga amb una cerca curta. El nivell és el mateix per a tots: el que els distingeix és el motor i el perfil.</p>
+                        </details>
+                        <div class="sftv-league-muted">Lliga de dues voltes: cada parella es troba dues vegades, una amb cada color. Quan tothom ha jugat dues vegades amb tothom, la lliga s'acaba i en comença una de nova. Dades locals d'aquest dispositiu.</div>
+                    </section>
                     <section id="sftv-league" class="sftv-league" hidden aria-label="Campionat històric Stockfish contra Lozza">
                         <div class="sftv-league-head"><span>🏆 Campionat dels motors</span><strong id="sftv-league-round">Duel 1</strong></div>
                         <div class="sftv-league-score">
@@ -8248,7 +8287,7 @@
                     </label>
                 </div>
                 <div class="setting-help" id="keep-screen-on-status" role="status" aria-live="polite">Pantalla activa mentre utilitzis El Tauler.</div>
-                <div class="setting-help">Activat per defecte a totes les seccions, també a Stockfish vs Lozza TV. En segon pla s'allibera per estalviar bateria; el dispositiu pot limitar aquesta funció.</div>
+                <div class="setting-help">Activat per defecte a totes les seccions, també a la Lliga de llegendes TV. En segon pla s'allibera per estalviar bateria; el dispositiu pot limitar aquesta funció.</div>
                 <div class="setting-row">
                     <div class="setting-label">Mode dia (tema clar)</div>
                     <label class="epaper-toggle">
@@ -10796,7 +10835,7 @@
     <script src="patrons.js?v=1.1.1"></script>
     <script src="jeropedagogia.js?v=1.2.1"></script>
     <script src="sons.js?v=1.0.0"></script>
-    <script src="tutorial.js?v=1.0.6"></script>
+    <script src="tutorial.js?v=1.0.7"></script>
     <script src="tallerobertures.js?v=1.3.1"></script>
     <script src="veuneural.js?v=1.2.2"></script>
     <script src="radioambient.js?v=2.5.0"></script>
@@ -10808,11 +10847,12 @@
     <script src="maximesexercici.js?v=1.1.0"></script>
     <script src="prosodia.js?v=2.0.0"></script>
     <script src="auditoria.js?v=1.0.0"></script>
-    <script src="tvintro.js?v=1.4.0"></script>
+    <script src="tvintro.js?v=1.5.0"></script>
     <script src="tvleague.js?v=1.0.0"></script>
-    <script src="tvleague-ui.js?v=1.1.0"></script>
+    <script src="tvleague-ui.js?v=1.2.0"></script>
     <script src="visiograu.js?v=1.4.0"></script>
-    <script src="stockfishtv.js?v=2.20.1"></script>
+    <script src="llegendes.js?v=1.0.0"></script>
+    <script src="stockfishtv.js?v=2.21.0"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.6"></script>
     <script src="catalans.js?v=1.2.10"></script>

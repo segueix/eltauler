@@ -1,5 +1,5 @@
 // pantallaactiva.js — evita el repòs de pantalla mentre El Tauler és visible.
-// Un sol bloqueig global per document (també Stockfish vs Lozza TV).
+// Un sol bloqueig global per document (també la Lliga de llegendes TV).
 // El navegador o el sistema operatiu sempre poden denegar/revocar la petició.
 (function (root, factory) {
     const api = factory();

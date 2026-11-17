@@ -664,7 +664,7 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   s'hi aplica; en una partida acabada, tirar enrere la reprèn i, amb el control,
   no comença cap partida sola (sí en tornar-lo); coronació triada per l'usuari;
   pestanya oculta durant la resposta; i «Nova partida» surt del control.
-  **Matxa caiguda**: amb `holdNeural` (només a Stockfish vs Lozza TV) una
+  **Matxa caiguda**: amb `holdNeural` (només a la Lliga de llegendes TV) una
   fallada de Matxa no passa a la veu del dispositiu sinó que torna
   `neural-down`; la partida no fa cap jugada mentre la veu no respon, hi torna a
   provar cada `VOICE_RETRY_MS` amb el mateix fragment (forçant l'intent abans
@@ -780,7 +780,7 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   dos indicadors (amagats fins que hi ha dades).
 - **`leaguejingles.test.js`** — la **música que compon l'app**
   (`radioambient.js`, `composeJingle`): tornades de 30 s entre partides de la
-  lliga i bucles de 32 s per a la TV Stockfish vs Lozza. Cinc estils
+  lliga i bucles de 32 s per a la TV (Lliga de llegendes TV, abans Stockfish vs Lozza). Cinc estils
   tranquils (77-104 ppm) amb solista i variant d'acompanyament; la mateixa
   llavor dona la mateixa peça i llavors diferents, peces diferents; regles
   musicals (notes de l'escala, notes de l'acord als temps forts, cadència a
@@ -805,7 +805,7 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   els dos llibres, marca d'on ve cada frase i no canvia cap comentari factual
   a les partides de prova. També que «la iniciativa» no s'apostrofa.
 - **`visiograu.test.js`** — **La visió d'en Grau** (`visiograu.js`) a
-  Stockfish vs Lozza TV: lectura de la línia de Stockfish jugada a jugada amb
+  Lliga de llegendes TV: lectura de la línia de Stockfish jugada a jugada amb
   chess.js (s'atura a la primera il·legal) i la intenció de cada jugada sense
   caselles (treure el cavall de la dama per protegir un peó central, fer fora
   aquest alfil amb un peó, forquilla, clavada contra el rei, fianchetto,
@@ -1057,3 +1057,15 @@ funció d'`app.js` hi delegui, i afegeix el cas a `tests/`.
   `triaTargetDifficulty` a totes les fites). Un test antic sense claus desades
   es marca com a no rejugable en comptes de fallar en silenci, i un sense
   dificultat desada no s'inventa cap nivell: el deixa buit.
+
+- **`llegendes.test.js` i `lliga-llegendes-tv.test.js`** — Lliga de llegendes TV
+  (`LLEGENDES.md`). El primer prova el mòdul pur: 10 perfils amb pesos que
+  `tvMoveFeatures` calcula de debò, calendari de 90 partides (cada parella dues
+  vegades i amb colors oposats, 18 jornades de 5, 9 blanques i 9 negres per
+  jugador), sorteig reproduïble, partit triat a l'atzar dins la jornada,
+  classificació amb desempat per enfrontament directe, fi de lliga i lliga
+  nova, estats desats corruptes i textos amb els noms (sense caselles). El
+  segon, amb motors simulats, prova la configuració de cada jugador (nivell,
+  profunditat, perfil), el flux real del controlador, el resultat a la
+  classificació, el canvi de lliga amb el campió anunciat, la reobertura, «Nova
+  partida», Lozza caigut i el mode heretat sense el mòdul.

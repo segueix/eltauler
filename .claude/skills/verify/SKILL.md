@@ -99,6 +99,22 @@ Conduir amb Playwright + Chromium preinstal·lat
     `importScripts` de chess.js servit amb una altra ruta). Amb un 404 s'hi veu
     el retorn al clàssic (`#sftv-engine-status`). En mode Elo, la barra té els
     esglaons 1320, 1400 … 3100, 3190.
+    **Lliga de llegendes** (`llegendes.js`, vegeu `LLEGENDES.md`): la TV és una
+    lliga de 10 jugadors. Estat: `state().legends` (`season`, `progress`,
+    `table`, `lastSeason`), `state().game.names` / `matchPlan.sides` (motor,
+    nivell i perfil de cada bàndol) i `game.leagueNote`; panell `#sftv-legends`
+    (`#sftv-legends-body tr`). Es desa a `tauler_tv_legends_v1` (sembrar-la amb
+    `LG.record` fins a 89 partides per veure el canvi de lliga). Amb la lliga
+    activa s'amaguen `#sftv-ladder`, «Massa fàcil/difícil», `#sftv-until-mate`,
+    `#sftv-unequal` i `#sftv-profiles`. **Per veure una partida sencera**: el
+    Stockfish real triga ≈6 s per jugada i la TV espera el temps de lectura de
+    cada comentari, així que cal (1) servir un worker UCI fals per
+    `stockfish-19-lite-single.js` i `lozza.js` (jugades legals a l'atzar amb
+    `importScripts` de chess.js) i (2) `await page.clock.install()` abans del
+    `goto` i avançar amb `page.clock.runFor(1500)` + una espera real curta (els
+    workers responen en temps real); baixar `TV_CONFIG.MAX_PLIES` (p. ex. 70) i
+    `NEXT_GAME_DELAY_MS`. No usar `waitForFunction` amb el rellotge simulat:
+    consultar l'estat amb `page.evaluate` en un bucle.
 11. **Veu neuronal Matxa** (`veuneural.js`, demo del BSC a
     `projecte-aina-matxa-alvocat-tts-ca.hf.space`): el Chromium no hi arriba
     directament, però es pot redirigir amb `ctx.route(/\.hf\.space\//, …)` i

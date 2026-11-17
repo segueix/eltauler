@@ -231,7 +231,7 @@ describe('Pantalla sempre activa', () => {
         expect(main).toContain('<script src="pantallaactiva.js?v=1.0.0"></script>');
         expect(main).toContain('id="keep-screen-on-toggle"');
         expect(main).toContain('id="keep-screen-on-status"');
-        expect(main).toContain('Stockfish vs Lozza TV');
+        expect(main).toContain('Lliga de llegendes TV');
         ['catalans-vs-stockfish', 'nova-partida', 'obertures'].forEach(dir => {
             const html = fs.readFileSync(path.join(__dirname, '../', dir, 'index.html'), 'utf8');
             expect(html).toContain('<script src="../pantallaactiva.js?v=1.0.0"></script>');

@@ -1,6 +1,6 @@
 # Català expressiu d'El Tauler — fase 1
 
-Aquesta fase incorpora **expressivitat.js**, un mòdul local reutilitzable per a Stockfish vs Lozza TV i, en les fases següents, els jeroglífics i l'entrenador.
+Aquesta fase incorpora **expressivitat.js**, un mòdul local reutilitzable per a la Lliga de llegendes TV i, en les fases següents, els jeroglífics i l'entrenador.
 
 ## Objectius
 

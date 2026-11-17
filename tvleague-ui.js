@@ -1,4 +1,4 @@
-// Marcador de la rivalitat Stockfish–Lozza al dispositiu de l'espectador.
+// Marcador de la rivalitat Stockfish–Lozza (mode heretat de la TV) al dispositiu de l'espectador.
 // No comparteix dades amb altres espectadors ni accepta diners/apostes reals.
 (function(root, factory) {
     const api = factory(root);
@@ -57,6 +57,9 @@
         attach();
         const panel = document.getElementById('sftv-league');
         if (!panel) return;
+        // Lliga de llegendes: la classificació la pinta stockfishtv.js (renderLegends)
+        // i aquest marcador Stockfish–Lozza no s'hi aplica (els bàndols són llegendes).
+        if (state.legends) { panel.hidden = true; return; }
         const tv = root.ElTaulerStockfishTV;
         // La versió real del motor prové de la resposta UCI, no del selector:
         // si Stockfish 19 cau al motor de reserva, el marcador reflecteix el real.

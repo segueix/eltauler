@@ -1,4 +1,4 @@
-# Memòria narrativa de Stockfish vs Lozza TV — fase 2
+# Memòria narrativa de la Lliga de llegendes TV — fase 2
 
 ## Funció
 

@@ -1,5 +1,5 @@
 // ============================================================================
-// narrativa.js — Memòria narrativa LOCAL i factual per a Stockfish vs Lozza TV.
+// narrativa.js — Memòria narrativa LOCAL i factual per a la Lliga de llegendes TV.
 // Fase 2: fils conductors entre jugades, continuïtat i tancament verificable.
 // Aquest mòdul NO analitza posicions ni inventa plans: reutilitza únicament
 // els motius validats per tvCommentCandidates i els moviments legals.

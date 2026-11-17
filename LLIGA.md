@@ -531,7 +531,7 @@ primera frase repetit a la segona i la tornada a la tònica en cada volta. Tot s
 llavor (un enter); l'app recorda l'empremta de les 200 darreres peces
 (`eltauler_league_jingle_seen`) i no en repeteix cap. La pantalla diu quina
 sona («Sona: Rumba de la classificació · la menor · flauta»). La
-mateixa música composta sona també de fons a la TV Stockfish vs Lozza (un
+mateixa música composta sona també de fons a la TV (la Lliga de llegendes TV, abans Stockfish vs Lozza; un
 bucle de 32 s nou per a cada partida, `composeMelodyId`). Totes les peces
 queden al **registre** de Configuració › Veus de lectura › «Música infinita»
 (abans, «Música composta per l'app»; `eltauler_composed_music`). De cada peça només es desa la
