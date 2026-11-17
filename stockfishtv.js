@@ -177,6 +177,12 @@
         return null;
     }
 
+    // Lliga de llegendes (llegendes.js): noms i pronúncia dels jugadors.
+    function getLlegendes() {
+        if (root && root.ElTaulerLlegendes) return root.ElTaulerLlegendes;
+        try { return typeof require === 'function' ? require('./llegendes') : null; } catch (err) { return null; }
+    }
+
     function getRedactor() {
         if (root && root.ElTaulerRedactor) return root.ElTaulerRedactor;
         try { if (typeof require === 'function') return require('./redactor'); } catch (e) {}
@@ -1646,8 +1652,9 @@
             conflicts: [], lastDialoguePly: -100, lastVariantPly: -100, questionIndex: null, conflictSeq: 0, dialogueFacts: {},
             // Previsions i plans d'en Grau (visiograu.js), també per desfer.
             visio: null,
-            // Observacions sobre els jugadors de la lliga de llegendes (llegendes.js).
-            legend: null,
+            // Observacions sobre els jugadors de la lliga de llegendes (llegendes.js)
+            // i última semijugada en què un comentari d'una sola veu va dir un nom.
+            legend: null, namedPly: { w: -100, b: -100 }, nameForm: 0,
             art: null // memòria de màximes, inclosa als estats per desfer
         };
     }
@@ -2978,7 +2985,10 @@
                 stillAttacked ? tvVariant(['La peça s’aparta, però continua atacada.', 'Fuig, però no del tot: encara és sota atac.'], turn)
                     : tvVariant(['La peça s’aparta de la pressió i ja no l’apunta cap peça rival.', 'Fora de perill: ja no l’ataca cap peça rival.',
                         'S’escapa de l’atac. Ara ningú no l’amenaça.', 'Problema resolt: la peça ja és a recer.'], turn),
-                'La retirada ha tret ' + victim + ' de perill?');
+                move.captured ? 'Amb la captura, ' + victim + ' surt de perill?'
+                    : (move.color === 'w' ? -1 : 1) * (Number(move.to[1]) - Number(move.from[1])) > 0
+                        ? 'La retirada ha tret ' + victim + ' de perill?'
+                        : 'Amb aquesta jugada, ' + victim + ' surt de perill?');
         }
         if (t.kind === 'threat' && rivalMoved && !after && captured === t.attacker)
             return event('resolved', 'Han eliminat la peça atacant.');
@@ -3183,8 +3193,13 @@
                     const defence = fact('defence', 'recaptura:' + square + ':' + proof.attacker.from + ':' + move.piece,
                         'la pressió sobre ' + victim, answer, candidate.key);
                     defence.recapture = true;
-                    defence.question = 'Com responen a la pressió sobre ' + pieceNP(proof.victim, move.color) +
-                        ' si el rival ' + piecePronoun(proof.victim) + ' captura?';
+                    const victimNP = pieceNP(proof.victim, move.color), it = piecePronoun(proof.victim);
+                    defence.question = tvVariant([
+                        'Com responen a la pressió sobre ' + victimNP + ' si el rival ' + it + ' captura?',
+                        'Si el rival captura ' + victimNP + ', hi ha resposta?',
+                        'Què passa si el rival es queda ' + victimNP + '?',
+                        capFirst(victimNP) + ' està ' + agree(proof.victim, 'ben defensat', 'ben defensada') + ' si el rival ' + it + ' captura?'
+                    ], tvHash(String(move.san || '') + ':' + square));
                     if (event && event.topic.split(':')[2] === square) defence.topic = event.topic;
                     return defence;
                 }
@@ -3305,8 +3320,22 @@
         () => 'Quina conseqüència té?',
         () => 'Quin efecte té en la posició?'
     ];
+    // Lliga de llegendes: la mateixa pregunta, pel nom del jugador que mou (m)
+    // o del rival (r). Es fan servir en alternança amb les generals.
+    const TV_WHY_NAMED = [
+        ({ m }) => 'Què hi busca ' + m + '?',
+        ({ m }) => 'Quina és la idea ' + tvDeName(m) + '?',
+        ({ m }) => 'Per què ho juga ara ' + m + '?',
+        ({ r }) => 'Què canvia per a ' + r + '?',
+        ({ r }) => 'Què ha de vigilar ara ' + r + '?',
+        ({ m }) => 'En què pensa ' + m + '?',
+        ({ m }) => 'Com hem d’entendre la decisió ' + tvDeName(m) + '?'
+    ];
     function tvWhyQuestion(c, index, focus) {
-        const question = TV_WHY_QUESTIONS[index % TV_WHY_QUESTIONS.length]({ side: COLOR[c.move.color].pl });
+        const names = c.legends && c.legends.names;
+        const question = names && names.w && names.b && index % 2 === 0
+            ? TV_WHY_NAMED[(index / 2 + (isNum(c.ply) ? c.ply : 0)) % TV_WHY_NAMED.length]({ m: names[c.move.color], r: names[other(c.move.color)] })
+            : TV_WHY_QUESTIONS[index % TV_WHY_QUESTIONS.length]({ side: COLOR[c.move.color].pl });
         const prefix = index % 4 === 0 ? 'Grau, ' : '';
         if (focus) return prefix + (prefix ? 'pel' : 'Pel') + ' que fa ' + aNP(focus) + ', ' + question[0].toLowerCase() + question.slice(1);
         return prefix ? prefix + question[0].toLowerCase() + question.slice(1) : question;
@@ -3536,38 +3565,154 @@
         }
         const artStep = tvArtStep(c, chosen, memory, candidates);
         chosen = artStep.comment;
-        // Lliga de llegendes: una observació amb el nom del jugador que ha mogut.
+        // El que diu (i mostra) l'Èlia: intencions, sense caselles.
+        if (chosen && vision) chosen = Object.assign({}, chosen, { say: tvEliaSay(c, chosen, vision, artStep.memory) });
+        // Lliga de llegendes: una observació sobre el jugador i els noms als comentaris.
         const legendStep = tvLegendStep(c, chosen, artStep.memory);
-        chosen = legendStep.comment;
-        // El que diu (i mostra) l'Èlia: intencions, sense caselles. Les
-        // observacions dels jugadors ja són text parlat (no duen caselles).
-        if (chosen && vision && chosen.kind !== 'legend') chosen = Object.assign({}, chosen, { say: tvEliaSay(c, chosen, vision, legendStep.memory) });
-        const next = tvCommitComment(legendStep.memory, chosen, { ply: c.ply, fenAfter: c.fenAfter, move: c.move, candidates: candidates });
+        const namedStep = tvNameComment(c, legendStep.comment, legendStep.memory);
+        chosen = namedStep.comment;
+        const next = tvCommitComment(namedStep.memory, chosen, { ply: c.ply, fenAfter: c.fenAfter, move: c.move, candidates: candidates });
         return { comment: chosen, memory: next, candidates: candidates };
     }
 
-    // Observació sobre el jugador que acaba de moure (lliga de llegendes). Només
-    // ocupa un silenci o una jugada de simple descripció: mai no substitueix un
-    // avís tàctic ni un diàleg. El fet que la motiva (escac, canvi, enroc…) es
-    // comprova amb chess.js (tvMoveFeatures); la resta és informació fixa del
-    // perfil. Sense `ctx.legends`, no fa res.
+    // ------------------------------------------------------------------
+    // Lliga de llegendes: els noms dels jugadors dins dels comentaris
+    // ------------------------------------------------------------------
+    function tvDeName(n) { return /^[AEIOUÀÈÉÍÒÓÚ]/i.test(n) ? 'd’' + n : 'de ' + n; }
+    function tvSentenceCase(t) {
+        return String(t == null ? '' : t).replace(/(^|[.!?]\s+)([a-zàèéíïòóúüç])/g, (m, p, ch) => p + ch.toUpperCase());
+    }
+    const NAME_SIDE = { blanques: 'w', negres: 'b' };
+    const NAME_PIECE_COLOR = { blanc: 'w', blanca: 'w', negre: 'b', negra: 'b' };
+    const NAME_FREE = '(?!\\s+(?:de|d’|d\')\\s?[A-Z])';
+    const NAME_RULES = [
+        // Preposicions: el nom sol, sense cap problema de concordança.
+        [new RegExp('\\b(per a|cap a|contra|davant de) les (blanques|negres)\\b' + NAME_FREE, 'g'),
+            (n, take) => (m, prep, side) => take(NAME_SIDE[side])
+                ? (prep === 'davant de' ? 'davant ' + tvDeName(n[NAME_SIDE[side]]) : prep + ' ' + n[NAME_SIDE[side]]) : m],
+        [new RegExp('\\bde les (blanques|negres)\\b' + NAME_FREE, 'g'),
+            (n, take) => (m, side) => take(NAME_SIDE[side]) ? tvDeName(n[NAME_SIDE[side]]) : m],
+        [new RegExp('(^|[\\s,(])a les (blanques|negres)\\b' + NAME_FREE, 'g'),
+            (n, take) => (m, pre, side) => take(NAME_SIDE[side]) ? pre + 'a ' + n[NAME_SIDE[side]] : m],
+        [new RegExp('\\b([Vv]eig) les (blanques|negres)\\b' + NAME_FREE, 'g'),
+            (n, take) => (m, verb, side) => take(NAME_SIDE[side]) ? verb + ' ' + n[NAME_SIDE[side]] : m],
+        // Peces amb color: «la dama blanca» → «la dama de Capablanca». No quan
+        // identifiquen una altra peça («el cavall de la dama blanca»).
+        [/(^|[\s,(:;])(?<!\bde\s)(El|el|La|la|L’|l’|L'|l')(\s?)(rei|dama|torre|alfil|cavall|peó)\s(blanc|blanca|negre|negra)(?![\p{L}])(?!\s+(?:de|del|d’|d')(?![\p{L}]))/gu,
+            (n, take) => (m, pre, det, sp, piece, adj) => take(NAME_PIECE_COLOR[adj])
+                ? pre + det + sp + piece + ' ' + tvDeName(n[NAME_PIECE_COLOR[adj]]) : m],
+        // Subjecte: «Les blanques avancen» → «Les blanques de Capablanca avancen» (plural
+        // intacte) o, a l'inici, «Mou Capablanca: les blanques avancen…» / «Torn de Capablanca: …».
+        [new RegExp('(^|[^\\p{L}])(?<!\\bamb\\s)(Les|les) (blanques|negres)\\b' + NAME_FREE, 'gu'),
+            (n, take, form) => (m, pre, art, side, offset, whole) => {
+                const c = NAME_SIDE[side];
+                if (!take(c)) return m;
+                // «Mou X:» només si la frase no porta ja uns altres dos punts.
+                const colonFree = String(whole).indexOf(':') === -1;
+                if (offset === 0 && colonFree && form === 1) return 'Mou ' + n[c] + ': les ' + side;
+                if (offset === 0 && colonFree && form === 2) return 'Torn ' + tvDeName(n[c]) + ': les ' + side;
+                return pre + art + ' ' + side + ' ' + tvDeName(n[c]);
+            }]
+    ];
+
+    // Converteix referències als bàndols en referències als jugadors sense
+    // tocar la concordança («per a les negres» → «per a Kasparov», «la dama
+    // blanca» → «la dama de Capablanca», «Les blanques avancen» → «Les blanques
+    // de Capablanca avancen»). Cada jugador es diu com a molt un cop per text,
+    // i en total `max` vegades. Un nom que ja hi és no es torna a afegir.
+    // `opts.state` ({ used: {w,b}, left }) es pot compartir entre els torns d'un
+    // diàleg perquè cada jugador surti un sol cop en tot l'intercanvi; `opts.form`
+    // tria la fórmula del subjecte inicial (0: «de», 1: «Mou», 2: «Torn de»).
+    function tvNameSides(text, names, opts) {
+        const o = opts || {};
+        let t = String(text == null ? '' : text);
+        if (!t || !names || !names.w || !names.b) return t;
+        const st = o.state || { used: {}, left: isNum(o.max) ? o.max : 2 };
+        st.used.w = !!st.used.w || t.indexOf(names.w) !== -1;
+        st.used.b = !!st.used.b || t.indexOf(names.b) !== -1;
+        const take = (c) => { if (st.left <= 0 || st.used[c]) return false; st.used[c] = true; st.left--; return true; };
+        for (const [re, make] of NAME_RULES) {
+            if (st.left <= 0) break;
+            t = t.replace(re, make(names, take, isNum(o.form) ? o.form : 0));
+        }
+        return t;
+    }
+
+    // Aplica els noms a un comentari: als diàlegs, a cada torn (un nom per
+    // torn); als comentaris d'una sola veu, una semijugada sí i una no, perquè
+    // no sonin repetitius. El text intern (`text`) no canvia: només el que es
+    // mostra i es diu.
+    function tvNameComment(c, chosen, memory) {
+        const names = c && c.legends && c.legends.names;
+        if (!chosen || !names || !names.w || !names.b) return { comment: chosen, memory: memory };
+        const ply = isNum(c.ply) ? c.ply : 0;
+        const mover = c.move && (c.move.color === 'b' ? 'b' : 'w');
+        const dialogue = Array.isArray(chosen.dialogue);
+        const lastBy = memory.namedPly && typeof memory.namedPly === 'object' ? memory.namedPly : { w: -100, b: -100 };
+        // Una veu: cada jugador es nomena una jugada pròpia sí i una no.
+        if (!dialogue && !c.end && mover && ply - (isNum(lastBy[mover]) ? lastBy[mover] : -100) < 4) return { comment: chosen, memory: memory };
+        const form = isNum(memory.nameForm) ? memory.nameForm % 3 : 0;
+        const said = { w: false, b: false };
+        const run = (t, state) => {
+            const before = { w: state.used.w, b: state.used.b };
+            const out = tvNameSides(t, names, { state: state, form: form });
+            ['w', 'b'].forEach(k => { if (state.used[k] && !before[k] && out !== t) said[k] = true; });
+            return tvSentenceCase(out);
+        };
+        const next = Object.assign({}, chosen);
+        if (dialogue) {
+            // Tot el diàleg comparteix el pressupost: cada jugador, un cop, i com a molt dos noms.
+            const all = chosen.dialogue.map(t => t.text).join(' ');
+            const shared = () => ({ used: { w: all.indexOf(names.w) !== -1, b: all.indexOf(names.b) !== -1 }, left: 2 });
+            const st = shared(), soloSt = shared();
+            next.dialogue = chosen.dialogue.map(turn => Object.assign({}, turn, { text: run(turn.text, st) },
+                turn.solo ? { solo: run(turn.solo, soloSt) } : {}));
+            if (typeof chosen.say === 'string') next.say = run(chosen.say, shared());
+        } else if (typeof chosen.say === 'string') {
+            next.say = run(chosen.say, { used: {}, left: 1 });
+        }
+        if (!said.w && !said.b) return { comment: next, memory: memory };
+        const by = Object.assign({ w: -100, b: -100 }, lastBy);
+        ['w', 'b'].forEach(k => { if (said[k]) by[k] = ply; });
+        return { comment: next, memory: Object.assign({}, memory, { namedPly: by, nameForm: form + 1 }) };
+    }
+
+    // Comentaris d'una sola veu que poden obrir una observació sobre el jugador.
+    const LEGEND_LEAD_KINDS = { describe: true, development: true, center: true, activation: true, 'king-activity': true,
+        capture: true, diagonal: true, majority: true, castle: true };
+
+    // Observació sobre el jugador que acaba de moure (lliga de llegendes), en
+    // forma de diàleg. Ocupa un silenci o s'afegeix a un comentari descriptiu
+    // d'una sola veu (que l'Èlia diu primer); mai no substitueix un avís tàctic,
+    // un diàleg ni una màxima. El fet que la motiva (escac, canvi, enroc…) es
+    // comprova amb chess.js (tvMoveFeatures); l'avantatge, amb l'anàlisi fiable;
+    // la classificació la calcula llegendes.js. Sense `ctx.legends`, no fa res.
     function tvLegendStep(ctx, chosen, memory) {
         const L = ctx && ctx.legends;
         if (!L || !L.api || typeof L.api.remark !== 'function' || !ctx.move || ctx.end || ctx.prepared) return { comment: chosen, memory: memory };
-        if (chosen && (chosen.kind !== 'describe' || chosen.dialogue)) return { comment: chosen, memory: memory };
+        const plain = !!(chosen && !chosen.dialogue && !chosen.maxim && LEGEND_LEAD_KINDS[chosen.kind]);
+        if (chosen && !plain) return { comment: chosen, memory: memory };
+        const lead = plain ? String(chosen.say || chosen.text || '').trim() : '';
+        if (lead && /\b[a-h][1-8]\b/.test(lead)) return { comment: chosen, memory: memory };
         let features = null;
         try {
             const mv = ctx.move;
             features = tvMoveFeatures(ctx.ChessCtor, ctx.fenBefore, mv.from + mv.to + (mv.promotion || ''), null);
         } catch (err) { features = null; }
+        const a = ctx.after;
+        const edge = a && a.reliable ? tvDecisiveSide(a.best, TV_CONFIG.DECIDED_PACE_CP) : null;
         const out = L.api.remark({ ply: ctx.ply, color: ctx.move.color, features: features, ids: L.ids, engines: L.engines,
-            prepared: !!ctx.prepared, end: !!ctx.end }, memory.legend);
+            stakes: L.stakes || null, edge: edge, lead: lead, prepared: !!ctx.prepared, end: !!ctx.end }, memory.legend);
         const next = Object.assign({}, memory, { legend: out.memory });
         if (!out.remark) return { comment: chosen, memory: next };
-        const text = out.remark.text;
-        return { comment: { kind: 'legend', text: text, leadText: text, say: text, family: 'legend',
-            variantId: out.remark.kind === 'profile' ? 0 : 1, explanatory: out.remark.kind === 'trait',
-            legend: { id: out.remark.id, kind: out.remark.kind } }, memory: next };
+        const r = out.remark;
+        const turns = Array.isArray(r.turns) && r.turns.length >= 2 ? r.turns.map(t => Object.assign({}, t, t.solo ? {} : { solo: undefined })) : null;
+        const text = turns ? turns.map(t => t.text).join(' ') : r.text;
+        const say = turns ? turns.map(t => t.role === 'presenter' && t.solo ? t.solo : t.text).join(' ') : r.text;
+        return { comment: { kind: 'legend', text: text, leadText: r.text, say: say, family: 'legend',
+            variantId: ['profile', 'stakes', 'edge', 'trait'].indexOf(r.kind), explanatory: r.kind !== 'profile',
+            dialogue: turns ? turns.map(t => ({ role: t.role, text: t.text, ...(t.solo ? { solo: t.solo } : {}) })) : undefined,
+            dialogueEvent: turns ? 'legend' : undefined, legend: { id: r.id, kind: r.kind } }, memory: next };
     }
 
     // Repassa una partida sencera amb el mateix pas de retransmissió (per a
@@ -3594,7 +3739,8 @@
                 before: prepared ? null : analysisAt(i), after: prepared ? null : analysisAt(i + 1),
                 tier: s.tier || 'mid', prepared: prepared, phrase: s.phrases ? s.phrases[i] : null, end: tvGameEnd(chess), ply: i, memory: memory,
                 expression: s.expression || null, narrative: s.narrative || null, quality: s.quality || null,
-                patterns: s.patterns || null, art: s.art || null, gameId: s.gameId || 'tv-simulacio', visio: s.visio
+                patterns: s.patterns || null, art: s.art || null, gameId: s.gameId || 'tv-simulacio', visio: s.visio,
+                legends: s.legends || null
             });
             memory = step.memory;
             rows.push({ ply: i, san: mv.san, color: mv.color, fen: chess.fen(), comment: step.comment ? step.comment.text : null,
@@ -3675,6 +3821,9 @@
         t = t.replace(/\bvs\b\.?/gi, 'contra');
         // El text visible conserva Stockfish; la veu diu «Stock fish».
         t = t.replace(/\bstockfish\b/gi, 'Stock fish');
+        // Els noms dels jugadors de la lliga, amb la pronúncia catalana adaptada.
+        const LG = getLlegendes();
+        if (LG && typeof LG.speakNames === 'function') t = LG.speakNames(t);
         return t.replace(/\s{2,}/g, ' ').replace(/\s+([,.:;!?])/g, '$1').trim();
     }
 
@@ -4373,11 +4522,20 @@
             // per tvMatchPlan, tvPickOpening i tvPickStyles.
             const I = getTvIntro();
             let intro = null;
+            let introTurns = null;
             if (fixture) {
-                // Lliga de llegendes: els noms, els colors, la jornada i un detall.
-                intro = LG.intro({ white: duel.ids.w, black: duel.ids.b, season: league.season, round: duel.round,
-                    rounds: LG.progress(league).rounds, seq: S.game.id, engines: duel.engines,
-                    table: LG.table(league), lastSeason: league.lastSeason });
+                // Lliga de llegendes: què hi ha en joc (lloc i punts ara i si guanyen),
+                // i una presentació en diàleg amb els noms, els colors i la jornada.
+                duel.stakes = typeof LG.stakes === 'function' ? LG.stakes(league, fixture.id) : null;
+                const presented = typeof LG.introDialogue === 'function'
+                    ? LG.introDialogue({ white: duel.ids.w, black: duel.ids.b, season: league.season, round: duel.round,
+                        rounds: LG.progress(league).rounds, seq: S.game.id, engines: duel.engines,
+                        table: LG.table(league), lastSeason: league.lastSeason, stakes: duel.stakes })
+                    : { text: LG.intro({ white: duel.ids.w, black: duel.ids.b, season: league.season, round: duel.round,
+                        rounds: LG.progress(league).rounds, seq: S.game.id, engines: duel.engines,
+                        table: LG.table(league), lastSeason: league.lastSeason }), turns: null };
+                intro = presented.text;
+                introTurns = presented.turns;
                 duel.reason = 'Lliga ' + league.season + ' · jornada ' + duel.round + ' de ' + LG.progress(league).rounds;
                 if (league.lastSeason && !league.lastSeason.announced) { league = LG.markAnnounced(league); saveLeague(); }
             } else if (I && typeof I.scene === 'function' && (duel || pick.opening)) {
@@ -4393,6 +4551,7 @@
             }
             if (intro) {
                 S.game.comment = { kind: 'intro', text: intro, speech: tvSpeechText(intro), ply: 0, gameId: S.game.id };
+                if (introTurns) S.game.comment.dialogue = introTurns;
                 S.game.intro = S.game.comment;
                 S.nextRevealAt = Math.max(S.nextRevealAt, now() + tvReadingTimeMs(intro, v.tier));
                 notify('comment', S.game.comment);
@@ -4654,7 +4813,7 @@
                 end: end, ply: ply, memory: g.memory, expression: d.expression, narrative: d.narrative, quality: d.quality,
                 patterns: d.patterns, art: d.art, gameId: g.id, visio: d.visio,
                 legends: g.matchPlan && g.matchPlan.legends && LG ? { api: LG, ids: g.matchPlan.ids, engines: g.matchPlan.engines,
-                    names: g.matchPlan.names } : null,
+                    names: g.matchPlan.names, stakes: g.matchPlan.stakes || null } : null,
                 opening: openingDialogueContext(g, mv, fenBefore, fenAfter, prepared)
             });
             return { ply: ply, fenAfter: fenAfter, end: end, chosen: step.comment, memory: step.memory,
@@ -4755,8 +4914,10 @@
                 if (outcome.recorded) {
                     const before = LG.table(league);
                     const after = outcome.finished ? outcome.finished.table : LG.table(outcome.state);
-                    g.leagueNote = LG.resultNote({ white: plan.ids.w, black: plan.ids.b, result: result, round: plan.round,
-                        table: after, before: before, roundDone: outcome.roundDone, finished: outcome.finished });
+                    const closing = { white: plan.ids.w, black: plan.ids.b, result: result, round: plan.round,
+                        table: after, before: before, roundDone: outcome.roundDone, finished: outcome.finished, seq: g.id };
+                    g.leagueNote = LG.resultNote(closing);
+                    g.leagueTurns = typeof LG.resultDialogue === 'function' ? LG.resultDialogue(closing).turns : null;
                     // L'última partida de la lliga: la classificació final es veu fins que comença la nova.
                     if (outcome.finished) { g.finalTable = outcome.finished.table; g.finalSeason = outcome.finished.season; }
                     league = outcome.state;
@@ -4784,6 +4945,22 @@
                 if (!alive(epoch) || S.game !== g) return;
                 S.speech = null;
                 if (sp && sp.voiceDown && (await holdForVoice(g, sp, epoch)) === false) return;
+            }
+            // Lliga de llegendes: l'Èlia tanca la partida amb el resultat i la classificació.
+            if (g.leagueNote && !g.leagueAnnounced) {
+                g.leagueAnnounced = true;
+                const note = { kind: 'result', text: g.leagueNote, say: g.leagueNote, speech: tvSpeechText(g.leagueNote),
+                    ply: g.moves.length, fen: g.chess.fen(), gameId: g.id };
+                if (g.leagueTurns) note.dialogue = g.leagueTurns;
+                g.comment = note;
+                notify('comment', note);
+                render();
+                const sp = speakComment(note, epoch);
+                if (sp) {
+                    const res = await sp;
+                    if (!alive(epoch) || S.game !== g) return;
+                    if (res && res.voiceDown && (await holdForVoice(g, res, epoch)) === false) return;
+                }
             }
             const delay = Math.round(TV_CONFIG.NEXT_GAME_DELAY_MS * (g.tier === 'basic' ? 1.2 : 1));
             g.nextGameAt = now() + delay;
@@ -5596,9 +5773,17 @@
             const playerName = mine(color) ? 'Tu' : who(color);
             if (name) name.textContent = playerName;
             if (side) side.textContent = color === 'w' ? '♔ Blanques' : '♚ Negres';
+            // Lliga de llegendes: lloc i punts a la classificació abans del motor.
+            const row = legends && state.legends ? state.legends.table.find(r => r.id === legends.ids[color]) : null;
+            // Abans de la primera partida de la lliga, l'ordre és alfabètic: no es diu cap lloc.
+            const LGm = root.ElTaulerLlegendes;
+            const place = row && LGm && state.legends.progress.played > 0 ? LGm.placeOf(row, state.legends.table) : '';
+            const standingText = row && LGm
+                ? (place ? (/^és líder/.test(place) ? 'Líder' : /^comparteix/.test(place) ? 'Primer lloc compartit' : 'Lloc ' + row.rank) + ' · ' : '')
+                    + LGm.points(row.points) + ' · ' : '';
             if (meta) meta.textContent = !g ? 'Preparant els motors…'
                 : mine(color) ? 'Control manual · ' + sideText(color)
-                : (g.engines && g.engines[color] === 'lozza' ? 'Motor Lozza · ' : 'Motor Stockfish · ') + sideText(color);
+                : standingText + (g.engines && g.engines[color] === 'lozza' ? 'Motor Lozza · ' : 'Motor Stockfish · ') + sideText(color);
             if (box) box.setAttribute('aria-label',
                 (color === 'w' ? 'Blanques: ' : 'Negres: ') + playerName
                 + (g ? ', ' + (mine(color) ? 'control manual' : sideText(color)) : ''));
@@ -5728,9 +5913,18 @@
         const finalView = !!(g && g.end && g.finalTable);
         const rows = finalView ? g.finalTable : lg.table;
         text('sftv-legends-round', finalView ? 'Lliga ' + g.finalSeason + ' · classificació final' : 'Lliga ' + lg.season + ' · jornada ' + pg.round + ' de ' + pg.rounds);
+        // La barra parla de la partida que es veu: la seva jornada i, si encara es juga, quin partit és.
+        const roundShown = plan ? plan.round : pg.round;
+        const inRound = plan && !(g && g.end) && plan.round === pg.round ? ' · partit ' + (pg.roundPlayed + 1) + ' de ' + pg.roundTotal : '';
         text('sftv-legends-now', plan ? plan.names.w + ' (blanques) contra ' + plan.names.b + ' (negres)' : 'Preparant la partida…');
-        const bar = $id('sftv-legends-progress');
-        if (bar) { bar.max = pg.total; bar.value = finalView ? pg.total : pg.played; }
+        const bar = $id('sftv-matchbar');
+        if (bar) {
+            bar.hidden = !plan;
+            text('sftv-matchbar-league', finalView ? 'Lliga de llegendes · lliga ' + g.finalSeason + ' acabada' : 'Lliga de llegendes · lliga ' + lg.season);
+            text('sftv-matchbar-round', finalView ? 'Classificació final' : 'Jornada ' + roundShown + ' de ' + pg.rounds + inRound);
+        }
+        const progressBar = $id('sftv-legends-progress');
+        if (progressBar) { progressBar.max = pg.total; progressBar.value = finalView ? pg.total : pg.played; }
         text('sftv-legends-progress-text', finalView ? pg.total + ' de ' + pg.total + ' partides jugades · comença una lliga nova'
             : pg.played + ' de ' + pg.total + ' partides jugades · cada parella es troba dues vegades');
         const body = $id('sftv-legends-body');
@@ -5740,6 +5934,7 @@
                 const tr = document.createElement('tr');
                 if (plan && plan.ids.w === row.id) tr.className = 'is-white';
                 else if (plan && plan.ids.b === row.id) tr.className = 'is-black';
+                if (row.rank === 1 && row.points > 0) tr.classList.add('is-leader');
                 const cell = (value, cls) => { const td = document.createElement('td'); td.textContent = value; if (cls) td.className = cls; tr.appendChild(td); return td; };
                 cell(String(row.rank), 'sftv-legends-pos');
                 const who = cell(row.short, 'sftv-legends-name');
@@ -5982,15 +6177,32 @@
         const c = g && g.comment;
         // Només es mostra si és de la partida i la posició visibles.
         const valid = c && c.gameId === g.id && (c.kind === 'intro' || c.fen === g.fen);
-        el.textContent = valid ? (c.say || c.text) : '';
-        if (valid && Array.isArray(c.dialogue)) {
-            el.textContent = '';
+        el.textContent = '';
+        el.classList.toggle('is-intro', !!(valid && c.kind === 'intro'));
+        el.classList.toggle('is-result', !!(valid && c.kind === 'result'));
+        if (valid) {
+            // Cada torn amb una etiqueta de qui parla (Èlia o Grau). Amb una sola
+            // veu, el text sense etiquetes, com es llegeix.
             const duet = tvNormalizePrefs(loadPrefsRaw()).duo;
-            c.dialogue.forEach(turn => {
+            const turn = (role, text) => {
                 const line = document.createElement('div');
-                    line.textContent = duet ? (turn.role === 'analyst' ? 'Grau: ' : 'Èlia: ') + turn.text : (turn.solo || turn.text);
+                const grau = role === 'analyst';
+                line.className = 'sftv-turn ' + (duet ? (grau ? 'is-grau' : 'is-elia') : 'is-solo');
+                if (duet) {
+                    const who = document.createElement('span');
+                    who.className = 'sftv-turn-who';
+                    who.textContent = grau ? 'Grau' : 'Èlia';
+                    line.appendChild(who);
+                    line.appendChild(document.createTextNode(' '));
+                }
+                const body = document.createElement('span');
+                body.className = 'sftv-turn-text';
+                body.textContent = text;
+                line.appendChild(body);
                 el.appendChild(line);
-            });
+            };
+            if (Array.isArray(c.dialogue)) c.dialogue.forEach(t => turn(t.role, duet ? t.text : (t.solo || t.text)));
+            else turn(c.kind === 'summary' ? 'analyst' : 'presenter', c.say || c.text);
         }
         // La línia de Stockfish que explica en Grau, en notació, sota el diàleg.
         if (valid && c.forecast && c.forecast.san) {
@@ -6348,6 +6560,8 @@
         tvLegendPlan,
         tvLegendLevel,
         tvLegendStep,
+        tvNameSides,
+        tvNameComment,
         tvPickStyles,
         tvMoveFeatures,
         tvStyleScore,

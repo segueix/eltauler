@@ -333,7 +333,9 @@ describe('Lliga de llegendes TV · flux real del controlador', () => {
     const remarks = spoken.filter(c => c.kind === 'legend');
     expect(remarks.length).toBeGreaterThan(0);
     remarks.forEach((c) => {
-      expect(names.some(n => c.say.startsWith(n))).toBe(true);
+      // Diàleg Èlia–Grau que diu el nom d'algun dels dos jugadors.
+      expect(c.dialogue.length).toBeGreaterThanOrEqual(2);
+      expect(names.some(n => c.dialogue.map(t => t.text).join(' ').includes(n))).toBe(true);
       expect(c.say).not.toMatch(SQUARE);
       expect(c.speech).not.toMatch(SQUARE);
     });
@@ -341,6 +343,143 @@ describe('Lliga de llegendes TV · flux real del controlador', () => {
     expect(remarks[0].ply).toBeGreaterThanOrEqual(LG.CONFIG.REMARK_FIRST_PLY);
     expect(remarks[0].say).toMatch(/ juga amb (Stockfish|Lozza)/);
     expect(remarks.length).toBeLessThanOrEqual(LG.CONFIG.REMARKS_PER_GAME);
+    ctl.close();
+  });
+});
+
+describe('Lliga de llegendes TV · els noms dins dels comentaris', () => {
+  const N = { w: 'Capablanca', b: 'Alekhine' };
+
+  test.each([
+    ['Les blanques guanyen espai al centre.', 'Les blanques de Capablanca guanyen espai al centre.'],
+    ['Hi veig un avantatge clar per a les negres.', 'Hi veig un avantatge clar per a Alekhine.'],
+    ['La iniciativa és de les negres.', 'La iniciativa és d’Alekhine.'],
+    ['Dono un avantatge clar a les blanques.', 'Dono un avantatge clar a Capablanca.'],
+    ['Veig les negres una mica millor.', 'Veig Alekhine una mica millor.'],
+    ['El cavall negre ataca la dama blanca.', 'El cavall d’Alekhine ataca la dama de Capablanca.'],
+    ['L’alfil blanc defensa un peó central.', 'L’alfil de Capablanca defensa un peó central.']
+  ])('«%s» → «%s» (concordança intacta)', (input, output) => {
+    expect(TV.tvNameSides(input, N, { max: 2 })).toBe(output);
+  });
+
+  test('no toca les peces que n’identifiquen una altra ni «amb les blanques»', () => {
+    ['Les negres capturen el cavall de la dama blanca amb un peó.', 'El peó negre de torre queda aïllat.',
+      'El pla és de Capablanca, amb les blanques.'].forEach((text) => {
+      const out = TV.tvNameSides(text, N, { max: 2 });
+      expect(out).not.toMatch(/dama de Capablanca amb|peó d’Alekhine de torre|amb les blanques de/);
+    });
+    // Un nom que ja hi és no es repeteix, i el pressupost limita els canvis.
+    expect(TV.tvNameSides('Capablanca juga. Les blanques ataquen.', N, { max: 2 })).toBe('Capablanca juga. Les blanques ataquen.');
+    expect(TV.tvNameSides('Les blanques ataquen i les negres es defensen.', N, { max: 1 })).toBe('Les blanques de Capablanca ataquen i les negres es defensen.');
+    expect(TV.tvNameSides('Les blanques ataquen.', null)).toBe('Les blanques ataquen.');
+  });
+
+  test('en un diàleg, cada jugador surt com a molt un cop; el text intern no canvia', () => {
+    const chosen = { kind: 'plan', text: 'intern', say: 'Les blanques avancen.', dialogue: [
+      { role: 'presenter', text: 'Les blanques avancen el peó. Què guanyen?' },
+      { role: 'analyst', text: 'Les blanques guanyen espai i les negres es queden sense joc. Veig les blanques millor.' }] };
+    const out = TV.tvNameComment({ ply: 20, move: { color: 'w' }, legends: { names: N } }, chosen, {}).comment;
+    const all = out.dialogue.map(t => t.text).join(' ');
+    expect(all.split('Capablanca').length - 1).toBe(1);
+    expect(all.split('Alekhine').length - 1).toBe(1);
+    expect(out.text).toBe('intern');
+  });
+
+  test('en els comentaris d’una veu, cada bàndol es nomena una jugada sí i una no', () => {
+    let memory = {};
+    const said = [];
+    for (let ply = 0; ply < 12; ply++) {
+      const color = ply % 2 ? 'b' : 'w';
+      const say = (color === 'w' ? 'Les blanques' : 'Les negres') + ' treuen el cavall.';
+      const out = TV.tvNameComment({ ply, move: { color }, legends: { names: N } }, { kind: 'describe', text: say, say }, memory);
+      memory = out.memory;
+      said.push(/Capablanca|Alekhine/.test(out.comment.say));
+    }
+    // Blanques (parells) i negres (senars): una sí, una no, per a cadascú.
+    expect(said).toEqual([true, true, false, false, true, true, false, false, true, true, false, false]);
+  });
+
+  test('la fórmula del nom varia («de», «Mou», «Torn de»)', () => {
+    let memory = {};
+    const forms = new Set();
+    for (let ply = 0; ply < 24; ply += 4) {
+      const out = TV.tvNameComment({ ply, move: { color: 'w' }, legends: { names: N } },
+        { kind: 'describe', text: 'Les blanques treuen el cavall.', say: 'Les blanques treuen el cavall.' }, memory);
+      memory = out.memory;
+      forms.add(out.comment.say.split(' ')[0]);
+    }
+    expect([...forms].sort()).toEqual(['Les', 'Mou', 'Torn']);
+  });
+
+  test('en una partida real, els noms surten sovint, sense caselles ni majúscules perdudes', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const game = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'tv-games.json'), 'utf8')).games[0];
+    let state = LG.newSeason(1, seeded(2));
+    const f = state.fixtures.find(x => x.white === 'capablanca') || state.fixtures[0];
+    const legends = { api: LG, ids: { w: f.white, b: f.black }, names: { w: LG.legend(f.white).short, b: LG.legend(f.black).short },
+      engines: { w: 'stockfish', b: 'lozza' }, stakes: LG.stakes(state, f.id) };
+    const rows = TV.tvSimulateCommentary(Chess, { ...game, gameId: game.name, tier: 'mid', visio: require('../visiograu'), legends });
+    const said = rows.filter(r => r.say || r.dialogue);
+    const texts = said.map(r => r.dialogue ? r.dialogue.map(t => t.text).join(' ') : r.say);
+    const named = texts.filter(t => t.includes(legends.names.w) || t.includes(legends.names.b));
+    expect(named.length / said.length).toBeGreaterThan(0.35);
+    texts.forEach((t) => {
+      expect(t).not.toMatch(/[.!?]\s+[a-zà-ú]/);
+      expect(t).not.toMatch(/:[^.?!]*:\s/);
+    });
+    rows.filter(r => r.dialogue).forEach(r => r.dialogue.forEach(t => expect(t.text).not.toMatch(SQUARE)));
+    // Una peça que s'aparta capturant no és una «retirada».
+    rows.filter(r => r.dialogue && /x/.test(r.san)).forEach(r => expect(r.dialogue[0].text).not.toContain('La retirada'));
+    expect(rows.some(r => r.kind === 'legend')).toBe(true);
+  });
+
+  test('les preguntes noves d’en Grau acaben en interrogant i les introduccions no dupliquen els dos punts', () => {
+    const T = require('../visiograu').TEXTS;
+    T.HIT_NAMED.forEach(q => expect(q({ name: 'Alekhine' })).toMatch(/\?$/));
+    T.MISS_NAMED.forEach(q => expect(q({ name: 'Alekhine' })).toMatch(/\?$/));
+    T.PROOF_NAMED.forEach(q => expect(q('Alekhine')).toMatch(/\?$/));
+    T.PROOF_QUESTIONS.forEach(q => expect(q).toMatch(/\?$/));
+    expect(T.ANSWER_OPENERS.length).toBeGreaterThanOrEqual(4);
+    expect(T.ANSWER_OPENERS).toContain('');
+  });
+});
+
+describe('Lliga de llegendes TV · tancament de la partida', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+  const fools = ['f2f3', 'e7e5', 'g2g4', 'd8h4'];
+  function engine(label) {
+    return {
+      jobs: [], ready: async () => label === 'lozza' ? { mode: 'none', engineName: 'Lozza' } : CAPS,
+      failed: () => false, cancelAll() {}, newGame() {}, destroy() {},
+      request(job) {
+        const [start, moveText] = job.position.split(' moves ');
+        const g = new Chess(start.startsWith('position fen ') ? start.slice('position fen '.length) : undefined);
+        if (moveText) moveText.split(' ').forEach(u => g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] || 'q' }));
+        const legal = g.moves({ verbose: true }).map(m => m.from + m.to);
+        const uci = job.tag.kind === 'move' && fools[g.history().length] ? fools[g.history().length] : legal[0];
+        return Promise.resolve({ bestUci: uci || null, infos: uci ? { 1: { depth: 12, multipv: 1, type: 'cp', value: 0, pv: [uci] } } : {} });
+      }
+    };
+  }
+
+  test('la presentació i el tancament són diàlegs amb els noms', async () => {
+    const ctl = TV.createTvController({ ChessCtor: Chess, engine: engine('stockfish'), lozzaEngine: engine('lozza'), random: seeded(5),
+      legends: LG, loadLeague: () => null, saveLeague: () => {}, loadPrefs: () => ({ speed: 'quick' }), savePrefs: () => {},
+      getOpenings: () => [], getViewer: () => ({ calibrated: false, roc: 900 }) });
+    await ctl.open();
+    const intro = ctl.state().game.comment;
+    const names = ctl.state().game.names;
+    expect(intro.kind).toBe('intro');
+    expect(intro.dialogue).toHaveLength(2);
+    expect(intro.dialogue[0].text).toContain(names.w);
+    for (let i = 0; i < 120 && !(ctl.state().game.comment && ctl.state().game.comment.kind === 'result'); i++) await jest.advanceTimersByTimeAsync(1000);
+    const closing = ctl.state().game.comment;
+    expect(closing.kind).toBe('result');
+    expect(closing.dialogue).toHaveLength(2);
+    expect(closing.dialogue[0].text).toContain('Victòria ' + LG.de(names.b));
+    expect(closing.dialogue[1].text).toMatch(/lloc|líder|lidera|comparteix/);
     ctl.close();
   });
 });

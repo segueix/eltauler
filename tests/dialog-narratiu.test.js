@@ -26,7 +26,8 @@ test('el reforç defensiu respon al mateix peó anunciat a la jugada anterior', 
     const [attack, defence] = pressurePosition();
     expect(attack.kind).toBe('pressure');
     expect(defence.dialogueEvent).toBe('defence');
-    expect(defence.dialogue[0].text).toMatch(/pressió sobre el peó negre/);
+    // La pregunta torna al mateix peó (la redacció varia d'una jugada a una altra).
+    expect(defence.dialogue[0].text).toMatch(/el peó negre/);
     expect(defence.dialogue[0].text).not.toMatch(/\b[a-h][1-8]\b/);
     expect(defence.dialogue[1].text).toMatch(/hi pot recapturar/);
     const speech = TV.tvDialogueTurns({ ...defence, speech: defence.speech }, false);

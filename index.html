@@ -3373,6 +3373,62 @@
         body.epaper-mode .sftv-league { background: #fff; border-color: #333; }
         body.epaper-mode .sftv-predict button { background: #fff; color: #000; border-color: #333; }
         body.epaper-mode .sftv-predict button.is-picked { background: #ddd; }
+        /* ── Lliga de llegendes TV: jerarquia de la pantalla ──────────────────
+           El comentari (Èlia i Grau) va just després del tauler; després els
+           controls i la classificació; la resta, al final. */
+        .sftv-side > * { order: 10; flex-shrink: 0; }
+        .sftv-duo-label { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 0.86rem; flex: 1 1 100%; justify-content: center; }
+        .sftv-topbar > #sftv-matxa-controls { flex: 1 1 100%; margin: 0; }
+        .sftv-side > .sftv-voice-hold { order: 1; }
+        .sftv-side > .sftv-comment { order: 2; }
+        .sftv-side > .sftv-storyline { order: 3; }
+        .sftv-side > .sftv-controls { order: 4; }
+        .sftv-side > .sftv-legends, .sftv-side > .sftv-league { order: 5; }
+        /* Diàleg: qui parla, amb una etiqueta de color per a cada veu. */
+        .sftv-turn { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; align-items: baseline; padding: 6px 0; }
+        .sftv-turn + .sftv-turn { border-top: 1px solid rgba(201,162,39,.16); }
+        .sftv-turn.is-solo { grid-template-columns: minmax(0, 1fr); }
+        .sftv-turn-who { font-size: .68rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+        .sftv-turn.is-elia .sftv-turn-who { background: rgba(81,185,212,.18); color: #9adcef; }
+        .sftv-turn.is-grau .sftv-turn-who { background: rgba(201,162,39,.2); color: var(--accent-gold); }
+        .sftv-turn-text { line-height: 1.5; overflow-wrap: anywhere; }
+        .sftv-turn.is-grau .sftv-turn-text { color: var(--text-primary); }
+        .sftv-comment.is-intro { border-color: rgba(81,185,212,.45); }
+        .sftv-comment.is-result { border-color: var(--accent-gold); background: rgba(201,162,39,.1); }
+        /* Barra del partit sobre el tauler. */
+        .sftv-matchbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 2px 12px; margin: 0 auto 6px; padding: 6px 12px; border-radius: 10px;
+            background: linear-gradient(90deg, rgba(201,162,39,.2), rgba(43,120,168,.14)); border: 1px solid rgba(201,162,39,.35); font-size: .8rem; }
+        .sftv-matchbar[hidden] { display: none !important; }
+        .sftv-matchbar-league { font-weight: 800; color: var(--accent-gold); letter-spacing: .02em; }
+        .sftv-matchbar-round { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+        .sftv-legends-table tr.is-leader td.sftv-legends-pos { color: var(--accent-gold); font-weight: 800; }
+        body.day-mode .sftv-turn.is-elia .sftv-turn-who { background: rgba(11,95,120,.12); color: #0b5f78; }
+        body.day-mode .sftv-turn.is-grau .sftv-turn-who { background: rgba(140,104,10,.14); color: #6d5207; }
+        body.epaper-mode .sftv-turn-who { background: #fff !important; color: #000 !important; border: 1px solid #000; }
+        body.epaper-mode .sftv-matchbar { background: #fff; border-color: #000; }
+        @media (min-width: 760px) {
+            /* Ordinador: la columna lateral es queda a la vista mentre es mira el tauler. */
+            /* Capçalera compacta: el tauler queda a la vista sense desplaçar la pàgina. */
+            body.device-desktop #sftv-screen > .stats-header { margin-bottom: 4px; padding-top: 0; }
+            body.device-desktop #sftv-screen > .stats-header .app-logo { display: none; }
+            body.device-desktop #sftv-screen > .stats-header h1 { font-size: 1.45rem; margin: 0; }
+            body.device-desktop #sftv-screen > .stats-header .tutorial-sub { font-size: .8rem; max-width: 96ch; margin: 2px auto 0; }
+            body.device-desktop .sftv-topbar { align-items: center; justify-content: flex-start; margin-bottom: 8px; }
+            body.device-desktop .sftv-topbar .sftv-voicebar { flex: 0 1 auto; justify-content: flex-start; }
+            body.device-desktop .sftv-duo-label { flex: 0 1 auto; justify-content: flex-start; }
+            body.device-desktop .sftv-expand { min-height: 38px; padding: 6px 12px; }
+            body.device-desktop #sftv-matxa-controls { margin-bottom: 8px; }
+            body.device-desktop .sftv-topbar { flex-wrap: wrap; }
+            body.device-desktop .sftv-topbar > #sftv-matxa-controls { margin: 0; flex: 0 1 auto; }
+            body.device-desktop .sftv-topbar > #sftv-matxa-controls[open] { flex: 1 1 100%; }
+            /* El tauler i les dues fitxes caben a la pantalla sense desplaçar-la. */
+            body.device-desktop #sftv-screen #sftv-board, body.device-desktop #sftv-screen .sftv-player, body.device-desktop #sftv-screen .sftv-matchbar { max-width: min(100%, calc(100vh - 330px)); }
+            body.device-desktop .sftv-side { position: sticky; top: 10px; max-height: calc(100vh - 20px); overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; scrollbar-width: thin; }
+            body.device-desktop .sftv-comment { font-size: 1.03rem; min-height: 6.5em; }
+            body.device-desktop .sftv-matchbar { max-width: min(100%, 68vh); }
+            body.device-desktop .sftv-legends-table { font-size: .76rem; }
+            body.device-desktop .sftv-legends-table td { padding: 4px 5px; }
+        }
         /* Classificació de la Lliga de llegendes TV (llegendes.js). */
         .sftv-legends-progress { width: 100%; height: 8px; margin: 6px 0 4px; accent-color: var(--accent-gold); }
         .sftv-legends-table { width: 100%; border-collapse: collapse; margin: 8px 0 6px; font-size: .78rem; font-variant-numeric: tabular-nums; }
@@ -7993,8 +8049,7 @@
                 <button type="button" class="sftv-voice-toggle" id="sftv-voice-toggle" aria-pressed="false">🔇 Veu apagada</button>
                 <span class="sftv-note" id="sftv-voice-note" role="status" style="display:none;"></span>
             </div>
-            </div>
-            <label for="sftv-duo" style="display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:0.86rem;">
+            <label for="sftv-duo" class="sftv-duo-label">
                 <input id="sftv-duo" type="checkbox" checked>
                 Dues veus Matxa: l’Èlia pregunta i en Grau explica
             </label>
@@ -8074,6 +8129,7 @@
                     <p class="setting-help" id="sftv-radio-status" role="status"></p>
                 </fieldset>
             </details>
+            </div>
             <div class="sftv-layout">
                 <div class="sftv-main">
                     <div class="sftv-board-row">
@@ -8087,6 +8143,11 @@
                             <div class="sftv-ladder-value" id="sftv-ladder-value" aria-live="polite"></div>
                         </div>
                         <div class="sftv-board-col">
+                            <!-- Lliga de llegendes: lliga, jornada i partit (renderLegends). -->
+                            <div class="sftv-matchbar" id="sftv-matchbar" hidden>
+                                <span class="sftv-matchbar-league" id="sftv-matchbar-league"></span>
+                                <span class="sftv-matchbar-round" id="sftv-matchbar-round"></span>
+                            </div>
                             <div class="sftv-player" id="sftv-player-black">
                                 <div class="sftv-player-main"><strong class="sftv-player-name" id="sftv-name-black">Stockfish 19</strong><span class="sftv-player-color" id="sftv-color-black">♚ Negres</span></div>
                                 <div class="sftv-player-meta" id="sftv-meta-black"></div>
@@ -10850,9 +10911,9 @@
     <script src="tvintro.js?v=1.5.0"></script>
     <script src="tvleague.js?v=1.0.0"></script>
     <script src="tvleague-ui.js?v=1.2.0"></script>
-    <script src="visiograu.js?v=1.4.0"></script>
-    <script src="llegendes.js?v=1.0.0"></script>
-    <script src="stockfishtv.js?v=2.21.0"></script>
+    <script src="visiograu.js?v=1.5.0"></script>
+    <script src="llegendes.js?v=1.1.0"></script>
+    <script src="stockfishtv.js?v=2.22.0"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.6"></script>
     <script src="catalans.js?v=1.2.10"></script>

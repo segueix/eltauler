@@ -1068,4 +1068,8 @@ funció d'`app.js` hi delegui, i afegeix el cas a `tests/`.
   segon, amb motors simulats, prova la configuració de cada jugador (nivell,
   profunditat, perfil), el flux real del controlador, el resultat a la
   classificació, el canvi de lliga amb el campió anunciat, la reobertura, «Nova
-  partida», Lozza caigut i el mode heretat sense el mòdul.
+  partida», Lozza caigut i el mode heretat sense el mòdul. També la capa que posa
+  els noms als comentaris sense trencar la concordança, la pronúncia dels noms a
+  la veu, la presentació i el tancament en diàleg, «què hi ha en joc» calculat amb
+  la classificació real (primer lloc compartit inclòs) i, sobre una partida real
+  de les fixtures, que almenys un terç dels comentaris diguin noms sense caselles.
