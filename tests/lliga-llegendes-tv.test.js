@@ -617,3 +617,99 @@ describe('Lliga de llegendes TV · fase d’atac al controlador', () => {
     return s;
   }
 });
+
+describe('Lliga de llegendes TV · defalliment d’un dels dos jugadors', () => {
+  const S = TV.TV_CONFIG.SLUMP;
+
+  test('el sorteig tria si hi ha defalliment, quin bàndol i des de quina jugada', () => {
+    const plans = Array.from({ length: 400 }, (_, i) => TV.tvPlanSlump(seeded(100 + i)));
+    const some = plans.filter(Boolean);
+    expect(some.length / plans.length).toBeGreaterThan(S.CHANCE - 0.1);
+    expect(some.length / plans.length).toBeLessThan(S.CHANCE + 0.1);
+    expect(new Set(some.map(p => p.color))).toEqual(new Set(['w', 'b']));
+    some.forEach((p) => {
+      expect(p.fromPly).toBeGreaterThanOrEqual(S.FROM_MIN_PLY);
+      expect(p.fromPly).toBeLessThanOrEqual(S.FROM_MAX_PLY);
+    });
+    // Amb la mateixa llavor, el mateix sorteig.
+    expect(TV.tvPlanSlump(seeded(7))).toEqual(TV.tvPlanSlump(seeded(7)));
+  });
+
+  test('a partir de la jugada triada, Stockfish baixa d’Elo i Lozza calcula menys', () => {
+    const sf = TV.tvLegendSide(CAPS, LG.legend('carlsen'), true, 0.62);
+    const lz = TV.tvLegendSide(CAPS, LG.legend('morphy'), true, 0.62);
+    const slump = { color: 'w', fromPly: 50 };
+    expect(TV.tvSlumpSide(CAPS, sf, slump, 'w', 49)).toMatchObject({ level: sf.level, slumped: false });
+    expect(TV.tvSlumpSide(CAPS, sf, slump, 'w', 50)).toMatchObject({ level: TV.tvSnapLevel(CAPS, sf.level - S.ELO_DROP), slumped: true });
+    expect(TV.tvSlumpSide(CAPS, sf, slump, 'b', 90)).toMatchObject({ level: sf.level, slumped: false });
+    const weak = TV.tvSlumpSide(CAPS, lz, slump, 'w', 60);
+    expect(weak.depth).toBe(lz.depth - S.LOZZA_DEPTH_DROP);
+    expect(weak.movetime).toBeLessThan(lz.movetime);
+    expect(TV.tvSlumpSide(CAPS_SKILL, TV.tvLegendSide(CAPS_SKILL, LG.legend('karpov'), true, 0.62), slump, 'w', 60).level)
+      .toBe(Math.round(0.62 * 20) - S.SKILL_DROP);
+    expect(TV.tvSlumpSide(CAPS, sf, null, 'w', 120).slumped).toBe(false);
+  });
+
+  test('en Grau explica el defalliment una sola vegada, amb la jugada on comença', () => {
+    const ids = { w: 'karpov', b: 'kasparov' }, engines = { w: 'stockfish', b: 'lozza' };
+    let m = LG.remark({ ply: 10, color: 'w', ids, engines }, null).memory;
+    m = LG.remark({ ply: 20, color: 'b', ids, engines }, m).memory;
+    expect(LG.remark({ ply: 40, color: 'w', ids, engines, slump: { color: 'b', fromPly: 54 } }, m).remark).toBeFalsy();
+    const out = LG.remark({ ply: 56, color: 'w', ids, engines, slump: { color: 'b', fromPly: 54 } }, m);
+    expect(out.remark).toMatchObject({ kind: 'slump', id: 'kasparov' });
+    expect(out.remark.turns[0].text).toContain('Kasparov');
+    expect(out.remark.turns[1].text).toContain('Des de la jugada 28, Kasparov juga amb menys precisió');
+    expect(out.remark.turns[1].text).not.toMatch(SQUARE);
+    const again = LG.remark({ ply: 70, color: 'b', ids, engines, slump: { color: 'b', fromPly: 54 } }, out.memory);
+    expect(again.remark === null || again.remark.kind !== 'slump').toBe(true);
+  });
+
+  describe('al controlador', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    test('el bàndol del defalliment juga amb menys nivell des de la jugada triada', async () => {
+      const saved = Object.assign({}, S);
+      Object.assign(S, { CHANCE: 1, FROM_MIN_PLY: 14, FROM_MAX_PLY: 14 });
+      try {
+        const jobs = [];
+        const engine = (label) => ({
+          ready: async () => label === 'lozza' ? { mode: 'none', engineName: 'Lozza' } : CAPS,
+          failed: () => false, cancelAll() {}, newGame() {}, destroy() {},
+          request(job) {
+            jobs.push(job);
+            const [start, moveText] = job.position.split(' moves ');
+            const g = new Chess(start.startsWith('position fen ') ? start.slice('position fen '.length) : undefined);
+            if (moveText) moveText.split(' ').forEach(u => g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] || 'q' }));
+            const legal = g.moves({ verbose: true }).map(m => m.from + m.to + (m.promotion || ''));
+            const pick = legal[(g.history().length * 5) % legal.length];
+            return Promise.resolve({ bestUci: pick || null, infos: pick ? { 1: { depth: 12, multipv: 1, type: 'cp', value: 0, pv: [pick] } } : {} });
+          }
+        });
+        let state = LG.newSeason(1, seeded(4));
+        const target = state.fixtures.find(f => f.white === 'carlsen' && f.black === 'karpov');
+        state.fixtures.filter(f => f.id !== target.id).forEach((f) => { state = LG.record(state, f.id, { result: '1/2' }, seeded(1)).state; });
+        const ctl = TV.createTvController({ ChessCtor: Chess, engine: engine('stockfish'), lozzaEngine: engine('lozza'), random: seeded(9),
+          legends: LG, loadLeague: () => state, saveLeague: () => {}, loadPrefs: () => ({ speed: 'quick' }), savePrefs: () => {},
+          getOpenings: () => [], getViewer: () => ({ calibrated: false, roc: 900 }) });
+        await ctl.open();
+        const plan = ctl.state().game.matchPlan;
+        expect(plan.slump).toMatchObject({ fromPly: 14 });
+        const weak = plan.slump.color;
+        for (let i = 0; i < 200 && ctl.state().game.moves.length < 22 && !ctl.state().game.end; i++) await jest.advanceTimersByTimeAsync(1000);
+        const level = (j) => Number((j.strength.find(x => /UCI_Elo value/.test(x)) || '').split(' ').pop());
+        const moves = jobs.filter(j => j.tag.kind === 'move' && (j.tag.ply % 2 === 0 ? 'w' : 'b') === weak);
+        const before = moves.filter(j => j.tag.ply < 14), after = moves.filter(j => j.tag.ply >= 14);
+        expect(before.length).toBeGreaterThan(2);
+        expect(after.length).toBeGreaterThan(1);
+        before.forEach(j => expect(level(j)).toBe(plan.sides[weak].level));
+        after.forEach(j => expect(level(j)).toBe(TV.tvSnapLevel(CAPS, plan.sides[weak].level - S.ELO_DROP)));
+        // L'altre bàndol no canvia.
+        jobs.filter(j => j.tag.kind === 'move' && (j.tag.ply % 2 === 0 ? 'w' : 'b') !== weak)
+          .forEach(j => expect(level(j)).toBe(plan.sides[weak === 'w' ? 'b' : 'w'].level));
+        expect(ctl.state().game.slumped).toEqual({ color: weak, fromPly: 14 });
+        ctl.close();
+      } finally { Object.assign(S, saved); }
+    });
+  });
+});

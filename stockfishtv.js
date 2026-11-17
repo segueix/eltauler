@@ -315,6 +315,21 @@
             WEIGHTS: { check: 1, captureValue: 0.8, threat: 1, approach: 1, storm: 1.2, promotion: 4, pawnPush: 1.2,
                 passedPush: 2.5, kingCenter: 1.2, tradeAhead: 1.5, retreat: -1, quiet: -0.3, backtrack: -4, repeat: -8 }
         },
+        // · Defalliment: en una partida de cada CHANCE (a l'atzar), un dels dos
+        //   jugadors (també a l'atzar) baixa de precisió a partir d'una semijugada
+        //   triada a l'atzar entre FROM_MIN_PLY i FROM_MAX_PLY: Stockfish baixa
+        //   ELO_DROP d'Elo (o SKILL_DROP nivells de «Skill Level»); Lozza calcula
+        //   LOZZA_DEPTH_DROP nivells menys i amb menys temps. Es decideix a l'inici
+        //   de la partida, i l'Èlia i en Grau ho comenten quan passa.
+        SLUMP: {
+            CHANCE: 0.75,
+            FROM_MIN_PLY: 30,
+            FROM_MAX_PLY: 60,
+            ELO_DROP: 300,
+            SKILL_DROP: 3,
+            LOZZA_DEPTH_DROP: 1,
+            LOZZA_TIME_FACTOR: 0.7
+        },
         // · Taules per acord: posició igualada (|valoració| <= DRAW_CP durant
         //   DRAW_PLIES semijugades seguides), sense captures ni peons des de fa
         //   DRAW_HALFMOVES semijugades, a partir de DRAW_FROM_PLY.
@@ -1090,14 +1105,37 @@
             reveal: null, mode: caps ? caps.mode : 'none', stockfish: null };
     }
 
+    // Defalliment de la partida (o null): quin bàndol i a partir de quina semijugada.
+    function tvPlanSlump(random) {
+        const r = typeof random === 'function' ? random : Math.random;
+        const S = TV_CONFIG.SLUMP;
+        if (!(r() < S.CHANCE)) return null;
+        const color = r() < 0.5 ? 'w' : 'b';
+        const span = Math.max(0, S.FROM_MAX_PLY - S.FROM_MIN_PLY);
+        return { color: color, fromPly: S.FROM_MIN_PLY + Math.floor(r() * (span + 1)) % (span + 1) };
+    }
+
+    // Configuració efectiva d'un bàndol en una semijugada: si ha començat el seu
+    // defalliment, menys nivell (Stockfish) o menys profunditat i temps (Lozza).
+    function tvSlumpSide(caps, side, slump, color, ply) {
+        if (!side) return side;
+        if (!slump || slump.color !== color || !isNum(ply) || ply < slump.fromPly) return Object.assign({}, side, { slumped: false });
+        const S = TV_CONFIG.SLUMP;
+        let level = side.level;
+        if (isNum(level) && caps && caps.mode === 'elo') level = tvSnapLevel(caps, clamp(level - S.ELO_DROP, caps.min, caps.max));
+        else if (isNum(level) && caps && caps.mode === 'skill') level = clamp(level - S.SKILL_DROP * (caps.step || 1), caps.min, caps.max);
+        return Object.assign({}, side, { level: level, depth: clamp(side.depth - S.LOZZA_DEPTH_DROP, 2, TV_CONFIG.LOZZA_MAX_DEPTH),
+            movetime: Math.max(60, Math.round(side.movetime * S.LOZZA_TIME_FACTOR)), slumped: true });
+    }
+
     // Pla d'una partida de la lliga: qui juga, amb quin motor, nivell i perfil.
-    function tvLegendPlan(LG, fixture, caps, lozzaReady) {
+    function tvLegendPlan(LG, fixture, caps, lozzaReady, random) {
         const W = LG.legend(fixture.white), B = LG.legend(fixture.black);
         const power = LG.CONFIG.POWER;
         const sides = { w: tvLegendSide(caps, W, lozzaReady, power), b: tvLegendSide(caps, B, lozzaReady, power) };
         return { legends: true, fixture: fixture, round: fixture.round, ids: { w: W.id, b: B.id },
             names: { w: W.short, b: B.short }, engines: { w: sides.w.engine, b: sides.b.engine }, sides: sides,
-            sharp: !!(W.tactical || B.tactical), untilMate: false, reason: '' };
+            sharp: !!(W.tactical || B.tactical), untilMate: false, reason: '', slump: tvPlanSlump(random) };
     }
 
     // «Massa fàcil» puja el nivell; «Massa difícil» l'abaixa. Retorna les
@@ -3824,7 +3862,8 @@
         const a = ctx.after;
         const edge = a && a.reliable ? tvDecisiveSide(a.best, TV_CONFIG.DECIDED_PACE_CP) : null;
         const out = L.api.remark({ ply: ctx.ply, color: ctx.move.color, features: features, ids: L.ids, engines: L.engines,
-            stakes: L.stakes || null, edge: edge, attack: L.attack || null, lead: lead, prepared: !!ctx.prepared, end: !!ctx.end }, memory.legend);
+            stakes: L.stakes || null, edge: edge, attack: L.attack || null, slump: L.slump || null, lead: lead,
+            prepared: !!ctx.prepared, end: !!ctx.end }, memory.legend);
         const next = Object.assign({}, memory, { legend: out.memory });
         if (!out.remark) return { comment: chosen, memory: next };
         const r = out.remark;
@@ -3832,7 +3871,7 @@
         const text = turns ? turns.map(t => t.text).join(' ') : r.text;
         const say = turns ? turns.map(t => t.role === 'presenter' && t.solo ? t.solo : t.text).join(' ') : r.text;
         return { comment: { kind: 'legend', text: text, leadText: r.text, say: say, family: 'legend',
-            variantId: ['profile', 'stakes', 'edge', 'trait', 'attack'].indexOf(r.kind), explanatory: r.kind !== 'profile',
+            variantId: ['profile', 'stakes', 'edge', 'trait', 'attack', 'slump'].indexOf(r.kind), explanatory: r.kind !== 'profile',
             dialogue: turns ? turns.map(t => ({ role: t.role, text: t.text, ...(t.solo ? { solo: t.solo } : {}) })) : undefined,
             dialogueEvent: turns ? 'legend' : undefined, legend: { id: r.id, kind: r.kind } }, memory: next };
     }
@@ -4474,6 +4513,7 @@
                     matchPlan: g.matchPlan,
                     names: g.matchPlan && g.matchPlan.legends ? g.matchPlan.names : null,
                     attack: g.attack ? Object.assign({}, g.attack) : null,
+                    slumped: g.slumped ? Object.assign({}, g.slumped) : null,
                     leagueNote: g.leagueNote || '',
                     finalTable: g.finalTable || null,
                     finalSeason: g.finalSeason || null,
@@ -4584,7 +4624,7 @@
                 saveLeague();
             }
             const untilMate = !fixture && S.lozzaReady && prefs.untilMate;
-            const duel = fixture ? tvLegendPlan(LG, fixture, S.caps, S.lozzaReady)
+            const duel = fixture ? tvLegendPlan(LG, fixture, S.caps, S.lozzaReady, random)
                 : untilMate ? tvMateMatch(prefs.mateSeries, random)
                 : S.lozzaReady ? tvMatchPlan(tvRivalryHistory(prefs.recent, S.caps), {
                 caps: S.caps, target: target.value, unequal: prefs.unequal,
@@ -4789,7 +4829,10 @@
             const mate = g.matchPlan && g.matchPlan.untilMate ? g.matchPlan : null;
             const mode = S.caps ? S.caps.mode : 'none';
             // Lliga de llegendes: cada jugador té el seu nivell, profunditat i perfil.
-            const side = g.matchPlan && g.matchPlan.legends ? g.matchPlan.sides[color] : null;
+            // Si ha començat el defalliment d'aquest bàndol, juga amb menys precisió.
+            const side = g.matchPlan && g.matchPlan.legends
+                ? tvSlumpSide(S.caps, g.matchPlan.sides[color], g.matchPlan.slump, color, ply) : null;
+            if (side && side.slumped && !g.slumped) g.slumped = { color: color, fromPly: g.matchPlan.slump.fromPly };
             // Si la partida s'encalla, fase d'atac: Stockfish arrisca amb un perfil de
             // progrés i un marge més ample; Lozza calcula més profund.
             const late = side ? tvLateAttack({ ChessCtor: d.ChessCtor, fen: fen, ply: ply, startFen: g.startFen, history: uciMoves, baseStyle: side.style }) : null;
@@ -4948,7 +4991,8 @@
                 end: end, ply: ply, memory: g.memory, expression: d.expression, narrative: d.narrative, quality: d.quality,
                 patterns: d.patterns, art: d.art, gameId: g.id, visio: d.visio,
                 legends: g.matchPlan && g.matchPlan.legends && LG ? { api: LG, ids: g.matchPlan.ids, engines: g.matchPlan.engines,
-                    names: g.matchPlan.names, stakes: g.matchPlan.stakes || null, attack: g.attack ? Object.assign({}, g.attack) : null } : null,
+                    names: g.matchPlan.names, stakes: g.matchPlan.stakes || null, attack: g.attack ? Object.assign({}, g.attack) : null,
+                    slump: g.slumped ? Object.assign({}, g.slumped) : null } : null,
                 opening: openingDialogueContext(g, mv, fenBefore, fenAfter, prepared)
             });
             return { ply: ply, fenAfter: fenAfter, end: end, chosen: step.comment, memory: step.memory,
@@ -5893,8 +5937,12 @@
         const mine = (color) => !!(state.control && state.control.color === color);
         // Amb nivells desiguals, el nivell de cada bàndol només es veu en acabar.
         const sideText = (color) => mate ? 'profunditat màxima ' + mate.depth : legends
-            ? (g.engines[color] === 'lozza' ? 'profunditat ' + (legends.sides[color].depth + (g.attack && g.attack[color] && !g.end ? TV_CONFIG.LATE_ATTACK.LOZZA_DEPTH_BONUS : 0))
-                : tvLevelLabel(caps, legends.sides[color].level).short)
+            ? (() => {
+                const eff = tvSlumpSide(caps, legends.sides[color], g.slumped && !g.end ? legends.slump : null, color, g.moves ? g.moves.length : 0);
+                return g.engines[color] === 'lozza'
+                    ? 'profunditat ' + clamp(eff.depth + (g.attack && g.attack[color] && !g.end ? TV_CONFIG.LATE_ATTACK.LOZZA_DEPTH_BONUS : 0), 2, TV_CONFIG.LOZZA_MAX_DEPTH + TV_CONFIG.LATE_ATTACK.LOZZA_DEPTH_BONUS)
+                    : tvLevelLabel(caps, eff.level).short;
+            })()
             : g && g.matchPlan
             ? (g.engines[color] === 'lozza' ? 'profunditat ' + g.matchPlan.lozzaDepth
                 : tvLevelLabel(caps, g.matchPlan.stockfishLevel).short)
@@ -5921,7 +5969,8 @@
             if (meta) meta.textContent = !g ? 'Preparant els motors…'
                 : mine(color) ? 'Control manual · ' + sideText(color)
                 : standingText + (g.engines && g.engines[color] === 'lozza' ? 'Motor Lozza · ' : 'Motor Stockfish · ') + sideText(color)
-                    + (legends && g.attack && g.attack[color] && !g.end ? ' · Fase d\'atac' : '');
+                    + (legends && g.attack && g.attack[color] && !g.end ? ' · Fase d\'atac' : '')
+                    + (legends && g.slumped && g.slumped.color === color && !g.end ? ' · Menys precisió' : '');
             if (box) box.setAttribute('aria-label',
                 (color === 'w' ? 'Blanques: ' : 'Negres: ') + playerName
                 + (g ? ', ' + (mine(color) ? 'control manual' : sideText(color)) : ''));
@@ -6297,6 +6346,8 @@
                 + '<div class="sftv-result-text">' + escapeHtml(g.end.text) + '</div>'
                 + (g.level && g.level.reveal ? '<div class="sftv-result-reveal">' + escapeHtml(g.level.reveal) + '</div>' : '')
                 + (inLeague && g.leagueNote ? '<div class="sftv-result-reveal">' + escapeHtml(g.leagueNote) + '</div>' : '')
+                + (inLeague && g.slumped && g.names ? '<div class="sftv-result-reveal">' + escapeHtml(g.names[g.slumped.color]
+                    + ' va jugar amb menys precisió a partir de la jugada ' + (Math.floor(g.slumped.fromPly / 2) + 1) + '.') + '</div>' : '')
                 + (g.matchPlan && !inLeague ? '<div class="sftv-result-reveal">' +
                     (g.matchPlan.untilMate ? '' : 'Adaptació de la rivalitat: ') + escapeHtml(g.matchPlan.reason) + '</div>' : '')
                 + (g.pairScore ? '<div class="sftv-result-reveal">' + escapeHtml(g.pairScore) + '</div>' : '')
@@ -6700,6 +6751,8 @@
         tvLegendStep,
         tvLateAttack,
         tvAgreedDrawStep,
+        tvPlanSlump,
+        tvSlumpSide,
         tvMoveContext,
         tvPositionKey,
         tvNameSides,

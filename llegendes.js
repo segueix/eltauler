@@ -38,7 +38,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
     'use strict';
 
-    const VERSION = '1.2.0';
+    const VERSION = '1.3.0';
     // Sense prefix chess_/eltauler_: la sincronització al núvol no la recull
     // (com la resta de dades de la TV).
     const KEY = 'tauler_tv_legends_v1';
@@ -586,7 +586,17 @@
         return p.short + ' juga amb ' + ENGINE_NAME[e] + ', amb el perfil següent: ' + p.style + '.';
     }
 
-    function emptyRemarkMemory() { return { last: -100, count: 0, profile: { w: false, b: false }, used: [], stakes: false, edge: false, attack: { w: false, b: false } }; }
+    function emptyRemarkMemory() { return { last: -100, count: 0, profile: { w: false, b: false }, used: [], stakes: false, edge: false, attack: { w: false, b: false }, slump: false }; }
+
+    // Defalliment (stockfishtv.js, tvPlanSlump): un jugador baixa de precisió.
+    const SLUMP_ASKS = [
+        n => 'Grau, ' + n + ' sembla menys precís. Què li passa?',
+        n => 'Què li passa a ' + n + ', Grau? No sembla el mateix.'
+    ];
+    const SLUMP_ANSWERS = {
+        stockfish: (n, mv) => 'Des de la jugada ' + mv + ', ' + n + ' juga amb menys precisió: el seu motor baixa de nivell. Ara és més fàcil que s’equivoqui.',
+        lozza: (n, mv) => 'Des de la jugada ' + mv + ', ' + n + ' juga amb menys precisió: el seu motor calcula menys. Ara és més fàcil que s’equivoqui.'
+    };
 
     // Fase d'atac (stockfishtv.js, tvLateAttack): per què s'hi entra i què fa cada motor.
     const ATTACK_ASKS = {
@@ -648,6 +658,14 @@
             out = { kind: 'profile', text: profileLine(p.id, engine),
                 turns: [{ role: 'presenter', text: lead + variant(PROFILE_ASKS, n)(p.short), solo: lead.trim() || null }, { role: 'analyst', text: answer }] };
             m.profile[c.color] = true;
+        } else if (c.slump && !m.slump && legend(c.ids && c.ids[c.slump.color]) && c.ply >= c.slump.fromPly) {
+            // Un dels dos ha començat a jugar amb menys precisió: es diu una sola vegada.
+            const who = legend(c.ids[c.slump.color]);
+            const eng = c.engines && c.engines[c.slump.color] === 'lozza' ? 'lozza' : 'stockfish';
+            const answer = SLUMP_ANSWERS[eng](who.short, Math.floor(c.slump.fromPly / 2) + 1);
+            out = { kind: 'slump', text: answer, id: who.id,
+                turns: [{ role: 'presenter', text: lead + variant(SLUMP_ASKS, n)(who.short), solo: lead.trim() || null }, { role: 'analyst', text: answer }] };
+            m.slump = true;
         } else if (c.attack && ATTACK_ASKS[c.attack[c.color]] && !m.attack[c.color]) {
             // El jugador que mou acaba d'entrar en fase d'atac: es diu una sola vegada.
             const answer = ATTACK_ANSWERS[engine === 'lozza' ? 'lozza' : 'stockfish'](p.short);
@@ -688,7 +706,7 @@
         if (!out) return none;
         m.last = c.ply;
         m.count++;
-        return { memory: m, remark: Object.assign({ color: c.color, id: p.id }, out) };
+        return { memory: m, remark: Object.assign({ color: c.color, id: p.id }, out, out.id ? { id: out.id } : {}) };
     }
 
     return {

@@ -1077,3 +1077,7 @@ funció d'`app.js` hi delegui, i afegeix el cas a `tests/`.
   (peó passat, rei actiu, jugades que desfan l'anterior o repeteixen posició),
   quan s'activa la fase d'atac i què canvia (marge, perfil, profunditat de
   Lozza al controlador), les taules per acord i l'abandonament de la lliga.
+  El defalliment: el sorteig (proporció, bàndols i jugada dins la finestra,
+  reproduïble amb la mateixa llavor), el nivell efectiu abans i després de la
+  jugada triada (Stockfish, Skill Level i Lozza), que al controlador només
+  canvia el bàndol que defalleix i que en Grau ho explica una sola vegada.
