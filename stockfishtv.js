@@ -3437,16 +3437,13 @@
         const opening = I?.openingTalk?.({
             ...c.opening, color: c.move.color, ply: c.ply, prepared: !!c.prepared,
             flush: !!c.end,
-            canSpeak: !!c.end || (!urgent && !c.move.promotion && !/[+#]$/.test(c.move.san || ''))
+            canSpeak: !c.end && !urgent && !c.move.promotion && !/[+#]$/.test(c.move.san || '')
         }, memory.openingTalk);
         if (opening) memory.openingTalk = opening.memory;
         if (opening?.turns) {
-            // Si la partida acaba durant una seqüència de xecs, primer diem
-            // el resultat i després recuperem l'obertura ajornada.
-            const dialogue = c.end && chosen
-                ? [{ role: 'presenter', text: chosen.text }, ...opening.turns] : opening.turns;
+            const dialogue = opening.turns;
             const text = dialogue.map(turn => turn.text).join(' ');
-            chosen = { kind: c.end && chosen ? chosen.kind : 'opening', text, leadText: text, family: 'opening', variantId: 0,
+            chosen = { kind: 'opening', text, leadText: text, family: 'opening', variantId: 0,
                 explanatory: true, dialogue, dialogueEvent: 'opening' };
             memory.lastDialoguePly = c.ply;
             // L'obertura ha ocupat el torn. Els altres fets d'aquesta jugada
