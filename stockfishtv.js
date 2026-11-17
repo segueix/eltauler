@@ -5383,6 +5383,33 @@
     }
 
     // ------------------------------------------------------------------
+    // Mode cinema: fons negre, només el tauler i els dos jugadors
+    // ------------------------------------------------------------------
+    // Disposició segons l'espai útil de la pantalla (sense els marges):
+    //   · 'stack': negres a dalt i blanques a baix del tauler (mòbil dret,
+    //     finestres estretes). Les fitxes resten alçada al tauler.
+    //   · 'side': les dues fitxes en una columna a la dreta (negres a dalt,
+    //     blanques a baix) i el tauler ocupa tota l'alçada (ordinador, mòbil
+    //     apaïsat).
+    // Es tria la que dona el tauler més gran. Si la diferència és petita, es
+    // manté la d'ara (`current`) perquè no salti mentre es canvia la finestra.
+    const TV_CINEMA = { GAP: 10, SIDE_MIN: 170, SIDE_MAX: 300, SIDE_SHARE: 0.24, MIN_BOARD: 120, HYSTERESIS: 16 };
+    function tvCinemaLayout(opts = {}) {
+        const C = TV_CINEMA;
+        const num = v => Math.max(0, Number(v) || 0);
+        const width = num(opts.width), height = num(opts.height), players = num(opts.playersHeight);
+        const sideWidth = Math.round(Math.min(C.SIDE_MAX, Math.max(C.SIDE_MIN, width * C.SIDE_SHARE)));
+        const sizes = {
+            stack: Math.floor(Math.min(width, height - players - 2 * C.GAP)),
+            side: Math.floor(Math.min(height, width - sideWidth - C.GAP))
+        };
+        let mode = sizes.side > sizes.stack ? 'side' : 'stack';
+        const current = opts.current;
+        if ((current === 'side' || current === 'stack') && sizes[current] + C.HYSTERESIS >= sizes[mode]) mode = current;
+        return { mode, size: Math.max(C.MIN_BOARD, sizes[mode]), sideWidth, gap: C.GAP };
+    }
+
+    // ------------------------------------------------------------------
     // Interfície del navegador
     // ------------------------------------------------------------------
     const PIECE_THEME = 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png';
@@ -5395,7 +5422,11 @@
     let countdownTimer = null;
     let voiceHoldTimer = null;
     let uiReady = false;
-    let expanded = false;
+    // Mode cinema: `cinemaHistory` diu que hi ha un pas propi a l'historial
+    // (el gest d'enrere en surt sense tancar la TV) que encara no s'ha desfet.
+    let cinema = false;
+    let cinemaHistory = false;
+    let cinemaIdleTimer = null;
     let nativeFullscreen = false;
     let fullscreenRequest = 0;
     let savedScroll = null;
@@ -5580,21 +5611,23 @@
     function resizeBoard() {
         if (!board || !screenVisible()) return;
         const screen = $id('sftv-screen');
-        if (expanded && screen) {
-            const layout = screen.querySelector('.sftv-layout');
-            const col = screen.querySelector('.sftv-board-col');
-            const wrap = screen.querySelector('.sftv-board-wrap');
-            const side = screen.querySelector('.sftv-side');
-            if (layout && col && wrap && side) {
-                const stacked = !root.matchMedia('(min-width: 760px) and (min-aspect-ratio: 4/3)').matches;
-                const css = root.getComputedStyle(screen);
-                const available = screen.clientHeight - (layout.getBoundingClientRect().top - screen.getBoundingClientRect().top)
-                    - parseFloat(css.paddingBottom || 0);
-                const chrome = col.getBoundingClientRect().height - wrap.getBoundingClientRect().height;
-                const sideHeight = stacked ? side.getBoundingClientRect().height + 12 : 0;
-                const size = Math.max(120, Math.floor(Math.min(col.clientWidth, available - chrome - sideHeight - 2)));
-                screen.style.setProperty('--sftv-board-size', size + 'px');
-            }
+        if (cinema && screen) {
+            // El tauler s'adapta a tota la pantalla (tvCinemaLayout): l'espai
+            // útil és el de la pantalla sense els marges (zones segures del mòbil).
+            const css = root.getComputedStyle(screen);
+            const px = name => parseFloat(css[name]) || 0;
+            const players = ['sftv-player-black', 'sftv-player-white']
+                .reduce((sum, id) => sum + ($id(id) ? $id(id).offsetHeight : 0), 0);
+            const current = screen.classList.contains('is-cinema-side') ? 'side' : 'stack';
+            const layout = tvCinemaLayout({
+                width: screen.clientWidth - px('paddingLeft') - px('paddingRight'),
+                height: screen.clientHeight - px('paddingTop') - px('paddingBottom'),
+                playersHeight: players,
+                current
+            });
+            screen.classList.toggle('is-cinema-side', layout.mode === 'side');
+            screen.style.setProperty('--sftv-cinema-size', layout.size + 'px');
+            screen.style.setProperty('--sftv-cinema-side', layout.sideWidth + 'px');
         }
         const width = Math.round($id('sftv-board').getBoundingClientRect().width);
         if (width && width !== boardRenderedWidth) {
@@ -5605,23 +5638,34 @@
 
     function fullscreenElement() { return document.fullscreenElement || document.webkitFullscreenElement; }
 
-    function setExpanded(value) {
+    // El botó de sortida i el cursor s'amaguen després d'uns segons sense
+    // tocar res; qualsevol moviment, toc o tecla els torna a mostrar.
+    const CINEMA_IDLE_MS = 2500;
+    function cinemaWake() {
         const screen = $id('sftv-screen');
-        if (!screen || expanded === value) return;
-        expanded = value;
+        if (!screen || !cinema) return;
+        screen.classList.remove('is-idle');
+        if (cinemaIdleTimer) clearTimeout(cinemaIdleTimer);
+        cinemaIdleTimer = setTimeout(() => {
+            cinemaIdleTimer = null;
+            if (cinema) screen.classList.add('is-idle');
+        }, CINEMA_IDLE_MS);
+    }
+
+    function setCinema(value) {
+        const screen = $id('sftv-screen');
+        if (!screen || cinema === value) return;
+        cinema = value;
         if (value) savedScroll = { x: root.scrollX, y: root.scrollY };
-        screen.classList.toggle('is-expanded', value);
-        document.body.classList.toggle('sftv-expanded', value);
-        document.documentElement.classList.toggle('sftv-expanded', value);
-        const button = $id('sftv-expand');
-        if (button) {
-            button.setAttribute('aria-expanded', String(value));
-            button.setAttribute('title', value ? 'Torna a la mida normal (Esc)' : 'Amplia el tauler a pantalla completa');
-            const label = button.querySelector('span');
-            if (label) label.textContent = value ? 'Minimitza' : 'Amplia el tauler';
-        }
-        if (!value) {
-            screen.style.removeProperty('--sftv-board-size');
+        screen.classList.toggle('is-cinema', value);
+        document.body.classList.toggle('sftv-cinema', value);
+        document.documentElement.classList.toggle('sftv-cinema', value);
+        if (value) cinemaWake();
+        else {
+            if (cinemaIdleTimer) { clearTimeout(cinemaIdleTimer); cinemaIdleTimer = null; }
+            screen.classList.remove('is-idle', 'is-cinema-side');
+            screen.style.removeProperty('--sftv-cinema-size');
+            screen.style.removeProperty('--sftv-cinema-side');
             if (savedScroll) root.scrollTo(savedScroll.x, savedScroll.y);
             savedScroll = null;
         }
@@ -5634,25 +5678,47 @@
         try { if (exit) return Promise.resolve(exit.call(document)).catch(() => {}); } catch (e) {}
     }
 
-    function minimizeBoard() {
+    // Surt del mode cinema i la TV continua. `fromBack`: ho ha demanat el gest
+    // d'enrere (el pas propi de l'historial ja s'ha desfet). `closing`: la
+    // pantalla es tanca; el pas sobrant de l'historial no fa cap mal.
+    function exitCinema(opts = {}) {
         fullscreenRequest++;
         exitNativeFullscreen();
-        setExpanded(false);
+        const wasCinema = cinema;
+        setCinema(false);
+        if (opts.fromBack || opts.closing) cinemaHistory = false;
+        else if (wasCinema && cinemaHistory) {
+            // Desfà el pas propi: el popstate arriba a handleBack, que el consumeix.
+            try { root.history.back(); } catch (e) { cinemaHistory = false; }
+        }
+        if (wasCinema && !opts.closing) {
+            const button = $id('sftv-cinema');
+            if (button && screenVisible()) button.focus({ preventScroll: true });
+        }
     }
 
-    function toggleExpanded() {
-        if (expanded) { minimizeBoard(); return; }
+    function enterCinema() {
         const screen = $id('sftv-screen');
-        if (!screen || !screenVisible()) return;
-        setExpanded(true);
+        if (cinema || !screen || !screenVisible()) return;
+        setCinema(true);
+        // Un pas a l'historial: al mòbil, el gest d'enrere surt del mode
+        // cinema en comptes de tancar la TV.
+        if (!cinemaHistory && root.history && typeof root.history.pushState === 'function') {
+            try {
+                root.history.pushState({ screen: 'sftv-screen', sftvCinema: true }, '', root.location.href);
+                cinemaHistory = true;
+            } catch (e) {}
+        }
+        const exit = $id('sftv-cinema-exit');
+        if (exit) exit.focus({ preventScroll: true });
         const requestId = ++fullscreenRequest;
         const request = screen.requestFullscreen || screen.webkitRequestFullscreen;
-        // Si el navegador no admet pantalla completa, o la denega, el mateix
-        // tauler omple la finestra i conserva el botó de minimitzar.
+        // Si el navegador no admet la pantalla completa (iPhone) o la denega,
+        // el mode cinema igualment omple tota la finestra.
         if (!request || fullscreenElement()) return;
         try {
             Promise.resolve(request.call(screen)).then(() => {
-                if (requestId !== fullscreenRequest || !expanded || !screenVisible()) {
+                if (requestId !== fullscreenRequest || !cinema || !screenVisible()) {
                     exitNativeFullscreen();
                     return;
                 }
@@ -5662,16 +5728,25 @@
         } catch (e) {}
     }
 
+    // «Enrere» d'app.js (navGoBack) amb la TV oberta: si hi ha el pas propi
+    // del mode cinema, el consumeix (i en surt) i la TV no es tanca.
+    function handleBack() {
+        if (!cinemaHistory) return false;
+        cinemaHistory = false;
+        if (cinema) exitCinema({ fromBack: true });
+        return true;
+    }
+
     function onFullscreenChange() {
         const ownsFullscreen = fullscreenElement() === $id('sftv-screen');
         if (ownsFullscreen) {
             nativeFullscreen = true;
-            if (!expanded || !screenVisible()) exitNativeFullscreen();
+            if (!cinema || !screenVisible()) exitNativeFullscreen();
         } else if (nativeFullscreen) {
+            // S'ha sortit de la pantalla completa (Esc, gest del mòbil): també
+            // del mode cinema.
             nativeFullscreen = false;
-            setExpanded(false);
-            const button = $id('sftv-expand');
-            if (button && screenVisible()) button.focus({ preventScroll: true });
+            exitCinema();
         }
         setTimeout(resizeBoard, 0);
     }
@@ -6481,7 +6556,7 @@
                     : (last ? (last.byUser ? 'La teva jugada · ' : '') + (mv ? capFirst(pieceNP(mv.promotion || mv.piece, mv.color)) + ': ' : '')
                     + last.from + ' → ' + last.to : 'La peça es marca durant 1,5 segons abans de moure’s');
             }
-            if (expanded) resizeBoard();
+            if (cinema) resizeBoard();
         }
     };
 
@@ -6593,7 +6668,7 @@
 
     // Tanca la pantalla (sense tornar a l'inici): atura motor, temporitzadors i veu.
     function closeScreen() {
-        minimizeBoard();
+        exitCinema({ closing: true });
         if (controller) controller.close();
         if (sharedTvAudio) sharedTvAudio.dispose();
         radioAmbience = null;
@@ -6631,7 +6706,9 @@
         if (typeof document === 'undefined') return;
         const on = (id, ev, fn) => { const el = $id(id); if (el) el.addEventListener(ev, fn); };
         on('btn-sftv-banner', 'click', open);
-        on('sftv-expand', 'click', toggleExpanded);
+        on('sftv-cinema', 'click', enterCinema);
+        on('sftv-cinema-exit', 'click', () => exitCinema());
+        ['pointermove', 'pointerdown', 'focusin'].forEach(ev => on('sftv-screen', ev, cinemaWake));
         on('btn-back-sftv', 'click', () => {
             // Mateix camí que el gest d'enrere (navGoBack) si l'app el té.
             if (typeof bridge.goBack === 'function') bridge.goBack(); else goHome();
@@ -6703,13 +6780,13 @@
                 hidePromo();
                 return;
             }
-            if (ev.key === 'Escape' && expanded) {
+            if (ev.key === 'Escape' && cinema) {
                 ev.preventDefault();
                 ev.stopPropagation();
-                minimizeBoard();
-                const button = $id('sftv-expand');
-                if (button) button.focus({ preventScroll: true });
+                exitCinema();
+                return;
             }
+            if (cinema) cinemaWake();
         }, true);
         root.addEventListener && root.addEventListener('pagehide', () => { if (controller && screenVisible()) controller.setHidden(true); });
         root.addEventListener && root.addEventListener('resize', () => { setTimeout(resizeBoard, 80); });
@@ -6809,6 +6886,8 @@
         tvEngineWorkerUrl,
         tvRivalryHistory,
         applyBroadcastHighlights,
+        TV_CINEMA,
+        tvCinemaLayout,
         createTvEngine,
         createTvController,
         // Navegador
@@ -6816,6 +6895,8 @@
         open,
         close: goHome,
         closeScreen,
+        handleBack,
+        isCinema() { return cinema; },
         isActive() { return !!(controller && controller.isActive() && screenVisible()); },
         _controller() { return controller; }
     };

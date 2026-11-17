@@ -969,6 +969,9 @@ function navGoBack() {
     } else if (current === 'hg-history-screen') {
         closeHieroglyphicHistoryScreen();
     } else if (current === 'sftv-screen') {
+        // Mode cinema de la TV: «enrere» només en surt i la partida continua.
+        if (window.ElTaulerStockfishTV && typeof window.ElTaulerStockfishTV.handleBack === 'function'
+            && window.ElTaulerStockfishTV.handleBack()) return;
         // Stockfish TV: atura el seu motor, els temporitzadors i la veu.
         if (window.ElTaulerStockfishTV && typeof window.ElTaulerStockfishTV.closeScreen === 'function') window.ElTaulerStockfishTV.closeScreen();
         else $('#sftv-screen').hide();
