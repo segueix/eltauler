@@ -3416,7 +3416,7 @@
             body.device-desktop .sftv-topbar { align-items: center; justify-content: flex-start; margin-bottom: 8px; }
             body.device-desktop .sftv-topbar .sftv-voicebar { flex: 0 1 auto; justify-content: flex-start; }
             body.device-desktop .sftv-duo-label { flex: 0 1 auto; justify-content: flex-start; }
-            body.device-desktop .sftv-expand { min-height: 38px; padding: 6px 12px; }
+            body.device-desktop .sftv-cinema-btn { min-height: 38px; padding: 6px 12px; }
             body.device-desktop #sftv-matxa-controls { margin-bottom: 8px; }
             body.device-desktop .sftv-topbar { flex-wrap: wrap; }
             body.device-desktop .sftv-topbar > #sftv-matxa-controls { margin: 0; flex: 0 1 auto; }
@@ -3521,16 +3521,14 @@
         .sftv-last-move { text-align: center; font-size: 0.83rem; font-weight: 600; padding: 4px 0; min-height: 1.6em; }
         .sftv-topbar { display: flex; flex-wrap: wrap; justify-content: center; align-items: start; gap: 8px 16px; margin-bottom: 12px; }
         .sftv-topbar .sftv-voicebar { margin: 0; flex: 1 1 220px; }
-        .sftv-expand {
+        /* Botó «Mode cinema» (ordinador i mòbil). */
+        .sftv-cinema-btn {
             flex: 0 0 auto; border: 1px solid var(--accent-gold); border-radius: 10px; padding: 10px 14px;
             min-height: 44px; background: var(--bg-card); color: var(--text-primary); font: inherit; font-size: 0.9rem; cursor: pointer;
             display: inline-flex; align-items: center; justify-content: center; gap: 8px;
         }
-        .sftv-expand svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-        .sftv-expand .sftv-icon-shrink, .sftv-expand[aria-expanded="true"] .sftv-icon-expand { display: none; }
-        .sftv-expand[aria-expanded="true"] .sftv-icon-shrink { display: inline; }
-        .sftv-expand:focus-visible { outline: 3px solid var(--accent-gold); outline-offset: 3px; }
-        body.device-mobile #sftv-expand { display: none; }
+        .sftv-cinema-btn svg, .sftv-cinema-exit svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+        .sftv-cinema-btn:focus-visible { outline: 3px solid var(--accent-gold); outline-offset: 3px; }
         .sftv-board-wrap { position: relative; margin-bottom: 0; }
         /* Etiquetes gairebé transparents: mostren el color real del fons, amb text llegible. */
         .sftv-player {
@@ -3698,51 +3696,61 @@
         body.epaper-mode .sftv-control-note, body.epaper-mode .sftv-promo { background: #fff; border-color: #000; color: #000; }
         body.epaper-mode :is(#sftv-board, #history-board, .broadcast-board) .sftv-sel { box-shadow: inset 0 0 0 4px #000; }
         body.epaper-mode :is(#sftv-board, #history-board, .broadcast-board) .sftv-target::before { background: #000; }
-        html.sftv-expanded, body.sftv-expanded { overflow: hidden !important; }
-        body.sftv-expanded { filter: none !important; }
-        #sftv-screen.is-expanded {
-            position: fixed; inset: 0; z-index: 10000; width: 100%; height: 100vh; height: 100dvh;
-            max-width: none; max-height: none; margin: 0; overflow: auto; overscroll-behavior: contain;
-            padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
-            background: var(--bg-dark); animation: none;
+        /* ── Mode cinema de la TV (stockfishtv.js: enterCinema, tvCinemaLayout) ──
+           Fons completament negre i només el tauler i els dos jugadors. El JS
+           calcula la mida del tauler (--sftv-cinema-size) segons la pantalla i,
+           amb .is-cinema-side, posa les fitxes en una columna a la dreta
+           (--sftv-cinema-side): així el tauler ocupa tota l'alçada. */
+        html.sftv-cinema, body.sftv-cinema { overflow: hidden !important; }
+        body.sftv-cinema { filter: none !important; }
+        #sftv-screen.is-cinema {
+            position: fixed; inset: 0; z-index: 10000; box-sizing: border-box;
+            width: 100%; height: 100vh; height: 100dvh; max-width: none; max-height: none; margin: 0;
+            display: flex; align-items: center; justify-content: center; overflow: hidden; overscroll-behavior: contain;
+            padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+            background: #000; color: #fff; animation: none;
         }
-        #sftv-screen::backdrop { background: var(--bg-dark); }
-        #sftv-screen.is-expanded > .stats-header, #sftv-screen.is-expanded > .game-buttons,
-        #sftv-screen.is-expanded .sftv-ladder, #sftv-screen.is-expanded .sftv-level-card,
-        #sftv-screen.is-expanded .sftv-moves, #sftv-screen.is-expanded .sftv-engine-note,
-        #sftv-screen.is-expanded .sftv-opening { display: none !important; }
-        #sftv-screen.is-expanded .sftv-topbar { position: relative; z-index: 6; }
-        #sftv-screen.is-expanded .sftv-layout { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 12px; }
-        #sftv-screen.is-expanded .sftv-board-row { display: block; }
-        #sftv-screen.is-expanded .sftv-board-wrap,
-        #sftv-screen.is-expanded .sftv-player { width: var(--sftv-board-size, 70vmin); max-width: 100%; margin-left: auto; margin-right: auto; }
-        #sftv-screen.is-expanded #sftv-board { width: 100%; max-width: none; }
-        #sftv-screen.is-expanded .sftv-side { width: 100%; max-width: 650px; justify-self: center; }
-        #sftv-screen.is-expanded .sftv-comment { max-height: 20vh; overflow: auto; }
-        #sftv-screen.is-expanded .sftv-comment.is-empty { display: none; }
-        #sftv-screen.is-expanded .sftv-controls { display: flex; flex-wrap: wrap; gap: 8px; }
-        #sftv-screen.is-expanded .sftv-controls > .btn { flex: 1 1 130px; }
-        #sftv-screen.is-expanded .sftv-speed-label { flex: 1 1 180px; }
+        #sftv-screen::backdrop { background: #000; }
+        #sftv-screen.is-cinema.is-idle { cursor: none; }
+        #sftv-screen.is-cinema > :not(.sftv-layout):not(.sftv-cinema-exit),
+        #sftv-screen.is-cinema .sftv-side, #sftv-screen.is-cinema .sftv-ladder,
+        #sftv-screen.is-cinema .sftv-board-col > :not(.sftv-player):not(.sftv-board-wrap) { display: none !important; }
+        #sftv-screen.is-cinema .sftv-layout, #sftv-screen.is-cinema .sftv-main, #sftv-screen.is-cinema .sftv-board-row { display: block; width: auto; margin: 0; padding: 0; }
+        body.sftv-cinema #sftv-screen.is-cinema .sftv-board-col {
+            display: grid; gap: 10px; grid-template-columns: var(--sftv-cinema-size, min(92vw, 62vh));
+            grid-template-areas: "black" "board" "white";
+        }
+        body.sftv-cinema #sftv-screen.is-cinema .sftv-board-wrap { grid-area: board; width: 100%; margin: 0; }
+        body.sftv-cinema #sftv-screen.is-cinema #sftv-board { width: 100%; max-width: none; margin: 0; }
+        body.sftv-cinema #sftv-screen.is-cinema .sftv-player { width: 100%; max-width: none; margin: 0; }
+        body.sftv-cinema #sftv-screen.is-cinema #sftv-player-black { grid-area: black; }
+        body.sftv-cinema #sftv-screen.is-cinema #sftv-player-white { grid-area: white; }
+        /* Pantalla ampla (ordinador, mòbil apaïsat): tauler a tota l'alçada i
+           les fitxes a la dreta, les negres a dalt i les blanques a baix. */
+        body.sftv-cinema #sftv-screen.is-cinema.is-cinema-side .sftv-board-col {
+            grid-template-columns: var(--sftv-cinema-size) var(--sftv-cinema-side, 240px);
+            grid-template-rows: 1fr 1fr; grid-template-areas: "board black" "board white";
+        }
+        body.sftv-cinema #sftv-screen.is-cinema-side #sftv-player-black { align-self: start; }
+        body.sftv-cinema #sftv-screen.is-cinema-side #sftv-player-white { align-self: end; }
+        #sftv-screen.is-cinema-side .sftv-player-main { flex-direction: column; align-items: flex-start; gap: 2px; }
+        #sftv-screen.is-cinema-side .sftv-player-name { font-size: clamp(1.2rem, 2.4vw, 2rem); }
+        /* Sortida: un botó discret a la cantonada que s'amaga si no es toca res. */
+        .sftv-cinema-exit { display: none; }
+        #sftv-screen.is-cinema .sftv-cinema-exit {
+            position: fixed; z-index: 7; top: max(10px, env(safe-area-inset-top)); right: max(10px, env(safe-area-inset-right));
+            display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0;
+            border-radius: 50%; border: 1px solid rgba(255,255,255,.35); background: rgba(255,255,255,.12); color: #fff;
+            cursor: pointer; transition: opacity .3s ease;
+        }
+        #sftv-screen.is-cinema .sftv-cinema-exit:hover { background: rgba(255,255,255,.22); }
+        #sftv-screen.is-cinema .sftv-cinema-exit:focus-visible { outline: 3px solid var(--accent-gold); outline-offset: 3px; }
+        #sftv-screen.is-cinema.is-idle .sftv-cinema-exit { opacity: 0; pointer-events: none; }
         body.epaper-mode :is(#sftv-board, #history-board, .broadcast-board) .sftv-from { background: #ddd; }
         body.epaper-mode :is(#sftv-board, #history-board, .broadcast-board) .sftv-to { background: #aaa; }
         body.epaper-mode :is(#sftv-board, #history-board, .broadcast-board) .square-55d63.sftv-preview { background: #ddd; box-shadow: inset 0 0 0 4px #000; }
         body.epaper-mode :is(#sftv-board, #history-board, .broadcast-board) .sftv-from::after { border-color: #222; }
         body.epaper-mode :is(#sftv-board, #history-board, .broadcast-board) .sftv-to::after { outline-color: #000; }
-        @media (min-width: 760px) and (min-aspect-ratio: 4/3) {
-            #sftv-screen.is-expanded .sftv-layout { grid-template-columns: minmax(0, 1fr) minmax(240px, 28%); }
-            #sftv-screen.is-expanded .sftv-side { align-self: center; }
-            #sftv-screen.is-expanded .sftv-comment { max-height: 45vh; }
-        }
-        @media (max-width: 599px) {
-            #sftv-screen.is-expanded { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
-            #sftv-screen.is-expanded .sftv-topbar, #sftv-screen.is-expanded .sftv-side { padding-left: 10px; padding-right: 10px; }
-        }
-        @media (max-height: 500px) and (min-aspect-ratio: 4/3) {
-            #sftv-screen.is-expanded .sftv-player { display: block; padding: 3px 7px; margin: 2px auto; }
-            #sftv-screen.is-expanded .sftv-player-name { font-size: 1.05rem; }
-            #sftv-screen.is-expanded .sftv-player-meta { display: none; }
-            #sftv-screen.is-expanded .sftv-status { font-size: 0.75rem; }
-        }
 
         /* ── Bàner de Jeroglífics (sota la lliga) ─────────────────────────── */
         .hieroglyphic-banner {
@@ -8043,13 +8051,15 @@
              El motor i el nivell de cada jugador són interns: la pantalla no els diu.
              Cada dispositiu genera les seves partides: no és cap emissió compartida. -->
         <div id="sftv-screen" class="screen-anim" style="display:none;">
+            <!-- Mode cinema: l'únic control visible; també se'n surt amb Esc o el gest d'enrere. -->
+            <button type="button" class="sftv-cinema-exit" id="sftv-cinema-exit" aria-label="Surt del mode cinema" title="Surt del mode cinema (Esc)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8h5V3m13 5h-5V3M3 16h5v5m13-5h-5v5"/></svg></button>
             <div class="stats-header">
                 <div class="app-logo"><svg class="sftv-logo-ic" aria-hidden="true"><use href="#ic-tv"/></svg></div>
                 <h1>Lliga de llegendes TV</h1>
                 <div class="tutorial-sub">Deu llegendes dels escacs fan una lliga de dues voltes, cadascuna amb el seu estil de joc. Les partides es generen al teu dispositiu i l'Èlia i en Grau en comenten les jugades.</div>
             </div>
             <div class="sftv-topbar">
-            <button type="button" class="sftv-expand" id="sftv-expand" aria-expanded="false" aria-controls="sftv-screen" title="Amplia el tauler a pantalla completa"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="sftv-icon-expand" d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/><path class="sftv-icon-shrink" d="M3 8h5V3m13 5h-5V3M3 16h5v5m13-5h-5v5"/></svg><span>Amplia el tauler</span></button>
+            <button type="button" class="sftv-cinema-btn" id="sftv-cinema" aria-controls="sftv-screen" title="Mode cinema: fons negre i només el tauler i els jugadors"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 4v16M17 4v16M2 8h5M2 12h5M2 16h5M17 8h5M17 12h5M17 16h5"/></svg><span>Mode cinema</span></button>
             <div class="sftv-voicebar" role="group" aria-label="Veu dels comentaris">
                 <button type="button" class="btn btn-primary sftv-voice-activate" id="sftv-voice-activate" style="display:none;">🔊 Activa la veu</button>
                 <button type="button" class="sftv-voice-toggle" id="sftv-voice-toggle" aria-pressed="false">🔇 Veu apagada</button>
@@ -10918,7 +10928,7 @@
     <script src="tvleague-ui.js?v=1.2.0"></script>
     <script src="visiograu.js?v=1.5.0"></script>
     <script src="llegendes.js?v=1.4.0"></script>
-    <script src="stockfishtv.js?v=2.25.0"></script>
+    <script src="stockfishtv.js?v=2.26.0"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.6"></script>
     <script src="catalans.js?v=1.2.10"></script>
@@ -10934,7 +10944,7 @@
     <script src="boardexperience.js?v=1.0.7"></script>
     <script src="bulletbank.js?v=1.0.0"></script>
     <script src="bulletpractice.js?v=1.2.6"></script>
-    <script src="app.js?v=1.0.167"></script>
+    <script src="app.js?v=1.0.168"></script>
     <!-- Pas a Remigi lliscant el dit pel mig de la portada (mòbil) -->
     <script src="canviapp.js?v=1.0.0"></script>
 

@@ -118,6 +118,14 @@ Conduir amb Playwright + Chromium preinstal·lat
     workers responen en temps real); baixar `TV_CONFIG.MAX_PLIES` (p. ex. 70) i
     `NEXT_GAME_DELAY_MS`. No usar `waitForFunction` amb el rellotge simulat:
     consultar l'estat amb `page.evaluate` en un bucle.
+    **Mode cinema**: `#sftv-cinema` hi entra (`ElTaulerStockfishTV.isCinema()`,
+    `#sftv-screen.is-cinema`, i `.is-cinema-side` quan els jugadors van a la
+    dreta); la mida del tauler és `--sftv-cinema-size` (`tvCinemaLayout`). Se'n
+    surt amb `#sftv-cinema-exit` (s'amaga amb `.is-idle` després de 2,5 s sense
+    tocar res), Esc o `history.back()` (la TV continua oberta; un segon
+    «enrere» la tanca). El Chromium headless sí que fa pantalla completa; per
+    provar el cas de l'iPhone, esborrar `Element.prototype.requestFullscreen`
+    en un `addInitScript`.
 11. **Veu neuronal Matxa** (`veuneural.js`, demo del BSC a
     `projecte-aina-matxa-alvocat-tts-ca.hf.space`): el Chromium no hi arriba
     directament, però es pot redirigir amb `ctx.route(/\.hf\.space\//, …)` i
