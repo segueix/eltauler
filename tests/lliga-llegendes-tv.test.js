@@ -483,3 +483,137 @@ describe('Lliga de llegendes TV · tancament de la partida', () => {
     ctl.close();
   });
 });
+
+describe('Lliga de llegendes TV · perquè les partides no s’encallin', () => {
+  const play = (moves) => { const g = new Chess(); moves.forEach(u => g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] || 'q' })); return g; };
+
+  test('trets de progrés: peó que avança, peó passat i rei actiu al final', () => {
+    const f = TV.tvMoveFeatures(Chess, '8/5k2/8/3P4/8/8/5K2/8 w - - 0 60', 'd5d6', 0);
+    expect(f).toMatchObject({ pawnPush: 1, passedPush: 1 });
+    expect(TV.tvMoveFeatures(Chess, '8/5k2/8/3P4/8/8/5K2/8 w - - 0 60', 'f2e3', 0).kingCenter).toBe(1);
+    expect(TV.tvMoveFeatures(Chess, '8/5k2/8/3P4/8/8/5K2/8 w - - 0 60', 'f2g2', 0).kingCenter).toBe(0);
+    // Amb un peó rival davant a la columna del costat, el peó no és passat.
+    expect(TV.tvMoveFeatures(Chess, '8/4pk2/8/3P4/8/8/5K2/8 w - - 0 60', 'd5d6', 0).passedPush).toBe(0);
+  });
+
+  test('detecta les jugades que desfan l’anterior i les que repeteixen una posició', () => {
+    const h = ['g1f3', 'g8f6', 'f3g1', 'f6g8', 'g1f3', 'g8f6'];
+    const ctx = TV.tvMoveContext(Chess, undefined, h);
+    const fen = play(h).fen();
+    expect(TV.tvMoveFeatures(Chess, fen, 'f3g1', 0, ctx)).toMatchObject({ backtrack: 1, repeat: 1 });
+    expect(TV.tvMoveFeatures(Chess, fen, 'e2e4', 0, ctx)).toMatchObject({ backtrack: 0, repeat: 0, pawnPush: 1 });
+  });
+
+  test('la fase d’atac s’activa quan la partida s’encalla, es repeteix o s’allarga', () => {
+    const L = TV.TV_CONFIG.LATE_ATTACK;
+    const quiet = '8/5k2/8/3P4/8/8/5K2/8 w - - 4 40';
+    expect(TV.tvLateAttack({ ChessCtor: Chess, fen: quiet, ply: L.FROM_PLY + 2, history: [] })).toBeNull();
+    const stalled = '8/5k2/8/3P4/8/8/5K2/8 w - - ' + L.STALL_HALFMOVES + ' 40';
+    expect(TV.tvLateAttack({ ChessCtor: Chess, fen: stalled, ply: L.FROM_PLY - 2, history: [] })).toBeNull();
+    expect(TV.tvLateAttack({ ChessCtor: Chess, fen: stalled, ply: L.FROM_PLY, history: [] }).reason).toBe('stalled');
+    expect(TV.tvLateAttack({ ChessCtor: Chess, fen: quiet, ply: L.ALWAYS_FROM_PLY, history: [] }).reason).toBe('long');
+    const h = ['g1f3', 'g8f6', 'f3g1', 'f6g8', 'g1f3', 'g8f6', 'f3g1', 'f6g8'];
+    const rep = TV.tvLateAttack({ ChessCtor: Chess, fen: play(h).fen(), ply: L.REPEAT_FROM_PLY, history: h });
+    expect(rep.reason).toBe('repetition');
+    expect(rep.windowCp).toBe(L.WINDOW_CP);
+    expect(rep.windowCp).toBeGreaterThan(TV.TV_CONFIG.STYLE_WINDOW_CP);
+    expect(rep.depthBonus).toBeGreaterThan(0);
+    // El perfil d'atac conserva una part de l'estil del jugador.
+    const base = { label: 'Karpov', weights: { quiet: 2, retreat: 1 } };
+    const merged = TV.tvLateAttack({ ChessCtor: Chess, fen: quiet, ply: L.ALWAYS_FROM_PLY, history: [], baseStyle: base }).style.weights;
+    expect(merged.quiet).toBeCloseTo(2 * L.STYLE_SHARE + L.WEIGHTS.quiet);
+    expect(merged.repeat).toBe(L.WEIGHTS.repeat);
+    expect(merged.passedPush).toBe(L.WEIGHTS.passedPush);
+  });
+
+  test('en fase d’atac, el perfil evita desfer la jugada i prefereix fer avançar un peó', () => {
+    const h = ['g1f3', 'g8f6', 'f3g1', 'f6g8', 'g1f3', 'g8f6'];
+    const fen = play(h).fen();
+    const late = TV.tvLateAttack({ ChessCtor: Chess, fen, ply: 90, history: h });
+    // El nivell triaria tornar el cavall (desfer); hi ha un avanç de peó 60 cp pitjor.
+    const infos = { 1: { type: 'cp', value: 10, pv: ['f3g1'] }, 2: { type: 'cp', value: -50, pv: ['d2d4'] } };
+    expect(TV.tvPickStyledMove(Chess, fen, infos, 'f3g1', late.style, late.windowCp, late.context).uci).toBe('d2d4');
+    // Fora de la fase d'atac (marge normal), 60 cp és massa: es manté la jugada del nivell.
+    expect(TV.tvPickStyledMove(Chess, fen, infos, 'f3g1', late.style, undefined, late.context).uci).toBe('f3g1');
+  });
+
+  test('taules per acord només quan fa estona que la posició és igualada i no avança', () => {
+    const C = TV.TV_CONFIG;
+    const level = TV.tvBuildAnalysis('8/5k2/8/8/8/8/5K2/R7 w - - 30 90', { 1: { depth: 14, type: 'cp', value: 10, pv: ['a1a2'] } }, 'a1a2');
+    const edge = TV.tvBuildAnalysis('8/5k2/8/8/8/8/5K2/R7 w - - 30 90', { 1: { depth: 14, type: 'cp', value: 300, pv: ['a1a2'] } }, 'a1a2');
+    let st = null, end = null;
+    for (let i = 0; i < C.DRAW_PLIES; i++) ({ state: st, end } = TV.tvAgreedDrawStep(st, level, C.DRAW_FROM_PLY - 30 + i, '8/5k2/8/8/8/8/5K2/R7 w - - 30 90'));
+    expect(end).toBeNull(); // massa aviat
+    st = null;
+    for (let i = 0; i < C.DRAW_PLIES; i++) ({ state: st, end } = TV.tvAgreedDrawStep(st, level, C.DRAW_FROM_PLY + i, '8/5k2/8/8/8/8/5K2/R7 w - - 30 90'));
+    expect(end).toMatchObject({ result: '½-½', reason: 'agreed' });
+    // Una valoració desequilibrada reinicia el compte; un peó que s'acaba de moure, també ho impedeix.
+    expect(TV.tvAgreedDrawStep({ plies: 50 }, edge, 200, '8/5k2/8/8/8/8/5K2/R7 w - - 30 90').state.plies).toBe(0);
+    expect(TV.tvAgreedDrawStep({ plies: 50 }, level, 200, '8/5k2/8/8/8/8/5K2/R7 w - - 0 90').end).toBeNull();
+  });
+
+  test('a la lliga es pot abandonar abans (el duel heretat manté el mínim de sempre)', () => {
+    const lost = TV.tvBuildAnalysis('8/5k2/8/8/8/8/5K2/R7 w - - 0 40', { 1: { depth: 14, type: 'cp', value: 900, pv: ['a1a2'] } }, 'a1a2');
+    let st = null, end = null;
+    for (let i = 0; i < TV.TV_CONFIG.RESIGN_PLIES; i++) ({ state: st, end } = TV.tvResignStep(st, lost, 70 + i, 500, TV.TV_CONFIG.LEAGUE_RESIGN_MIN_PLY));
+    expect(end).toMatchObject({ reason: 'resign', result: '1-0' });
+    st = null;
+    for (let i = 0; i < TV.TV_CONFIG.RESIGN_PLIES; i++) ({ state: st, end } = TV.tvResignStep(st, lost, 70 + i, 500));
+    expect(end).toBeNull();
+  });
+});
+
+describe('Lliga de llegendes TV · fase d’atac al controlador', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  test('passat el llindar, Stockfish tria amb el perfil d’atac i Lozza calcula més profund', async () => {
+    const L = TV.TV_CONFIG.LATE_ATTACK;
+    const saved = L.ALWAYS_FROM_PLY;
+    L.ALWAYS_FROM_PLY = 16;
+    try {
+      const jobs = [];
+      const engine = (label) => ({
+        ready: async () => label === 'lozza' ? { mode: 'none', engineName: 'Lozza' } : CAPS,
+        failed: () => false, cancelAll() {}, newGame() {}, destroy() {},
+        request(job) {
+          jobs.push(job);
+          const [start, moveText] = job.position.split(' moves ');
+          const g = new Chess(start.startsWith('position fen ') ? start.slice('position fen '.length) : undefined);
+          if (moveText) moveText.split(' ').forEach(u => g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] || 'q' }));
+          const legal = g.moves({ verbose: true }).map(m => m.from + m.to + (m.promotion || ''));
+          const pick = legal[(g.history().length * 7) % legal.length];
+          return Promise.resolve({ bestUci: pick || null, infos: pick ? { 1: { depth: 12, multipv: 1, type: 'cp', value: 0, pv: [pick] } } : {} });
+        }
+      });
+      let state = LG.newSeason(1, seeded(4));
+      const target = state.fixtures.find(f => f.white === 'morphy' && f.black === 'carlsen');
+      state.current = target.id;
+      state.fixtures = state.fixtures.map(f => f.id === target.id ? f : Object.assign({}, f));
+      // Fem que la jornada en curs sigui la del partit volgut.
+      const ctl = TV.createTvController({ ChessCtor: Chess, engine: engine('stockfish'), lozzaEngine: engine('lozza'), random: seeded(5),
+        legends: LG, loadLeague: () => lastRound(state, target), saveLeague: () => {}, loadPrefs: () => ({ speed: 'quick' }), savePrefs: () => {},
+        getOpenings: () => [], getViewer: () => ({ calibrated: false, roc: 900 }) });
+      await ctl.open();
+      const plan = ctl.state().game.matchPlan;
+      expect(plan.engines).toEqual({ w: 'lozza', b: 'stockfish' });
+      for (let i = 0; i < 200 && ctl.state().game.moves.length < 24 && !ctl.state().game.end; i++) await jest.advanceTimersByTimeAsync(1000);
+      const moves = jobs.filter(j => j.tag.kind === 'move');
+      const early = moves.filter(j => j.tag.ply < 16), late = moves.filter(j => j.tag.ply >= 16);
+      expect(late.length).toBeGreaterThan(2);
+      early.filter(j => j.tag.engine === 'lozza').forEach(j => expect(j.go).toBe('go depth ' + plan.sides.w.depth + ' movetime ' + plan.sides.w.movetime));
+      late.filter(j => j.tag.engine === 'lozza').forEach(j =>
+        expect(j.go).toBe('go depth ' + (plan.sides.w.depth + L.LOZZA_DEPTH_BONUS) + ' movetime ' + Math.round(plan.sides.w.movetime * L.LOZZA_TIME_FACTOR)));
+      late.filter(j => j.tag.engine === 'stockfish').forEach(j => expect(j.multipv).toBe(TV.TV_CONFIG.STYLE_MULTIPV));
+      expect(ctl.state().game.attack).toMatchObject({ w: 'long', b: 'long' });
+      ctl.close();
+    } finally { L.ALWAYS_FROM_PLY = saved; }
+  });
+
+  // Lliga amb totes les partides jugades menys la indicada (perquè sigui la següent).
+  function lastRound(state, target) {
+    let s = state;
+    s.fixtures.filter(f => f.id !== target.id).forEach((f) => { s = LG.record(s, f.id, { result: '1/2' }, seeded(1)).state; });
+    return s;
+  }
+});

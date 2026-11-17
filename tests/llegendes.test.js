@@ -483,3 +483,21 @@ describe('Lliga de llegendes · veu, diàlegs i classificació en joc', () => {
     });
 });
 
+
+describe('Lliga de llegendes · anunci de la fase d’atac', () => {
+  test('quan un jugador entra en fase d’atac, l’Èlia ho pregunta i en Grau explica què fa el seu motor (un sol cop)', () => {
+    const ids = { w: 'karpov', b: 'kasparov' }, engines = { w: 'stockfish', b: 'lozza' };
+    let m = L.remark({ ply: 10, color: 'b', ids, engines }, null).memory; // primer, el perfil
+    const out = L.remark({ ply: 60, color: 'b', ids, engines, attack: { b: 'stalled' } }, m);
+    expect(out.remark.kind).toBe('attack');
+    expect(out.remark.turns[0].text).toContain('Fa estona que no hi ha captures ni moviments de peó');
+    expect(out.remark.turns[0].text).toContain('Kasparov');
+    expect(out.remark.turns[1].text).toContain('calcula més profund');
+    const again = L.remark({ ply: 80, color: 'b', ids, engines, attack: { b: 'stalled' } }, out.memory);
+    expect(again.remark === null || again.remark.kind !== 'attack').toBe(true);
+    let w = L.remark({ ply: 10, color: 'w', ids, engines }, null).memory;
+    const sf = L.remark({ ply: 90, color: 'w', ids, engines, attack: { w: 'long' } }, w);
+    expect(sf.remark.turns[1].text).toContain('arrisca amb jugades més actives');
+    expect(sf.remark.turns[0].text).toContain('La partida s’allarga');
+  });
+});

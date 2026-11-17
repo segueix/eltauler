@@ -1073,3 +1073,7 @@ funció d'`app.js` hi delegui, i afegeix el cas a `tests/`.
   la veu, la presentació i el tancament en diàleg, «què hi ha en joc» calculat amb
   la classificació real (primer lloc compartit inclòs) i, sobre una partida real
   de les fixtures, que almenys un terç dels comentaris diguin noms sense caselles.
+  La part de «perquè les partides no s'encallin» prova els trets de progrés
+  (peó passat, rei actiu, jugades que desfan l'anterior o repeteixen posició),
+  quan s'activa la fase d'atac i què canvia (marge, perfil, profunditat de
+  Lozza al controlador), les taules per acord i l'abandonament de la lliga.
