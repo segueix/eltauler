@@ -38,7 +38,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
     'use strict';
 
-    const VERSION = '1.0.0';
+    const VERSION = '1.1.0';
     // Sense prefix chess_/eltauler_: la sincronització al núvol no la recull
     // (com la resta de dades de la TV).
     const KEY = 'tauler_tv_legends_v1';
@@ -57,7 +57,7 @@
         // aquesta distància entre dues i un màxim per partida.
         REMARK_FIRST_PLY: 10,
         REMARK_GAP_PLIES: 10,
-        REMARKS_PER_GAME: 6
+        REMARKS_PER_GAME: 7
     };
 
     const ENGINE_NAME = { stockfish: 'Stockfish', lozza: 'Lozza' };
@@ -65,7 +65,7 @@
     // Cada `when` és un tret de tvMoveFeatures (vegeu TRAITS més avall).
     const LEGENDS = Object.freeze([
         {
-            id: 'morphy', name: 'Paul Morphy', short: 'Morphy', born: 1837, died: 1884, country: 'Estats Units',
+            id: 'morphy', name: 'Paul Morphy', short: 'Morphy', spoken: 'Mòrfi', born: 1837, died: 1884, country: 'Estats Units',
             bio: 'Nord-americà de Nova Orleans, considerat el campió del món no oficial a finals de la dècada de 1850.',
             style: 'joc obert, desenvolupament ràpid i atac directe al rei',
             engine: 'lozza', engineWhy: 'cerca curta i instint tàctic, com el seu atac ràpid', tactical: true,
@@ -77,7 +77,7 @@
             ]
         },
         {
-            id: 'steinitz', name: 'Wilhelm Steinitz', short: 'Steinitz', born: 1836, died: 1900, country: 'Àustria-Hongria',
+            id: 'steinitz', name: 'Wilhelm Steinitz', short: 'Steinitz', spoken: 'Stàinits', born: 1836, died: 1900, country: 'Àustria-Hongria',
             bio: 'Primer campió oficial del món (1886–1894) i pare de l’escola posicional.',
             style: 'acumula petits avantatges i construeix la posició pas a pas',
             engine: 'stockfish', engineWhy: 'tria, entre jugades gairebé iguals, la més posicional', tactical: false,
@@ -89,7 +89,7 @@
             ]
         },
         {
-            id: 'lasker', name: 'Emanuel Lasker', short: 'Lasker', born: 1868, died: 1941, country: 'Alemanya',
+            id: 'lasker', name: 'Emanuel Lasker', short: 'Lasker', spoken: 'Làsker', born: 1868, died: 1941, country: 'Alemanya',
             bio: 'Campió del món durant 27 anys (1894–1921), el regnat més llarg de la història.',
             style: 'lluita pràctica, defensa tenaç i problemes constants per al rival',
             engine: 'lozza', engineWhy: 'cerca curta que crea complicacions tàctiques, com la seva lluita pràctica', tactical: false,
@@ -101,7 +101,7 @@
             ]
         },
         {
-            id: 'capablanca', name: 'José Raúl Capablanca', short: 'Capablanca', born: 1888, died: 1942, country: 'Cuba',
+            id: 'capablanca', name: 'José Raúl Capablanca', short: 'Capablanca', spoken: 'Capablanca', born: 1888, died: 1942, country: 'Cuba',
             bio: 'Cubà, campió del món entre 1921 i 1927, mestre de la claredat i de la tècnica de final.',
             style: 'claredat, simplificació i tècnica de final',
             engine: 'stockfish', engineWhy: 'tria, entre jugades gairebé iguals, la que simplifica i aclareix', tactical: false,
@@ -113,7 +113,7 @@
             ]
         },
         {
-            id: 'alekhine', name: 'Alexander Alekhine', short: 'Alekhine', born: 1892, died: 1946, country: 'Rússia i França',
+            id: 'alekhine', name: 'Alexander Alekhine', short: 'Alekhine', spoken: 'Aliókin', born: 1892, died: 1946, country: 'Rússia i França',
             bio: 'Campió del món el 1927–1935 i el 1937–1946, temut pels atacs combinatoris.',
             style: 'atacs combinatoris i complicacions profundes',
             engine: 'lozza', engineWhy: 'cerca curta que busca combinacions, com els seus atacs', tactical: true,
@@ -125,7 +125,7 @@
             ]
         },
         {
-            id: 'botvinnik', name: 'Mikhail Botvinnik', short: 'Botvinnik', born: 1911, died: 1995, country: 'Unió Soviètica',
+            id: 'botvinnik', name: 'Mikhail Botvinnik', short: 'Botvinnik', spoken: 'Botvínnik', born: 1911, died: 1995, country: 'Unió Soviètica',
             bio: 'Campió del món en tres etapes entre 1948 i 1963 i impulsor de l’escola soviètica.',
             style: 'preparació sistemàtica, joc estratègic i control del centre',
             engine: 'stockfish', engineWhy: 'tria, entre jugades gairebé iguals, la més estratègica', tactical: false,
@@ -137,7 +137,7 @@
             ]
         },
         {
-            id: 'fischer', name: 'Bobby Fischer', short: 'Fischer', born: 1943, died: 2008, country: 'Estats Units',
+            id: 'fischer', name: 'Bobby Fischer', short: 'Fischer', spoken: 'Fíxer', born: 1943, died: 2008, country: 'Estats Units',
             bio: 'Nord-americà, va guanyar el títol mundial el 1972 a Reykjavík.',
             style: 'precisió, obertures ben preparades i joc directe',
             engine: 'stockfish', engineWhy: 'juga amb precisió i tria jugades directes', tactical: false,
@@ -149,7 +149,7 @@
             ]
         },
         {
-            id: 'karpov', name: 'Anatoly Karpov', short: 'Karpov', born: 1951, died: null, country: 'Unió Soviètica i Rússia',
+            id: 'karpov', name: 'Anatoly Karpov', short: 'Karpov', spoken: 'Kàrpov', born: 1951, died: null, country: 'Unió Soviètica i Rússia',
             bio: 'Campió del món entre 1975 i 1985, conegut per l’estrangulament posicional.',
             style: 'estrangulament posicional i prevenció del contrajoc',
             engine: 'stockfish', engineWhy: 'tria, entre jugades gairebé iguals, la que restringeix el rival', tactical: false,
@@ -161,7 +161,7 @@
             ]
         },
         {
-            id: 'kasparov', name: 'Garry Kasparov', short: 'Kasparov', born: 1963, died: null, country: 'Unió Soviètica i Rússia',
+            id: 'kasparov', name: 'Garry Kasparov', short: 'Kasparov', spoken: 'Kaspàrov', born: 1963, died: null, country: 'Unió Soviètica i Rússia',
             bio: 'Campió del món entre 1985 i 2000, conegut per l’energia i la preparació d’obertures.',
             style: 'iniciativa, dinamisme i preparació d’obertures',
             engine: 'lozza', engineWhy: 'cerca curta d’instint tàctic, com la seva iniciativa', tactical: true,
@@ -173,9 +173,9 @@
             ]
         },
         {
-            id: 'carlsen', name: 'Magnus Carlsen', short: 'Carlsen', born: 1990, died: null, country: 'Noruega',
+            id: 'carlsen', name: 'Magnus Carlsen', short: 'Carlsen', spoken: 'Carlsen', born: 1990, died: null, country: 'Noruega',
             bio: 'Noruec, campió del món del 2013 al 2023 i amb el millor Elo mai registrat (2882).',
-            style: 'joc universal: pressiona posicions iguals i exprimeix els finals',
+            style: 'joc universal, que pressiona posicions iguals i exprimeix els finals',
             engine: 'stockfish', engineWhy: 'tria, entre jugades gairebé iguals, la més universal i flexible', tactical: false,
             weights: { trade: 0.6, tradeAhead: 1.2, quiet: 0.8, centralization: 0.8, rookFile: 0.8, threat: 0.5, sacrifice: -1, storm: -0.4, development: 0.6 },
             remarks: [
@@ -226,6 +226,18 @@
     function fmt(n) { return String(n).replace('.', ','); }
     function points(n) { return fmt(n) + (n === 1 ? ' punt' : ' punts'); }
     const RESULTS = ['1-0', '0-1', '1/2'];
+
+    // Com es pronuncien els noms a la veu catalana (Matxa i la veu del
+    // dispositiu): grafia adaptada a la lectura catalana, amb l'accent on va
+    // la síl·laba tònica (Fíxer, Kaspàrov, Aliókin…). El text a pantalla
+    // conserva sempre el nom original; això només s'aplica a la locució.
+    function speakNames(text) {
+        let t = String(text == null ? '' : text);
+        LEGENDS.forEach((p) => {
+            if (p.spoken && p.spoken !== p.short) t = t.replace(new RegExp('\\b' + p.short + '\\b', 'g'), p.spoken);
+        });
+        return t;
+    }
 
     // Perfil públic d'un jugador (per a la interfície i les proves).
     function roster() {
@@ -416,12 +428,71 @@
     // ------------------------------------------------------------------
     function rankOf(rows, id) { const r = rows.find(x => x.id === id); return r || null; }
 
-    // Presentació d'una partida: lliga, jornada, noms i colors, i un detall que
-    // va canviant (estils, classificació, motors o campió de la lliga anterior).
-    function intro(ctx) {
+    // Variant d'una llista segons un enter (sempre dins de la llista).
+    function variant(list, n) { return list[((Math.floor(n) % list.length) + list.length) % list.length]; }
+
+    // Què hi ha en joc: lloc i punts de cada jugador ara i, si guanyés, on
+    // quedaria (amb el desempat de la lliga). Ho calcula sobre una còpia.
+    function stakes(state, fixtureId) {
+        const f = state && Array.isArray(state.fixtures) ? state.fixtures.find(x => x.id === fixtureId) : null;
+        if (!f || f.result) return null;
+        const now = table(state);
+        const after = (result) => {
+            const out = record(state, fixtureId, { result: result }, () => 0.5);
+            return out.finished ? out.finished.table : table(out.state);
+        };
+        const ifW = after('1-0'), ifB = after('0-1');
+        const side = (id, rows) => {
+            const a = rankOf(now, id), b = rankOf(rows, id);
+            return { id: id, rank: a.rank, points: a.points, played: a.played, ifWin: b.rank, ifWinPoints: b.points };
+        };
+        return { played: progress(state).played, table: now, w: side(f.white, ifW), b: side(f.black, ifB) };
+    }
+
+    // On és un jugador: «és líder amb 3 punts», «comparteix el primer lloc amb
+    // 3 punts» (si algú altre en té els mateixos) o «és al lloc 4 amb 2 punts».
+    function placeOf(row, rows) {
+        const top = Array.isArray(rows) && rows.length ? rows[0].points : row.points;
+        const shared = Array.isArray(rows) && rows.filter(r => r.points === top).length > 1;
+        if (row.points === top && shared) return 'comparteix el primer lloc amb ' + points(row.points);
+        if (row.rank === 1) return 'és líder amb ' + points(row.points);
+        return 'és al lloc ' + row.rank + ' amb ' + points(row.points);
+    }
+    // Els dos jugadors de la partida a la classificació, en una frase.
+    function pairStanding(wShort, rw, bShort, rb, rows) {
+        const a = placeOf(rw, rows), b = placeOf(rb, rows);
+        if (a === b && /^comparteix/.test(a)) return wShort + ' i ' + bShort + ' comparteixen el primer lloc amb ' + points(rw.points) + '.';
+        return wShort + ' ' + a + '; ' + bShort + ' ' + b + '.';
+    }
+
+    // Què passaria si guanya un dels dos (només fets calculats).
+    function stakesConsequence(st) {
+        if (!st) return '';
+        for (const c of ['w', 'b']) {
+            const x = st[c], p = legend(x.id);
+            if (x.rank !== 1 && x.ifWin === 1) return 'Si guanya ' + p.short + ', passarà a liderar la lliga.';
+        }
+        const rows = Array.isArray(st.table) ? st.table : [];
+        for (const c of ['w', 'b']) {
+            const x = st[c], p = legend(x.id);
+            if (x.rank === 1 && /^és líder/.test(placeOf(x, rows))) return p.short + ' defensa el liderat.';
+        }
+        const best = ['w', 'b'].map(c => st[c]).sort((a, b) => (b.rank - b.ifWin) - (a.rank - a.ifWin))[0];
+        if (best && best.ifWin < best.rank) return 'Una victòria portaria ' + legend(best.id).short + ' fins al lloc ' + best.ifWin + '.';
+        return '';
+    }
+
+    // Presentació d'una partida en forma de diàleg: l'Èlia presenta (lliga,
+    // jornada, noms i colors) i en Grau hi afegeix un detall que va canviant
+    // (estils, classificació, motors o el campió de la lliga anterior).
+    // Retorna { text, turns }; `turns` és el diàleg (presenter / analyst).
+    function introDialogue(ctx) {
         const c = ctx || {};
         const W = legend(c.white), B = legend(c.black);
-        if (!W || !B) return 'Comença una partida de la lliga de llegendes.';
+        if (!W || !B) {
+            const plain = 'Comença una partida de la lliga de llegendes.';
+            return { text: plain, turns: null };
+        }
         const seq = Number.isInteger(c.seq) ? c.seq : 1;
         const engines = c.engines || { w: W.engine, b: B.engine };
         const rows = Array.isArray(c.table) ? c.table : [];
@@ -429,26 +500,37 @@
         const heads = [
             'Lliga de llegendes, lliga ' + season + ', jornada ' + round + ' de ' + rounds + ': ' + W.short + ' amb les blanques contra ' + B.short + '.',
             'Jornada ' + round + ' de la lliga ' + season + ': ' + W.short + ' porta les blanques i ' + B.short + ', les negres.',
-            'Torna la lliga de llegendes, jornada ' + round + ': les blanques són ' + de(W.short) + ' i les negres, ' + de(B.short) + '.'
+            'Torna la lliga de llegendes, jornada ' + round + ': les blanques són ' + de(W.short) + ' i les negres, ' + de(B.short) + '.',
+            'Comença una nova partida de la jornada ' + round + ': ' + W.short + ' contra ' + B.short + ', amb ' + W.short + ' a les blanques.'
         ];
-        const head = heads[((seq % heads.length) + heads.length) % heads.length];
+        const head = variant(heads, seq);
         const details = [];
+        const rw = rankOf(rows, W.id), rb = rankOf(rows, B.id);
         if (c.lastSeason && !c.lastSeason.announced && legend(c.lastSeason.champion)) {
-            details.push('Acaba de començar una lliga nova: la lliga ' + c.lastSeason.season + ' va ser per a '
-                + legend(c.lastSeason.champion).short + ', amb ' + points(c.lastSeason.points) + '.');
+            details.push({ ask: 'Grau, com va acabar l’última lliga?',
+                say: 'Acaba de començar una lliga nova: la lliga ' + c.lastSeason.season + ' va ser per a '
+                    + legend(c.lastSeason.champion).short + ', amb ' + points(c.lastSeason.points) + '.' });
         } else {
-            details.push(W.short + ': ' + W.style + '. ' + B.short + ': ' + B.style + '.');
-            const rw = rankOf(rows, W.id), rb = rankOf(rows, B.id);
+            details.push({ ask: variant(['Grau, quin duel ens espera?', 'Què n’esperes, Grau?', 'Grau, com es presenta la partida?'], seq + 1),
+                say: 'Un duel d’estils. ' + W.short + ': ' + W.style + '. ' + B.short + ': ' + B.style + '.' });
             if (rw && rb && (rw.played || rb.played)) {
-                details.push(W.short + ' és al lloc ' + rw.rank + ' de la classificació amb ' + points(rw.points)
-                    + '; ' + B.short + ', al lloc ' + rb.rank + ' amb ' + points(rb.points) + '.');
+                const tail = stakesConsequence(c.stakes);
+                details.push({ ask: variant(['Com arriben a la partida, Grau?', 'Grau, com està la classificació?', 'Què hi ha en joc, Grau?'], seq),
+                    say: pairStanding(W.short, rw, B.short, rb, rows) + (tail ? ' ' + tail : '') });
             }
-            details.push(W.short + ' juga amb ' + ENGINE_NAME[engines.w] + '; ' + B.short + ', amb ' + ENGINE_NAME[engines.b] + '.');
+            details.push({ ask: variant(['Grau, amb quins motors juguen?', 'I els motors, Grau?'], seq),
+                say: W.short + ' juga amb ' + ENGINE_NAME[engines.w] + '; ' + B.short + ', amb ' + ENGINE_NAME[engines.b] + '. '
+                    + (engines.w === engines.b ? 'El mateix motor: decidiran els perfils.' : 'Dos motors diferents, dues maneres de calcular.') });
         }
         // El detall gira a part del començament: es recorren totes les combinacions.
-        const k = Math.max(0, Math.floor((seq - 1) / heads.length)) % details.length;
-        return head + ' ' + details[k];
+        const k = c.lastSeason && !c.lastSeason.announced ? 0 : Math.max(0, Math.floor((seq - 1) / heads.length)) % details.length;
+        const d = details[k];
+        return { text: head + ' ' + d.say,
+            turns: [{ role: 'presenter', text: head + ' ' + d.ask, solo: head }, { role: 'analyst', text: d.say }] };
     }
+
+    // Text de la presentació (una sola veu).
+    function intro(ctx) { return introDialogue(ctx).text; }
 
     // Resum curt en acabar la partida, amb la nova classificació.
     function resultNote(ctx) {
@@ -458,13 +540,18 @@
         const rows = Array.isArray(c.table) ? c.table : [];
         const before = Array.isArray(c.before) ? c.before : [];
         const parts = [];
-        if (c.result === '1/2') parts.push('Taules: mig punt per a cadascú.');
-        else {
+        if (c.result === '1/2') {
+            parts.push('Taules entre ' + W.short + ' i ' + B.short + ': mig punt per a cadascú.');
+            const rw = rankOf(rows, W.id), rb = rankOf(rows, B.id);
+            if (rw && rb) parts.push(pairStanding(W.short, rw, B.short, rb, rows));
+        } else {
             const win = c.result === '1-0' ? W : B, lose = c.result === '1-0' ? B : W;
             parts.push('Victòria ' + de(win.short) + ' davant ' + de(lose.short) + '.');
             const now = rankOf(rows, win.id), was = rankOf(before, win.id);
             if (now) {
-                if (now.rank === 1) parts.push(win.short + ' lidera la lliga amb ' + points(now.points) + '.');
+                const place = placeOf(now, rows);
+                if (/^és líder/.test(place)) parts.push(win.short + ' lidera la lliga amb ' + points(now.points) + '.');
+                else if (/^comparteix/.test(place)) parts.push(win.short + ' ' + place + '.');
                 else if (was && was.rank > now.rank) parts.push(win.short + ' puja al lloc ' + now.rank + ' amb ' + points(now.points) + '.');
                 else parts.push(win.short + ' és al lloc ' + now.rank + ' amb ' + points(now.points) + '.');
             }
@@ -477,6 +564,19 @@
         return parts.join(' ');
     }
 
+    // El tancament en forma de diàleg: l'Èlia diu el resultat i pregunta per la
+    // classificació; en Grau la resumeix. Mateixos fets que `resultNote`.
+    function resultDialogue(ctx) {
+        const text = resultNote(ctx);
+        if (!text) return { text: '', turns: null };
+        const parts = text.match(/[^.]+\.(?:\s|$)/g) || [text];
+        if (parts.length < 2) return { text: text, turns: null };
+        const first = parts[0].trim(), rest = parts.slice(1).join('').trim();
+        const asks = ['Com queda la classificació, Grau?', 'Grau, què vol dir per a la lliga?', 'I a la classificació, Grau?'];
+        const n = (ctx && Number.isInteger(ctx.seq) ? ctx.seq : first.length);
+        return { text: text, turns: [{ role: 'presenter', text: first + ' ' + variant(asks, n), solo: first }, { role: 'analyst', text: rest }] };
+    }
+
     // Una línia sobre el motor i el perfil del jugador (informació fixa).
     function profileLine(id, engine) {
         const p = legend(id);
@@ -486,12 +586,37 @@
         return p.short + ' juga amb ' + ENGINE_NAME[e] + ', amb el perfil següent: ' + p.style + '.';
     }
 
-    function emptyRemarkMemory() { return { last: -100, count: 0, profile: { w: false, b: false }, used: [] }; }
+    function emptyRemarkMemory() { return { last: -100, count: 0, profile: { w: false, b: false }, used: [], stakes: false, edge: false }; }
 
-    // Observació sobre el jugador que acaba de moure: primer el seu motor i
-    // perfil (informació fixa) i, després, un tret històric quan la jugada ho
-    // confirma (comprovat amb chess.js). Mai no diu caselles ni inventa plans.
-    // ctx = { ply, color, features, ids: {w,b}, engines: {w,b}, prepared, end }
+    const PROFILE_ASKS = [
+        n => 'Grau, què hem d’esperar ' + de(n) + '?',
+        n => 'Com juga ' + n + ' en aquesta lliga, Grau?',
+        n => 'Grau, recorda’ns com juga ' + n + '.',
+        n => 'I ' + n + ', Grau? Quin és el seu joc?'
+    ];
+    // L'Èlia ja ha dit el nom amb el fet: la pregunta no el repeteix (tret d'una).
+    const TRAIT_ASKS = [
+        () => 'És el seu segell, Grau?',
+        () => 'Molt típic, oi, Grau?',
+        n => 'Grau, això és ' + n + ' en estat pur?',
+        () => 'Ho reconeixes, Grau?',
+        () => 'Grau, et sona aquesta manera de jugar?'
+    ];
+    const TRAIT_OPENERS = ['Sí: ', 'I tant: ', 'Exacte: ', 'Ben vist: '];
+    const STAKES_ASKS = ['Grau, què hi ha en joc en aquesta partida?', 'Com arriben a aquesta partida, Grau?',
+        'Grau, com afecta la classificació aquesta partida?'];
+    const EDGE_ASKS = [n => 'Si ' + n + ' acaba guanyant, com quedaria la lliga, Grau?',
+        n => 'Grau, què li suposaria a ' + n + ' guanyar aquesta partida?'];
+
+    // Observacions sobre els jugadors durant la partida, en forma de diàleg
+    // (l'Èlia pregunta i en Grau respon). Per ordre: el motor i el perfil del
+    // jugador que mou (informació fixa); què hi ha en joc a la classificació
+    // (calculat a `stakes`); si un bàndol té un avantatge decisiu segons
+    // l'anàlisi, on el portaria guanyar; i un tret històric només quan la
+    // jugada el compleix (comprovat amb chess.js). Mai no diu caselles.
+    // ctx = { ply, color, features, ids: {w,b}, engines: {w,b}, stakes, edge,
+    //         lead (frase de l'Èlia sobre la jugada, opcional), prepared, end }
+    // Retorna { memory, remark: { kind, color, id, text, turns } | null }.
     function remark(ctx, memory) {
         const c = ctx || {};
         const m = Object.assign(emptyRemarkMemory(), memory || {});
@@ -503,25 +628,55 @@
         const p = legend(c.ids && c.ids[c.color]);
         if (!p) return none;
         const engine = c.engines && c.engines[c.color] ? c.engines[c.color] : p.engine;
-        let text = null, kind = null;
+        const lead = typeof c.lead === 'string' && c.lead.trim() ? c.lead.trim() + ' ' : '';
+        const n = c.ply + m.count;
+        let out = null;
         if (!m.profile[c.color]) {
-            text = profileLine(p.id, engine);
-            kind = 'profile';
+            const answer = profileLine(p.id, engine) + (engine === p.engine ? ' ' + p.style.charAt(0).toUpperCase() + p.style.slice(1) + '.' : '');
+            out = { kind: 'profile', text: profileLine(p.id, engine),
+                turns: [{ role: 'presenter', text: lead + variant(PROFILE_ASKS, n)(p.short), solo: lead.trim() || null }, { role: 'analyst', text: answer }] };
             m.profile[c.color] = true;
-        } else if (c.features) {
-            const r = p.remarks.find(x => TRAITS[x.when] && TRAITS[x.when](c.features) && !m.used.includes(p.id + ':' + x.when));
-            if (r) { text = r.text; kind = 'trait'; m.used.push(p.id + ':' + r.when); }
+        } else if (c.edge && !m.edge && c.stakes && c.stakes[c.edge]) {
+            const x = c.stakes[c.edge], who = legend(x.id);
+            const answer = x.ifWin === 1 ? (x.rank === 1 ? 'Es mantindria al primer lloc' : 'Pujaria al primer lloc') + ', amb ' + points(x.ifWinPoints) + '.'
+                : 'Passaria al lloc ' + x.ifWin + ' amb ' + points(x.ifWinPoints) + (x.ifWin < x.rank ? ', ' + (x.rank - x.ifWin === 1 ? 'un lloc' : (x.rank - x.ifWin) + ' llocs') + ' més amunt.' : '.');
+            out = { kind: 'edge', text: 'Si ' + who.short + ' guanya, ' + answer.charAt(0).toLowerCase() + answer.slice(1),
+                turns: [{ role: 'presenter', text: lead + variant(EDGE_ASKS, n)(who.short), solo: lead.trim() || null }, { role: 'analyst', text: answer }] };
+            m.edge = true;
+        } else if (!m.stakes && c.stakes && c.ply >= CONFIG.REMARK_FIRST_PLY + 6) {
+            const W = legend(c.stakes.w.id), B = legend(c.stakes.b.id);
+            if (W && B) {
+                const answer = c.stakes.played
+                    ? pairStanding(W.short, c.stakes.w, B.short, c.stakes.b, c.stakes.table) + (stakesConsequence(c.stakes) ? ' ' + stakesConsequence(c.stakes) : '')
+                    : 'És la primera partida de la lliga: tothom comença amb zero punts.';
+                out = { kind: 'stakes', text: answer,
+                    turns: [{ role: 'presenter', text: lead + variant(STAKES_ASKS, n), solo: lead.trim() || null }, { role: 'analyst', text: answer }] };
+                m.stakes = true;
+            }
         }
-        if (!text) return none;
+        if (!out && c.features) {
+            const r = p.remarks.find(x => TRAITS[x.when] && TRAITS[x.when](c.features) && !m.used.includes(p.id + ':' + x.when));
+            if (r) {
+                const cut = r.text.indexOf(': ');
+                const fact = cut > 0 ? r.text.slice(0, cut) + '.' : r.text;
+                const reason = cut > 0 ? r.text.slice(cut + 2) : '';
+                const answer = reason ? variant(TRAIT_OPENERS, n) + reason : fact;
+                // L'Èlia diu el fet que mostra el tret (escac, canvi…): la pregunta hi fa referència.
+                const ask = fact + ' ' + variant(TRAIT_ASKS, n)(p.short);
+                out = { kind: 'trait', text: r.text, turns: [{ role: 'presenter', text: ask, solo: fact }, { role: 'analyst', text: answer }] };
+                m.used.push(p.id + ':' + r.when);
+            }
+        }
+        if (!out) return none;
         m.last = c.ply;
         m.count++;
-        return { memory: m, remark: { text, kind, color: c.color, id: p.id } };
+        return { memory: m, remark: Object.assign({ color: c.color, id: p.id }, out) };
     }
 
     return {
         VERSION, KEY, CONFIG, LEGENDS, IDS, ENGINE_NAME, TRAITS,
-        legend, roster, buildFixtures, newSeason, normalize, table, progress,
+        legend, roster, speakNames, buildFixtures, newSeason, normalize, table, progress,
         pickFixture, skipCurrent, record, markAnnounced,
-        intro, resultNote, profileLine, remark, emptyRemarkMemory, de, points
+        intro, introDialogue, stakes, resultNote, resultDialogue, placeOf, profileLine, remark, emptyRemarkMemory, de, points
     };
 });

@@ -41,7 +41,7 @@
 })(typeof self !== 'undefined' ? self : this, function (root) {
     'use strict';
 
-    const VERSION = '1.4.0';
+    const VERSION = '1.5.0';
 
     function getCore() {
         if (root && root.ElTaulerCore) return root.ElTaulerCore;
@@ -114,6 +114,12 @@
         if (/^el /.test(p)) return 'del ' + p.slice(3);
         if (/^[aeiouàèéíòóú]/i.test(p)) return 'd’' + p;
         return 'de ' + p;
+    }
+    function deName(n) { return /^[AEIOUÀÈÉÍÒÓÚ]/i.test(n) ? 'd’' + n : 'de ' + n; }
+    // Nom del jugador d'un bàndol a la lliga de llegendes (o null).
+    function playerName(c, color) {
+        const n = c && c.legends && c.legends.names;
+        return n && typeof n[color] === 'string' && n[color] ? n[color] : null;
     }
     function clitic(type) { return FEM[type] ? 'la' : 'lo'; }
     function pronoun(type) { return FEM[type] ? 'la' : 'el'; }
@@ -837,7 +843,10 @@
         'Com es veuria al tauler?',
         'Amb quines jugades ho veuríem?',
         'Com s’hi arribaria?',
-        'Com es concretaria aquesta idea?'
+        'Com es concretaria aquesta idea?',
+        'Com seria la seqüència?',
+        'Ens ho mostres amb jugades, Grau?',
+        'I sobre el tauler, Grau?'
     ];
     const THEME_QUESTIONS = {
         material: ['Qui hi guanyaria material?', 'Com quedaria el balanç de material?'],
@@ -863,6 +872,14 @@
         'king-active': ['Quin paper pot fer el rei en aquest final?', 'Per què interessa acostar el rei al centre?'],
         defence: ['Per què toca defensar-se ara?', 'Què prioritza el bàndol que es defensa?']
     };
+    // Lliga de llegendes: la mateixa pregunta amb el nom del jugador del pla.
+    const PROOF_NAMED = [
+        n => 'Com ho concretaria ' + n + '?',
+        n => 'Quines jugades hi veus per a ' + n + ', Grau?'
+    ];
+    // Com comença en Grau l'explicació del pla (abans sempre «En aquesta línia»).
+    // '' vol dir sense introducció; una que acaba en punt manté la majúscula.
+    const ANSWER_OPENERS = ['En aquesta línia, ', '', 'La clau és aquesta: ', 'Ho resumiria així: ', 'Bona pregunta. ', 'Mira: '];
     const THEN = ['Llavors', 'Aleshores', 'Tot seguit', 'A continuació'];
 
     // Narració de la línia (en Grau). x.R1, x.M1... són frases de jugada.
@@ -1078,6 +1095,11 @@
         x => 'Grau, la partida va pel camí que deies?',
         x => 'Tal com havies dit, oi?'
     ];
+    // Lliga de llegendes: amb el nom del jugador que acaba de moure.
+    const HIT_NAMED = [
+        x => 'Grau, ' + x.name + ' fa el que anunciaves?',
+        x => 'Ho havies vist venir, això ' + deName(x.name) + '?'
+    ];
     const HIT_OPENERS = [
         x => 'Exacte. ',
         x => 'Sí, tal com havia previst ' + x.ago + '. ',
@@ -1099,6 +1121,10 @@
         x => 'Grau, quina jugada tenies prevista?',
         x => 'Sorpresa, Grau?'
     ];
+    const MISS_NAMED = [
+        x => x.name + ' se surt del guió. T’ho esperaves, Grau?',
+        x => 'Grau, ' + x.name + ' ha triat una altra jugada. Què en penses?'
+    ];
     const MISS_ANSWERS = [
         x => 'Esperava que ' + x.side + ' ' + x.expectedPast + '.',
         x => capFirst(x.side) + ' trien un altre camí. Jo hi veia ' + x.expected + '.',
@@ -1119,7 +1145,7 @@
     const TAIL_TEXTS = {
         attack: [x => 'I no s’acaba aquí. Preveig que ' + x.S + ' ' + x.subj + '.',
             x => 'La pressió podria continuar. En aquesta línia, ' + x.S + ' ' + x.cond + '.'],
-        capture: [x => 'Ja hi veig una captura. ' + x.S + ' ' + x.cond + '.'],
+        capture: [x => 'Ja hi veig una captura. ' + capFirst(x.S) + ' ' + x.cond + '.'],
         defend: [x => 'Preveig que ' + x.S + ' ' + x.subj + '.']
     };
     const NEXT_TEXTS = [
@@ -1319,10 +1345,16 @@
         const q1 = moveText ? moveText + ' ' + question : question;
         const solo = (moveText ? moveText + ' ' : '') + 'Mirem com podria continuar.';
         const max = CONFIG.MAX_WORDS[tier];
-        const answer = /^(Al final de la línia|En aquesta línia|Hi veig)\b/.test(logic) ? logic : 'En aquesta línia, ' + lowFirst(logic);
+        const fixedStart = /^(Al final de la línia|En aquesta línia|Hi veig)\b/.test(logic);
+        // Si la lògica ja porta dos punts, no s'hi afegeix una introducció que n'acabi amb uns altres.
+        const answerOpener = fixedStart ? '' : ANSWER_OPENERS[pick(mem, 'answer-opener', ANSWER_OPENERS, seed >> 9,
+            id => logic.indexOf(':') === -1 || !/:\s$/.test(ANSWER_OPENERS[id]))];
+        const answer = !answerOpener ? logic : /\.\s$/.test(answerOpener) ? answerOpener + logic : answerOpener + lowFirst(logic);
         const ask = { role: 'presenter', text: q1, solo: solo };
         const grau = text => ({ role: 'analyst', text: text });
-        const proof = { role: 'presenter', text: PROOF_QUESTIONS[pick(mem, 'proof', PROOF_QUESTIONS, seed >> 8)],
+        const planName = playerName(c, S);
+        const proofs = planName ? PROOF_QUESTIONS.concat(PROOF_NAMED.map(f => f(planName))) : PROOF_QUESTIONS;
+        const proof = { role: 'presenter', text: proofs[pick(mem, 'proof', proofs, seed >> 8)],
             solo: 'Vegem-ho al tauler.' };
         const options = [];
         if (tier !== 'basic') {
@@ -1435,7 +1467,9 @@
                     if (wordCount(answer + extra) <= CONFIG.FOLLOW_WORDS - 10) answer += extra;
                 }
             }
-            const q = lead + HIT_QUESTIONS[pick(mem, 'hit-question', HIT_QUESTIONS, seed >> 1)]({});
+            const mover = playerName(c, c.move.color);
+            const hits = mover ? HIT_QUESTIONS.concat(HIT_NAMED) : HIT_QUESTIONS;
+            const q = lead + hits[pick(mem, 'hit-question', hits, seed >> 1)]({ name: mover });
             const solo = lead + HIT_SOLO[pick(mem, 'hit-solo', HIT_SOLO, seed >> 3)](x);
             turns = [{ role: 'presenter', text: q, solo: solo }, { role: 'analyst', text: tidy(answer) }];
         } else if (event.kind === 'miss') {
@@ -1454,7 +1488,9 @@
                 const items = MISS_ASSESS[level];
                 answer += ' ' + items[pick(mem, 'miss-' + level, items, seed >> 2)](x);
             }
-            const q = lead + MISS_QUESTIONS[pick(mem, 'miss-question', MISS_QUESTIONS, seed >> 1)]({ side: side });
+            const mover = playerName(c, c.move.color);
+            const misses = mover ? MISS_QUESTIONS.concat(MISS_NAMED) : MISS_QUESTIONS;
+            const q = lead + misses[pick(mem, 'miss-question', misses, seed >> 1)]({ side: side, name: mover });
             const solo = lead + MISS_SOLO[pick(mem, 'miss-solo', MISS_SOLO, seed >> 3)](x);
             if (wordCount(q + ' ' + answer) > CONFIG.FOLLOW_WORDS + 6) return null;
             turns = [{ role: 'presenter', text: q, solo: solo }, { role: 'analyst', text: tidy(answer) }];
@@ -1621,7 +1657,8 @@
             THEME_QUESTIONS: THEME_QUESTIONS, PROOF_QUESTIONS: PROOF_QUESTIONS,
             LINE_OPENERS: LINE_OPENERS, LINE_SECOND: LINE_SECOND, LINE_COMPACT: LINE_COMPACT, LINE_THIRD: LINE_THIRD,
             THEME_TEXTS: THEME_TEXTS, EVAL_TEXTS: EVAL_TEXTS, HIT_QUESTIONS: HIT_QUESTIONS, HIT_OPENERS: HIT_OPENERS,
-            MISS_QUESTIONS: MISS_QUESTIONS, MISS_ANSWERS: MISS_ANSWERS, MISS_ASSESS: MISS_ASSESS, TAIL_TEXTS: TAIL_TEXTS,
+            MISS_QUESTIONS: MISS_QUESTIONS, MISS_ANSWERS: MISS_ANSWERS, HIT_NAMED: HIT_NAMED, MISS_NAMED: MISS_NAMED,
+            PROOF_NAMED: PROOF_NAMED, ANSWER_OPENERS: ANSWER_OPENERS, MISS_ASSESS: MISS_ASSESS, TAIL_TEXTS: TAIL_TEXTS,
             MOVE_OPENERS: MOVE_OPENERS
         }
     };

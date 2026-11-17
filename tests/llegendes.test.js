@@ -298,7 +298,9 @@ describe('Lliga de llegendes · textos amb els noms', () => {
         expect(note).toContain('Victòria');
         expect(note).toContain(L.legend(f.white).short + ' lidera la lliga amb 1 punt');
         const draw = L.resultNote({ white: 'karpov', black: 'carlsen', result: '1/2', round: 3, table, before, roundDone: true });
-        expect(draw).toContain('Taules: mig punt per a cadascú.');
+        expect(draw).toContain('Taules entre Karpov i Carlsen: mig punt per a cadascú.');
+        // Amb tots dos a zero punts, comparteixen el primer lloc: no es diu que un sigui líder.
+        expect(draw).toContain('Karpov i Carlsen comparteixen el primer lloc amb 0 punts.');
         expect(draw).toContain('Acaba la jornada 3.');
         const end = L.resultNote({ white: 'alekhine', black: 'fischer', result: '0-1', round: 18, table, before, roundDone: true,
             finished: { season: 4, champion: 'fischer', points: 13, table } });
@@ -371,3 +373,113 @@ describe('Lliga de llegendes · observacions durant la partida', () => {
         expect(said).toBeGreaterThan(2);
     });
 });
+
+describe('Lliga de llegendes · veu, diàlegs i classificació en joc', () => {
+    test('la veu pronuncia els noms amb grafia catalana; el text a pantalla no canvia', () => {
+        expect(L.speakNames('Fischer, Kasparov i Alekhine contra Steinitz')).toBe('Fíxer, Kaspàrov i Aliókin contra Stàinits');
+        expect(L.speakNames('Victòria d’Alekhine davant de Botvinnik.')).toBe('Victòria d’Aliókin davant de Botvínnik.');
+        expect(L.speakNames('Capablanca i Carlsen')).toBe('Capablanca i Carlsen');
+        L.LEGENDS.forEach(p => expect(typeof p.spoken).toBe('string'));
+        // A la TV, la locució passa pel mateix filtre.
+        expect(TV.tvSpeechText('Morphy juga amb Lozza; Karpov, amb Stockfish.')).toBe('Mòrfi juga amb Lozza; Kàrpov, amb Stock fish.');
+    });
+
+    test('la presentació és un diàleg: l’Èlia presenta i pregunta, en Grau respon', () => {
+        const table = L.table(L.newSeason(1, seeded(3)));
+        for (let seq = 1; seq <= 12; seq++) {
+            const d = L.introDialogue({ white: 'fischer', black: 'karpov', season: 1, round: 2, rounds: 18, seq, table });
+            expect(d.turns).toHaveLength(2);
+            expect(d.turns[0]).toMatchObject({ role: 'presenter' });
+            expect(d.turns[0].text).toMatch(/\?$/);
+            expect(d.turns[0].text).toContain('Fischer');
+            expect(d.turns[1].role).toBe('analyst');
+            expect(d.turns[0].solo.endsWith('?')).toBe(false);
+            expect(d.text).toBe(L.intro({ white: 'fischer', black: 'karpov', season: 1, round: 2, rounds: 18, seq, table }));
+            d.turns.forEach(t => expect(t.text).not.toMatch(SQUARE));
+        }
+    });
+
+    test('què hi ha en joc es calcula amb la classificació real (també el desempat)', () => {
+        let state = L.newSeason(1, seeded(9));
+        // Primera jornada: totes taules menys una victòria de les blanques.
+        for (let i = 0; i < 5; i++) {
+            const p = L.pickFixture(state, seeded(40 + i));
+            state = L.record(p.state, p.fixture.id, { result: i === 0 ? '1-0' : '1/2' }, seeded(1)).state;
+        }
+        const p = L.pickFixture(state, seeded(50));
+        const st = L.stakes(p.state, p.fixture.id);
+        ['w', 'b'].forEach((c) => {
+            const id = st[c].id, row = L.table(p.state).find(r => r.id === id);
+            expect(st[c]).toMatchObject({ rank: row.rank, points: row.points });
+            // Si guanya: la posició surt de la classificació calculada amb el resultat.
+            const after = L.table(L.record(p.state, p.fixture.id, { result: c === 'w' ? '1-0' : '0-1' }, seeded(1)).state);
+            expect(st[c].ifWin).toBe(after.find(r => r.id === id).rank);
+            expect(st[c].ifWinPoints).toBe(row.points + 1);
+        });
+        expect(st.played).toBe(5);
+        expect(L.stakes(p.state, 'no-existeix')).toBeNull();
+    });
+
+    test('el primer lloc compartit no es presenta com a liderat', () => {
+        const rows = [{ id: 'a', rank: 1, points: 2 }, { id: 'b', rank: 2, points: 2 }, { id: 'c', rank: 3, points: 1 }];
+        expect(L.placeOf(rows[0], rows)).toBe('comparteix el primer lloc amb 2 punts');
+        expect(L.placeOf(rows[1], rows)).toBe('comparteix el primer lloc amb 2 punts');
+        expect(L.placeOf(rows[2], rows)).toBe('és al lloc 3 amb 1 punt');
+        const alone = [{ id: 'a', rank: 1, points: 3 }, { id: 'b', rank: 2, points: 2 }];
+        expect(L.placeOf(alone[0], alone)).toBe('és líder amb 3 punts');
+    });
+
+    test('les observacions són diàlegs: perfil, què hi ha en joc, avantatge i tret', () => {
+        let state = L.newSeason(1, seeded(9));
+        for (let i = 0; i < 10; i++) {
+            const p = L.pickFixture(state, seeded(60 + i));
+            state = L.record(p.state, p.fixture.id, { result: ['1-0', '0-1', '1/2'][i % 3] }, seeded(1)).state;
+        }
+        const f = L.pickFixture(state, seeded(70)).fixture;
+        const stakes = L.stakes(state, f.id);
+        const ids = { w: f.white, b: f.black };
+        const all = { check: 1, sacrifice: 1, threat: 1, development: 1, trade: 1, rookFile: 1, centralization: 1, castle: 1, storm: 1, quiet: 1 };
+        let memory = null;
+        const seen = [];
+        for (let ply = 10; ply < 140; ply += 2) {
+            const color = ply % 4 === 0 ? 'w' : 'b';
+            const out = L.remark({ ply, color, features: all, ids, stakes, edge: ply >= 50 ? 'b' : null, lead: 'Les negres treuen el cavall.' }, memory);
+            memory = out.memory;
+            if (!out.remark) continue;
+            seen.push(out.remark.kind);
+            const turns = out.remark.turns;
+            expect(turns).toHaveLength(2);
+            expect(turns[0].role).toBe('presenter');
+            expect(turns[1].role).toBe('analyst');
+            turns.forEach(t => expect(t.text).not.toMatch(SQUARE));
+            if (out.remark.kind === 'trait') {
+                // L'Èlia diu el fet del tret i no hi enganxa una altra jugada.
+                expect(turns[0].text).not.toContain('treuen el cavall');
+                expect(turns[0].text.split(L.legend(out.remark.id).short).length - 1).toBeLessThanOrEqual(2);
+            }
+            if (out.remark.kind === 'stakes') expect(turns[1].text).toMatch(/lloc|líder/);
+            if (out.remark.kind === 'edge') {
+                expect(out.remark.id).toBe(f.black);
+                expect(turns[1].text).toMatch(/lloc/);
+            }
+        }
+        expect(seen).toContain('profile');
+        expect(seen).toContain('stakes');
+        expect(seen).toContain('edge');
+        expect(seen).toContain('trait');
+        // Cada mena d'informació fixa, un sol cop per partida.
+        expect(seen.filter(k => k === 'stakes')).toHaveLength(1);
+        expect(seen.filter(k => k === 'edge')).toHaveLength(1);
+        expect(seen.length).toBeLessThanOrEqual(L.CONFIG.REMARKS_PER_GAME);
+    });
+
+    test('el tancament és un diàleg amb el resultat i la classificació', () => {
+        const table = L.table(L.newSeason(1, seeded(3)));
+        const d = L.resultDialogue({ white: 'alekhine', black: 'fischer', result: '0-1', round: 2, table, before: table, seq: 2 });
+        expect(d.turns[0].text).toContain('Victòria de Fischer davant d’Alekhine.');
+        expect(d.turns[0].text).toMatch(/\?$/);
+        expect(d.turns[1].role).toBe('analyst');
+        expect(d.text).toBe(L.resultNote({ white: 'alekhine', black: 'fischer', result: '0-1', round: 2, table, before: table, seq: 2 }));
+    });
+});
+

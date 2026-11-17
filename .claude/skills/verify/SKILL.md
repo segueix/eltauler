@@ -106,7 +106,10 @@ Conduir amb Playwright + Chromium preinstal·lat
     (`#sftv-legends-body tr`). Es desa a `tauler_tv_legends_v1` (sembrar-la amb
     `LG.record` fins a 89 partides per veure el canvi de lliga). Amb la lliga
     activa s'amaguen `#sftv-ladder`, «Massa fàcil/difícil», `#sftv-until-mate`,
-    `#sftv-unequal` i `#sftv-profiles`. **Per veure una partida sencera**: el
+    `#sftv-unequal` i `#sftv-profiles`. El comentari es pinta en torns
+    (`#sftv-comment .sftv-turn.is-elia / .is-grau`, etiqueta `.sftv-turn-who`); la
+    barra del partit és `#sftv-matchbar`; la presentació (`kind: 'intro'`) i el
+    tancament (`kind: 'result'`, després del final) duen `dialogue`. **Per veure una partida sencera**: el
     Stockfish real triga ≈6 s per jugada i la TV espera el temps de lectura de
     cada comentari, així que cal (1) servir un worker UCI fals per
     `stockfish-19-lite-single.js` i `lozza.js` (jugades legals a l'atzar amb

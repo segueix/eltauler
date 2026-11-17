@@ -59,20 +59,52 @@ del motor (UCI_Elo; no és l'Elo històric del jugador); amb Lozza, profunditat 
   `chess_`/`eltauler_`: la sincronització al núvol no la recull). Un estat corrupte o amb
   un calendari incoherent comença una lliga nova (sense perdre l'historial vàlid).
 
-## Els noms als comentaris
+## Els noms als comentaris i els diàlegs
 
-- **Presentació** (`LG.intro`): lliga, jornada, noms i colors, i un detall que va canviant
-  (estil de cada jugador, lloc a la classificació, motor de cadascú o el campió de la lliga anterior).
-- **Narració de l'obertura** (`tvintro.js`, `openingTalk`): el pla s'atribueix al jugador pel
-  seu nom en lloc del motor.
-- **Observacions durant la partida** (`LG.remark` + `tvLegendStep`): a partir de la
-  semijugada 10, amb 10 semijugades de distància i com a màxim 6 per partida. Primer el
-  motor i el perfil del jugador que mou; després un tret històric **només si la jugada el
-  compleix** (escac, canvi, enroc, torre activa…, comprovat amb chess.js). Només ocupen un
-  silenci o una jugada de simple descripció: mai substitueixen un avís tàctic ni un diàleg.
-  Cap text no diu caselles.
-- **Resultat**: titular amb el nom del guanyador i una nota amb la classificació («Victòria
-  d'Alekhine davant de Carlsen. Alekhine puja al lloc 2 amb 3 punts.»).
+- **Presentació** (`LG.introDialogue`): diàleg. L'Èlia diu la lliga, la jornada, els noms i
+  els colors i pregunta; en Grau respon amb un detall que va canviant (estils, classificació
+  dels dos amb què hi ha en joc, motors, o el campió de la lliga anterior).
+- **Capa de noms** (`tvNameSides`, `tvNameComment` a `stockfishtv.js`): els comentaris que
+  diuen «les blanques / les negres» passen a dir el jugador **sense tocar la concordança**:
+  «per a les negres» → «per a Kasparov», «la dama blanca» → «la dama de Capablanca»,
+  «Les blanques avancen» → «Les blanques de Capablanca avancen», «Mou Capablanca: …» o
+  «Torn de Capablanca: …». No toca «amb les blanques» ni les peces que n'identifiquen una
+  altra («el cavall de la dama blanca», «el peó negre de torre»). Dosi: en un diàleg, cada
+  jugador com a molt un cop; en els comentaris d'una veu, cada bàndol una jugada sí i una no.
+  El text intern verificat (`text`) no canvia; només el que es mostra i es diu.
+- **Preguntes de l'Èlia amb noms**: «Què hi busca Fischer?», «Què ha de vigilar ara
+  Karpov?», «Com ho concretaria Lasker?», «Grau, Alekhine fa el que anunciaves?»…, en
+  alternança amb les generals. Les respostes d'en Grau ja no comencen sempre per «En aquesta
+  línia»: hi ha diverses introduccions (sense repetir dos punts seguits).
+- **Observacions dels jugadors** (`LG.remark` + `tvLegendStep`), sempre en diàleg i com a
+  molt 7 per partida, a partir de la semijugada 10 i amb 10 semijugades de distància:
+  1. el motor i el perfil del jugador que mou;
+  2. **què hi ha en joc**: lloc i punts dels dos i què passaria si en guanya un (calculat
+     amb la classificació real i el desempat, `LG.stakes`);
+  3. si l'anàlisi fiable dona un **avantatge decisiu** a un bàndol, on el portaria guanyar;
+  4. un **tret històric** només quan la jugada el compleix (escac, canvi, enroc…, amb chess.js).
+  Ocupen un silenci o s'afegeixen a un comentari descriptiu d'una sola veu (l'Èlia el diu
+  primer); mai substitueixen un avís tàctic, un diàleg ni una màxima. Cap text no diu caselles.
+- **Narració de l'obertura** (`tvintro.js`): el pla s'atribueix al jugador pel seu nom.
+- **Tancament** (`LG.resultDialogue`): en acabar, l'Èlia diu el resultat i en Grau la
+  classificació. El primer lloc compartit es diu així («comparteixen el primer lloc»), no
+  com a liderat, i abans de la primera partida no es diu cap lloc (l'ordre seria alfabètic).
+
+## Pronúncia dels noms
+
+La veu (Matxa i la del dispositiu) llegeix els noms amb una grafia adaptada al català, només a
+la locució (`LG.speakNames`, aplicat a `tvSpeechText`): Mòrfi, Stàinits, Làsker, Aliókin,
+Botvínnik, Fíxer, Kàrpov, Kaspàrov (Capablanca i Carlsen ja es llegeixen bé). A pantalla
+sempre surt el nom original. Si algun nom sona malament, es corregeix al camp `spoken`.
+
+## Visualització
+
+- El comentari va **just després del tauler** (també al mòbil); després els controls i la
+  classificació. Cada torn del diàleg porta l'etiqueta de qui parla (ÈLIA / GRAU).
+- Barra del partit sobre el tauler (`#sftv-matchbar`): lliga, jornada i partit de la jornada.
+  Les fitxes dels jugadors diuen el lloc i els punts a la lliga abans del motor.
+- Ordinador: capçalera compacta, controls de veu en una fila, el tauler i les dues fitxes
+  caben a la pantalla (`calc(100vh - 330px)`) i la columna lateral queda fixa i desplaçable.
 
 ## Degradacions
 
@@ -89,7 +121,9 @@ del motor (UCI_Elo; no és l'Elo històric del jugador); amb Lozza, profunditat 
   classificació i desempat, fi de lliga i lliga nova, estats corruptes, textos i observacions.
 - `tests/lliga-llegendes-tv.test.js`: configuració per jugador, perfil amb pesos propis,
   flux real del controlador (motors simulats), resultat a la classificació, fi de lliga,
-  reobertura, «Nova partida», Lozza caigut i mode heretat.
+  reobertura, «Nova partida», Lozza caigut, mode heretat, capa de noms (concordança,
+  exclusions, dosi i varietat), una partida real de les fixtures amb noms i sense caselles,
+  i la presentació i el tancament en diàleg.
 - Interfície comprovada a Chromium amb la skill `/verify` (vista d'escriptori i mòbil), amb els
   *workers* dels motors substituïts per uns de falsos per veure el final de partida i el canvi
   de lliga (el Stockfish real és massa lent en aquest entorn).
