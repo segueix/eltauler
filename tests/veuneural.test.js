@@ -228,6 +228,117 @@ describe('reproductor neuronal', () => {
     });
 });
 
+// Servidor Gradio lent i en fila, com la demo real: cada «predict» tarda
+// predictMs i respecta el senyal d'avortar (temporitzadors simulats).
+function slowGradio(predictMs) {
+    const g = fakeGradio();
+    const sent = [];
+    const fetchFn = async (url, init) => {
+        if (init && init.signal && init.signal.aborted) throw new Error('aborted');
+        if (url.indexOf('/gradio_api/queue/join') !== -1) {
+            const b = JSON.parse(init.body);
+            if (b.fn_index === 0) sent.push(b.data[0]);
+        }
+        const resp = await g.fetchFn(url, init);
+        const last = g.log[g.log.length - 2];
+        if (url.indexOf('/gradio_api/queue/data') !== -1 && last && last.body && last.body.fn_index === 0) {
+            await new Promise((resolve, reject) => {
+                const t = setTimeout(resolve, predictMs);
+                if (init && init.signal) init.signal.addEventListener('abort', () => { clearTimeout(t); reject(new Error('aborted')); }, { once: true });
+            });
+        }
+        return resp;
+    };
+    return { fetchFn, sent, log: g.log };
+}
+
+describe('temps màxim comptat des que la frase surt cap a Matxa', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    function speakerWith(client) {
+        const audio = fakeAudioFactory();
+        const sp = V.createNeuralSpeaker({ client, createAudio: audio.createAudio,
+            fetchAudio: async (url) => 'blob:' + url, releaseSrc: () => {}, isOnline: () => true });
+        return { sp, audio };
+    }
+
+    test('el client avisa quan envia cada frase, després que acabi la que té davant', async () => {
+        const g = slowGradio(5000);
+        const client = V.createMatxaClient({ fetch: g.fetchFn, baseUrl: 'https://x.hf.space' });
+        expect(client.reportsStart).toBe(true);
+        const t0 = Date.now();
+        const at = { A: [], B: [] };
+        const a = client.synthesize('Primera.', 'matxa:central:elia', { onStart: () => at.A.push(Date.now() - t0) });
+        const b = client.synthesize('Segona.', 'matxa:central:grau', { onStart: () => at.B.push(Date.now() - t0) });
+        await jest.advanceTimersByTimeAsync(10500);
+        await Promise.all([a, b]);
+        // A envia l'accent i la frase de seguida; B només surt quan Matxa ha acabat A (5 s).
+        expect(at.A).toEqual([0, 0]);
+        expect(at.B).toEqual([5000]);
+    });
+
+    test('una frase avortada mentre espera torn no s\'envia', async () => {
+        const g = slowGradio(5000);
+        const client = V.createMatxaClient({ fetch: g.fetchFn, baseUrl: 'https://x.hf.space' });
+        const controller = new AbortController();
+        const a = client.synthesize('Primera.', 'matxa:central:elia', {});
+        const b = client.synthesize('Segona.', 'matxa:central:grau', { signal: controller.signal });
+        controller.abort();
+        const bDone = b.then(() => 'ok', err => err.message);
+        await jest.advanceTimersByTimeAsync(6000);
+        await a;
+        await expect(bDone).resolves.toBe('aborted');
+        expect(g.sent).toEqual(['Primera.']);
+    });
+
+    test('Èlia i Grau en fila (7 s cadascuna): totes dues arriben i Matxa no fa pausa', async () => {
+        const g = slowGradio(7000);
+        const client = V.createMatxaClient({ fetch: g.fetchFn, baseUrl: 'https://x.hf.space' });
+        const { sp, audio } = speakerWith(client);
+        sp.prefetch('Kaspàrov obre la columna.', 'matxa:central:elia');
+        sp.prefetch('I ara el cavall no té on anar.', 'matxa:central:grau');
+        // La segona acaba als 14 s des de la petició: abans es tallava als 12.
+        await jest.advanceTimersByTimeAsync(15000);
+        expect(sp.available()).toBe(true);
+        const p = sp.speak('I ara el cavall no té on anar.', 'matxa:central:grau');
+        await jest.advanceTimersByTimeAsync(1);
+        expect(g.sent).toEqual(['Kaspàrov obre la columna.', 'I ara el cavall no té on anar.']);
+        expect(audio.created).toHaveLength(1);
+        audio.created[0].end();
+        await expect(p).resolves.toEqual({ spoken: true, reason: 'end' });
+    });
+
+    test('una frase que Matxa ha rebut i no resol en 12 s sí que la posa en pausa', async () => {
+        const client = { reportsStart: true, synthesize: (t, id, o) => new Promise((resolve, reject) => {
+            o.onStart();
+            o.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+        }) };
+        const { sp } = speakerWith(client);
+        sp.prefetch('Hola.', 'matxa:central:elia');
+        await jest.advanceTimersByTimeAsync(V.MATXA_CONFIG.SYNTH_TIMEOUT_MS + 1);
+        expect(sp.available()).toBe(false);
+    });
+
+    test('una frase tallada esperant torn no posa Matxa en pausa i es pot tornar a demanar', async () => {
+        const calls = [];
+        const client = { reportsStart: true, synthesize: (t, id, o) => new Promise((resolve, reject) => {
+            calls.push(t);
+            o.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+        }) };
+        const { sp } = speakerWith(client);
+        sp.prefetch('Hola.', 'matxa:central:elia');
+        // Mentre espera torn no la talla el temps de síntesi, només el de fila.
+        await jest.advanceTimersByTimeAsync(V.MATXA_CONFIG.SYNTH_TIMEOUT_MS + 1);
+        expect(sp._cache.size).toBe(1);
+        await jest.advanceTimersByTimeAsync(V.MATXA_CONFIG.QUEUE_TIMEOUT_MS);
+        expect(sp._cache.size).toBe(0);
+        expect(sp.available()).toBe(true);
+        sp.prefetch('Hola.', 'matxa:central:elia');
+        expect(calls).toEqual(['Hola.', 'Hola.']);
+    });
+});
+
 // Matxa comença a parlar als primers mil·lisegons: en arrencar el so, molts
 // dispositius se'n mengen la primera síl·laba. Es posa silenci al davant.
 describe('silenci inicial dels WAV de Matxa', () => {
