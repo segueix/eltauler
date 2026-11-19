@@ -707,6 +707,7 @@ describe('Lliga de llegendes TV · defalliment d’un dels dos jugadors', () => 
         state.fixtures.filter(f => f.id !== target.id).forEach((f) => { state = LG.record(state, f.id, { result: '1/2' }, seeded(1)).state; });
         const ctl = TV.createTvController({ ChessCtor: Chess, engine: engine('stockfish'), lozzaEngine: engine('lozza'), random: seeded(9),
           legends: LG, loadLeague: () => state, saveLeague: () => {}, loadPrefs: () => ({ speed: 'quick' }), savePrefs: () => {},
+          humanize: false, // comportament anterior: defalliment programat (amb humanització, la precisió fluctua dinàmicament)
           getOpenings: () => [], getViewer: () => ({ calibrated: false, roc: 900 }) });
         await ctl.open();
         const plan = ctl.state().game.matchPlan;

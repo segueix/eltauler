@@ -68,6 +68,14 @@
         return null;
     }
 
+    // Humanització dinàmica de la lliga (humanitzacio.js): tria entre les
+    // jugades candidates de l'anàlisi amb criteri humà. Vegeu HUMANITZACIO.md.
+    function getHumanitzacio() {
+        if (root && root.ElTaulerHumanitzacio) return root.ElTaulerHumanitzacio;
+        try { if (typeof require === 'function') return require('./humanitzacio'); } catch (e) {}
+        return null;
+    }
+
     function getArtDeLaGuerra() {
         if (root && root.ElTaulerArtDeLaGuerra) return root.ElTaulerArtDeLaGuerra;
         try { if (typeof require === 'function') return require('./artdelaguerra'); } catch (e) {}
@@ -337,6 +345,13 @@
         DRAW_CP: 40,
         DRAW_PLIES: 20,
         DRAW_HALFMOVES: 16,
+        // · Humanització dinàmica (només a la lliga de llegendes): els dos jugadors
+        //   trien entre les MULTIPV millors línies de l'anàlisi amb una precisió
+        //   fluctuant i vulnerabilitats pròpies del perfil (humanitzacio.js).
+        //   Interruptor intern (no es mostra a l'espectador): amb ENABLED = false,
+        //   o amb `deps.humanize = false`, la lliga torna al comportament anterior
+        //   (perfils d'estil + defalliment programat).
+        HUMANIZE: { ENABLED: true },
         PREFS_KEY: 'tauler_tv_prefs',
         RIVALRY_HISTORY: 8,
         LOZZA_MAX_DEPTH: 9
@@ -1085,14 +1100,17 @@
 
     // Taules per acord: la posició és igualada des de fa estona i no avança.
     // Com tvResignStep: { state, end }.
-    function tvAgreedDrawStep(state, analysis, ply, fen) {
+    // `accepts(color)` (opcional): les taules només s'acorden si TOTS DOS les volen
+    // (humanitzacio.js, acceptsDraw: qui necessita guanyar continua jugant).
+    function tvAgreedDrawStep(state, analysis, ply, fen, accepts) {
         const prev = state && isNum(state.plies) ? state : { plies: 0 };
         if (!analysis || !analysis.reliable || !analysis.best) return { state: prev, end: null };
         const best = analysis.best;
         const level = best.type === 'cp' && Math.abs(best.value) <= TV_CONFIG.DRAW_CP;
         const next = { plies: level ? prev.plies + 1 : 0 };
         const halfmoves = parseInt(String(fen || '').split(' ')[4], 10) || 0;
-        const agreed = level && ply >= TV_CONFIG.DRAW_FROM_PLY && next.plies >= TV_CONFIG.DRAW_PLIES && halfmoves >= TV_CONFIG.DRAW_HALFMOVES;
+        const agreed = level && ply >= TV_CONFIG.DRAW_FROM_PLY && next.plies >= TV_CONFIG.DRAW_PLIES && halfmoves >= TV_CONFIG.DRAW_HALFMOVES
+            && (typeof accepts !== 'function' || (accepts('w') && accepts('b')));
         return { state: next, end: agreed ? { result: '½-½', winner: null, reason: 'agreed',
             text: 'Taules per acord: la posició fa estona que està igualada i cap dels dos no la pot fer avançar.' } : null };
     }
@@ -1132,13 +1150,16 @@
     }
 
     // Pla d'una partida de la lliga: qui juga, amb quin motor, nivell i perfil.
-    function tvLegendPlan(LG, fixture, caps, lozzaReady, random) {
+    // `opts.humanize`: el defalliment programat (semijugada fixa) se substitueix
+    // per la fluctuació dinàmica de precisió de humanitzacio.js.
+    function tvLegendPlan(LG, fixture, caps, lozzaReady, random, opts) {
         const W = LG.legend(fixture.white), B = LG.legend(fixture.black);
         const power = LG.CONFIG.POWER;
         const sides = { w: tvLegendSide(caps, W, lozzaReady, power), b: tvLegendSide(caps, B, lozzaReady, power) };
         return { legends: true, fixture: fixture, round: fixture.round, ids: { w: W.id, b: B.id },
             names: { w: W.short, b: B.short }, engines: { w: sides.w.engine, b: sides.b.engine }, sides: sides,
-            sharp: !!(W.tactical || B.tactical), untilMate: false, reason: '', slump: tvPlanSlump(random) };
+            sharp: !!(W.tactical || B.tactical), untilMate: false, reason: '',
+            slump: opts && opts.humanize ? null : tvPlanSlump(random) };
     }
 
     // «Massa fàcil» puja el nivell; «Massa difícil» l'abaixa. Retorna les
@@ -3844,6 +3865,39 @@
     const LEGEND_LEAD_KINDS = { describe: true, development: true, center: true, activation: true, 'king-activity': true,
         capture: true, diagonal: true, majority: true, castle: true };
 
+    // Imprecisió o error de la jugada (o null): la CLASSE surt de la variació real
+    // de l'avaluació entre les dues anàlisis fiables (només centipeons, mateix bàndol)
+    // i, si és compatible amb l'estil del jugador, de l'etiqueta de la jugada
+    // comprovada amb chess.js (humanitzacio.js, moveFlags). Una posició ja decidida
+    // no es comenta amb matisos. Mai no depèn de com s'ha triat la jugada.
+    function tvSlipInfo(ctx, L, features) {
+        const Hm = getHumanitzacio();
+        const b = ctx && ctx.before, a = ctx && ctx.after;
+        if (!Hm || !features || !b || !a || !b.reliable || !a.reliable || !ctx.move) return null;
+        const color = ctx.move.color;
+        const loss = tvMoverLossCp(b.best, a.best, color);
+        if (!isNum(loss)) return null;
+        const moverBefore = b.best.value * (color === 'w' ? 1 : -1);
+        if (Math.abs(moverBefore) > TV_CONFIG.DECIDED_CP) return null;
+        const cls = Hm.classifyLoss(loss);
+        if (cls === 'bona') return null;
+        const uci = ctx.move.from + ctx.move.to + (ctx.move.promotion || '');
+        // Només s'hi pot parlar de «millor alternativa» si n'hi ha una de diferent.
+        if (!b.bestUci || b.bestUci === uci) return null;
+        const profile = Hm.profileFor(L && L.ids ? L.ids[color] : null);
+        const flags = Hm.moveFlags(features, Hm.pawnDelta(ctx.ChessCtor, ctx.fenBefore, uci));
+        let link = Hm.styleLink(profile.archetype, flags);
+        // Les afirmacions sobre l'alternativa («n'hi havia una de més activa»,
+        // «una jugada més directa») només es diuen si es comproven amb chess.js.
+        if (link === 'passiva' || link === 'tranquila') {
+            let bf = null;
+            try { bf = Hm.moveFlags(tvMoveFeatures(ctx.ChessCtor, ctx.fenBefore, b.bestUci, null), 0); } catch (err) { bf = null; }
+            if (link === 'passiva') link = bf && bf.iniciativa ? 'passiva' : null;
+            else link = bf && bf.forcing && !flags.iniciativa ? 'maniobraLenta' : null;
+        }
+        return { cls: cls, link: link };
+    }
+
     // Observació sobre el jugador que acaba de moure (lliga de llegendes), en
     // forma de diàleg. Ocupa un silenci o s'afegeix a un comentari descriptiu
     // d'una sola veu (que l'Èlia diu primer); mai no substitueix un avís tàctic,
@@ -3866,6 +3920,7 @@
         const edge = a && a.reliable ? tvDecisiveSide(a.best, TV_CONFIG.DECIDED_PACE_CP) : null;
         const out = L.api.remark({ ply: ctx.ply, color: ctx.move.color, features: features, ids: L.ids, engines: L.engines,
             stakes: L.stakes || null, edge: edge, attack: L.attack || null, slump: L.slump || null, lead: lead,
+            slip: tvSlipInfo(ctx, L, features),
             prepared: !!ctx.prepared, end: !!ctx.end }, memory.legend);
         const next = Object.assign({}, memory, { legend: out.memory });
         if (!out.remark) return { comment: chosen, memory: next };
@@ -3874,7 +3929,7 @@
         const text = turns ? turns.map(t => t.text).join(' ') : r.text;
         const say = turns ? turns.map(t => t.role === 'presenter' && t.solo ? t.solo : t.text).join(' ') : r.text;
         return { comment: { kind: 'legend', text: text, leadText: r.text, say: say, family: 'legend',
-            variantId: ['profile', 'stakes', 'edge', 'trait', 'attack', 'slump'].indexOf(r.kind), explanatory: r.kind !== 'profile',
+            variantId: ['profile', 'stakes', 'edge', 'trait', 'attack', 'slump', 'slip'].indexOf(r.kind), explanatory: r.kind !== 'profile',
             dialogue: turns ? turns.map(t => ({ role: t.role, text: t.text, ...(t.solo ? { solo: t.solo } : {}) })) : undefined,
             dialogueEvent: turns ? 'legend' : undefined, legend: { id: r.id, kind: r.kind } }, memory: next };
     }
@@ -4318,16 +4373,21 @@
                     if (!ok || job.cancelled || gen !== generation) return null;
                     send(job.position);
                     const infos = {};
+                    // Les línies de cada profunditat (la humanització hi llegeix què «veu» el jugador).
+                    const byDepth = {};
                     const result = listen((line) => {
                         if (line.indexOf('info') === 0) {
                             const info = parseInfoLine(line);
-                            if (info && !info.bound && info.pv.length) infos[info.multipv] = info;
+                            if (info && !info.bound && info.pv.length) {
+                                infos[info.multipv] = info;
+                                if (isNum(info.depth)) (byDepth[info.depth] = byDepth[info.depth] || {})[info.multipv] = info;
+                            }
                             return undefined;
                         }
                         if (line.indexOf('bestmove') !== 0) return undefined;
                         const m = /^bestmove\s+(\S+)/.exec(line);
                         const best = m && /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(m[1]) ? m[1] : null;
-                        return { bestUci: best, infos: infos };
+                        return { bestUci: best, infos: infos, byDepth: byDepth };
                     }, (job.movetime || 1000) + 10000);
                     send(job.go);
                     return result.then((res) => {
@@ -4627,7 +4687,8 @@
                 saveLeague();
             }
             const untilMate = !fixture && S.lozzaReady && prefs.untilMate;
-            const duel = fixture ? tvLegendPlan(LG, fixture, S.caps, S.lozzaReady, random)
+            const humanize = !!(fixture && humanizeOn() && getHumanitzacio());
+            const duel = fixture ? tvLegendPlan(LG, fixture, S.caps, S.lozzaReady, random, { humanize: humanize })
                 : untilMate ? tvMateMatch(prefs.mateSeries, random)
                 : S.lozzaReady ? tvMatchPlan(tvRivalryHistory(prefs.recent, S.caps), {
                 caps: S.caps, target: target.value, unequal: prefs.unequal,
@@ -4680,6 +4741,10 @@
                 end: null,
                 nextGameAt: null
             };
+            // Humanització: llavor per partida (la mateixa fixture, la mateixa
+            // llavor) i un jugador independent per bàndol, amb el seu perfil.
+            S.game.human = humanize ? getHumanitzacio().createGame({ seed: fixture.id,
+                players: { w: legendPlayer(LG, duel.ids.w), b: legendPlayer(LG, duel.ids.b) } }) : null;
             if (d.engine) d.engine.newGame();
             if (duel && S.lozzaReady && d.lozzaEngine) d.lozzaEngine.newGame();
             S.nextRevealAt = now() + TV_CONFIG.INTRO_DELAY_MS;
@@ -4693,6 +4758,8 @@
                 // Lliga de llegendes: què hi ha en joc (lloc i punts ara i si guanyen),
                 // i una presentació en diàleg amb els noms, els colors i la jornada.
                 duel.stakes = typeof LG.stakes === 'function' ? LG.stakes(league, fixture.id) : null;
+                // Ambició de cada jugador segons la classificació (humanització).
+                if (S.game.human) getHumanitzacio().applyStakes(S.game.human, duel.stakes, (LG.CONFIG.PLAYERS - 1) * 2);
                 const presented = typeof LG.introDialogue === 'function'
                     ? LG.introDialogue({ white: duel.ids.w, black: duel.ids.b, season: league.season, round: duel.round,
                         rounds: LG.progress(league).rounds, seq: S.game.id, engines: duel.engines,
@@ -4800,12 +4867,31 @@
             return sp || null;
         }
 
+        function humanizeOn() {
+            return d.humanize !== undefined ? !!d.humanize : !!TV_CONFIG.HUMANIZE.ENABLED;
+        }
+
+        // Jugador de la lliga per a la humanització: id i pesos del seu perfil
+        // (els mateixos `weights` de llegendes.js, per a Stockfish i per a Lozza).
+        function legendPlayer(LG, id) {
+            const p = LG && typeof LG.legend === 'function' ? LG.legend(id) : null;
+            return { id: id, weights: p ? p.weights : null };
+        }
+
+        // Perfil de jugades d'un jugador de la lliga com a «estil» (id, etiqueta i pesos).
+        function legendPlayerStyle(id) {
+            const LGm = d.legends || root.ElTaulerLlegendes;
+            const p = LGm && typeof LGm.legend === 'function' ? LGm.legend(id) : null;
+            return p && p.weights ? { id: p.id, label: p.short, weights: p.weights } : null;
+        }
+
         function analysisJob(g, uciMoves, ply, fen) {
+            const H = g.human ? getHumanitzacio() : null;
             return {
                 tag: { gameId: g.id, ply: ply, fen: fen, kind: 'analysis' },
                 position: tvPositionCommand(uciMoves, g.startFen),
                 strength: tvStrengthCommands(S.caps, 'analysis'),
-                multipv: TV_CONFIG.ANALYSIS_MULTIPV,
+                multipv: H ? Math.max(TV_CONFIG.ANALYSIS_MULTIPV, H.CONFIG.MULTIPV) : TV_CONFIG.ANALYSIS_MULTIPV,
                 go: 'go depth ' + TV_CONFIG.ANALYSIS_MAX_DEPTH + ' movetime ' + TV_CONFIG.ANALYSIS_MOVETIME_MS,
                 movetime: TV_CONFIG.ANALYSIS_MOVETIME_MS
             };
@@ -4819,6 +4905,12 @@
                 // Resultat obsolet (pausa, partida nova o sortida): es descarta.
                 if (!res || !alive(epoch) || S.game !== g) return null;
                 const a = tvBuildAnalysis(fen, res.infos, res.bestUci);
+                // Línies candidates (des de qui mou) per a la humanització.
+                // i, per profunditat, el que «veu» cada jugador (mateixa anàlisi, sense cap cerca més).
+                if (g.human) {
+                    const H = getHumanitzacio();
+                    if (H) { a.lines = H.linesFromInfos(res.infos); a.perception = res.byDepth ? H.perceptionFromDepths(res.byDepth) : null; }
+                }
                 g.analyses[key] = a;
                 return a;
             });
@@ -4839,8 +4931,14 @@
             // Si la partida s'encalla, fase d'atac: Stockfish arrisca amb un perfil de
             // progrés i un marge més ample; Lozza calcula més profund.
             // Un cop un bàndol hi ha entrat, s'hi queda (la fitxa i l'anunci ho diuen així).
+            // Humanització: línies candidates de l'anàlisi (mateixa font per a Stockfish i
+            // per a Lozza) i perfil de jugades del jugador, que a Lozza no s'aplica al motor.
+            const humanAnalysis = g.human && !mate ? g.analyses[ply + '|' + fen] : null;
+            const humanLines = humanAnalysis && humanAnalysis.reliable && humanAnalysis.lines && humanAnalysis.lines.length > 1
+                ? humanAnalysis.lines : null;
+            const humanStyle = g.human && side ? legendPlayerStyle(g.matchPlan.ids[color]) : null;
             const late = side ? tvLateAttack({ ChessCtor: d.ChessCtor, fen: fen, ply: ply, startFen: g.startFen, history: uciMoves,
-                baseStyle: side.style, force: g.attack && g.attack[color] ? g.attack[color] : null }) : null;
+                baseStyle: humanStyle || side.style, force: g.attack && g.attack[color] ? g.attack[color] : null }) : null;
             if (late) {
                 g.attack = Object.assign({}, g.attack || {});
                 if (!g.attack[color]) g.attack[color] = late.reason;
@@ -4852,7 +4950,8 @@
                 position: tvPositionCommand(uciMoves, g.startFen),
                 strength: lozzaTurn ? [] : tvStrengthCommands(S.caps, mate ? 'analysis' : 'player',
                     side ? side.level : g.matchPlan ? g.matchPlan.stockfishLevel : tvSideLevel(g.level, fen)),
-                multipv: style ? TV_CONFIG.STYLE_MULTIPV : 1,
+                // Amb línies d'anàlisi per humanitzar, el motor no cal que calculi MultiPV.
+                multipv: style && !humanLines ? TV_CONFIG.STYLE_MULTIPV : 1,
                 // Lozza no declara Skill Level ni UCI_Elo. La profunditat és un
                 // límit de càlcul, mai una valoració d'Elo equivalent.
                 go: mate || lozzaTurn ? 'go depth ' + (mate ? mate.depth : side ? side.depth + (late ? late.depthBonus : 0) : g.matchPlan.lozzaDepth) + ' movetime ' + movetime
@@ -4871,6 +4970,15 @@
                 if (!res || !res.bestUci) { fail('engine'); return null; }
             }
             if (!res) return null;
+            if (humanLines && res.bestUci) {
+                const H = getHumanitzacio();
+                const dec = H.decide(g.human, color, { ChessCtor: d.ChessCtor, fen: fen, ply: ply, lines: humanLines,
+                    engineUci: res.bestUci, features: tvMoveFeatures,
+                    context: late ? late.context : tvMoveContext(d.ChessCtor, g.startFen, uciMoves),
+                    weights: late ? late.style.weights : (humanStyle ? humanStyle.weights : null),
+                    windowCp: late ? late.windowCp : undefined, risk: late ? 1 : 0, perception: humanAnalysis.perception || null });
+                if (dec && dec.uci) return dec.uci;
+            }
             return style ? tvPickStyledMove(d.ChessCtor, fen, res.infos, res.bestUci, style,
                 late ? late.windowCp : undefined, late ? late.context : undefined).uci : res.bestUci;
         }
@@ -4927,7 +5035,9 @@
                 const resign = S.control || (g.matchPlan && g.matchPlan.untilMate) ? null : tvResignStep(g.resign, after, ply + 1,
                     tvResignThresholdCp(S.caps, g.level.value), inLeague ? TV_CONFIG.LEAGUE_RESIGN_MIN_PLY : undefined);
                 // Lliga: taules per acord si la posició fa estona que està igualada i no avança.
-                const draw = inLeague && !S.control ? tvAgreedDrawStep(g.drawWatch, after, ply + 1, applied.fen) : null;
+                const H = g.human ? getHumanitzacio() : null;
+                const draw = inLeague && !S.control ? tvAgreedDrawStep(g.drawWatch, after, ply + 1, applied.fen,
+                    H ? (c) => H.acceptsDraw(g.human, c, after) : undefined) : null;
                 const plan = planMove(g, uci, fenBefore, prepared, before, after, resign, draw);
                 if (!plan) { fail('illegal'); return; }
                 if (plan.chosen && d.voice && typeof d.voice.prefetch === 'function') {

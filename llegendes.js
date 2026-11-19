@@ -39,7 +39,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
     'use strict';
 
-    const VERSION = '1.4.0';
+    const VERSION = '1.5.0';
     // Sense prefix chess_/eltauler_: la sincronització al núvol no la recull
     // (com la resta de dades de la TV).
     const KEY = 'tauler_tv_legends_v1';
@@ -588,7 +588,38 @@
         return p.short + ', en una frase: ' + p.style + '.';
     }
 
-    function emptyRemarkMemory() { return { last: -100, count: 0, profile: { w: false, b: false }, used: [], stakes: false, edge: false, attack: { w: false, b: false }, slump: false }; }
+    function emptyRemarkMemory() { return { last: -100, count: 0, profile: { w: false, b: false }, used: [], stakes: false, edge: false, attack: { w: false, b: false }, slump: false, slips: 0, slipLast: -100 }; }
+
+    // Imprecisions i errors (humanitzacio.js, classifyLoss): els comentaristes els
+    // distingeixen per la variació REAL de l'avaluació (l'anàlisi de Stockfish) i,
+    // si la jugada és compatible amb la manera de jugar del jugador, ho relacionen.
+    // Només diuen fets: la classe (anàlisi), i el que la jugada és (chess.js).
+    // Mai no atribueixen la jugada a res intern ni inventen conseqüències.
+    const SLIP_ASKS = {
+        imprecisio: [n => 'Diries que ' + n + ' ha comès una imprecisió?', n => 'Grau, és la millor jugada, aquesta de ' + n + '?'],
+        error: [n => 'Això és un error de ' + n + ', Grau?', n => 'Grau, s’ha equivocat ' + n + '?'],
+        errorGreu: [n => 'Grau, això és molt greu per a ' + n + '?', n => 'Un error de ' + n + '? Què ha passat, Grau?']
+    };
+    const SLIP_ANSWERS = {
+        imprecisio: ['Sí, una imprecisió: l’anàlisi preferia una altra jugada, tot i que la diferència és petita.',
+            'Una imprecisió, sí: n’hi havia una altra de lleugerament millor.'],
+        error: ['Sí, és un error: l’anàlisi preferia una altra jugada i ara el rival hi guanya perspectives.',
+            'Sí: perquè ara el rival disposa d’una continuació que abans no tenia.'],
+        errorGreu: ['Sí, és un error greu: l’avaluació canvia de manera clara a favor del rival.',
+            'Sí, i important: la posició passa a ser clarament millor per al rival.']
+    };
+    // La relació amb l'estil, només amb fets de la jugada (comprovats amb chess.js).
+    const SLIP_LINKS = {
+        iniciativa: 'Busca la iniciativa, com és propi del seu estil, però l’anàlisi preferia una altra jugada.',
+        riscRei: 'És una jugada que toca l’entorn del seu propi rei, i això es paga.',
+        materialSac: 'Ofereix material a canvi d’activitat, i l’anàlisi no ho troba prou compensat.',
+        simplifica: 'Opta per simplificar amb un canvi de peces, però l’anàlisi preferia una altra opció.',
+        passiva: 'Escull una jugada passiva quan n’hi havia una de més activa.',
+        complicacio: 'Va cap a la complicació, que li agrada, però no era la millor continuació.',
+        estructura: 'A més, la jugada deixa els peons en pitjor estat.',
+        maniobraLenta: 'Prefereix una maniobra tranquil·la quan hi havia una jugada més directa.'
+    };
+    const SLIP_FIRST_PLY = 14, SLIP_GAP = 8, SLIP_MAX = 3;
 
     // Defalliment (stockfishtv.js, tvPlanSlump): un jugador baixa de precisió.
     const SLUMP_ASKS = [
@@ -635,7 +666,8 @@
     // l'anàlisi, on el portaria guanyar; i un tret històric només quan la
     // jugada el compleix (comprovat amb chess.js). Mai no diu caselles.
     // ctx = { ply, color, features, ids: {w,b}, engines: {w,b}, stakes, edge,
-    //         lead (frase de l'Èlia sobre la jugada, opcional), prepared, end }
+    //         lead (frase de l'Èlia sobre la jugada, opcional), prepared, end,
+    //         slip: { cls: 'imprecisio'|'error'|'errorGreu', link } (opcional) }
     // Retorna { memory, remark: { kind, color, id, text, turns } | null }.
     function remark(ctx, memory) {
         const c = ctx || {};
@@ -645,6 +677,21 @@
         m.attack = Object.assign({ w: false, b: false }, m.attack || {});
         const none = { memory: m, remark: null };
         if (c.end || c.prepared || !Number.isInteger(c.ply) || !['w', 'b'].includes(c.color)) return none;
+        // Una imprecisió o un error real (variació de l'avaluació) es comenta amb el seu nom.
+        if (c.slip && SLIP_ASKS[c.slip.cls] && c.ply >= SLIP_FIRST_PLY && c.ply - (m.slipLast || -100) >= SLIP_GAP && (m.slips || 0) < SLIP_MAX) {
+            const who = legend(c.ids && c.ids[c.color]);
+            if (who) {
+                const lead0 = typeof c.lead === 'string' && c.lead.trim() ? c.lead.trim() + ' ' : '';
+                const k = c.ply + (m.slips || 0);
+                const link = c.slip.link && SLIP_LINKS[c.slip.link] ? ' ' + SLIP_LINKS[c.slip.link] : '';
+                const answer = variant(SLIP_ANSWERS[c.slip.cls], k) + link;
+                m.slips = (m.slips || 0) + 1;
+                m.slipLast = c.ply;
+                m.last = Math.max(m.last, c.ply - CONFIG.REMARK_GAP_PLIES + 4);
+                return { memory: m, remark: { kind: 'slip', color: c.color, id: who.id, text: answer,
+                    turns: [{ role: 'presenter', text: lead0 + variant(SLIP_ASKS[c.slip.cls], k)(who.short), solo: lead0.trim() || null }, { role: 'analyst', text: answer }] } };
+            }
+        }
         if (c.ply < CONFIG.REMARK_FIRST_PLY || c.ply - m.last < CONFIG.REMARK_GAP_PLIES || m.count >= CONFIG.REMARKS_PER_GAME) return none;
         const p = legend(c.ids && c.ids[c.color]);
         if (!p) return none;
