@@ -309,6 +309,39 @@ de la simulació només arriba a profunditat 10 i el jugador veu a ~5–8: hi ha
 l'app (profunditat 16) l'horitzó és més gran i l'efecte d'A hauria de ser més fort, però **no
 s'ha pogut mesurar** aquí. L'equitat entre motors, en canvi, queda equilibrada.
 
+## Versió 1.3: nivell de l'espectacle
+
+Objectiu triat: **espectacle**, encara que el nivell global baixi. Un sol control,
+`CONFIG.LEVEL` (0–1, per defecte **0**, el més baix de l'escala), igual per als dos jugadors:
+
+- **Menys càlcul**: la profunditat que veu cada jugador és absoluta (no una fracció de la de
+  l'anàlisi), `3 + 7·q` semijugades ± l'habilitat, multiplicada per `0,55 + 0,45·LEVEL`.
+- **Més soroll de judici**: les temperatures es multipliquen per `1 + 1,5·(1 − LEVEL)`.
+- **Errors reals possibles**: el límit de pèrdua admesa s'amplia (`×(1 + 2·(1 − LEVEL))`). És
+  el que fa baixar el nivell de debò: amb el límit estret, baixar només el càlcul no canviava
+  res (vegeu la taula). Es mantenen: **mai un error greu en una posició senzilla**
+  (complexitat < 0,25), mats i finals elementals protegits, no llençar una victòria clara.
+
+### Resultat (100 partides per nivell, mateixa simulació)
+
+`scripts/simulacions/humanitzacio-nivell/` (nivell 0). Error de mostreig de les taules: ±3–4 punts.
+
+| | Anterior (1.000) | v1.2 (100) | 0,6 sense ampliar el límit | 0,6 | 0,3 | **0 (per defecte)** |
+|---|---:|---:|---:|---:|---:|---:|
+| Taules | 14,2 % | 26 % | 22 % | 20 % | 17 % | **10 %** |
+| Durada (jugades) | 45,7 | 55,8 | 53,7 | 51,7 | 48,4 | **43,5** |
+| Imprecisions / errors / greus per 100 | 23,0 / 8,9 / 2,3 | 17,0 / 3,7 / 1,0 | 17,9 / 3,7 / 1,1 | 17,1 / 3,9 / 0,8 | 18,5 / 5,5 / 1,1 | **22,0 / 6,6 / 1,5** |
+| Errors greus en posició senzilla / 1000 | 21,8 | 4,8 | 6,3 | 5,2 | 9,6 | **6,3** |
+| Remuntades | 20,5 % | 14,9 % | 6,4 % | 12,5 % | 14,5 % | **14,4 %** |
+| Victòries blanques / negres | 48,2 / 37,6 % | 38 / 36 % | 42 / 36 % | 46 / 34 % | 44 / 39 % | **47 / 43 %** |
+| Puntuació Stockfish / Lozza | 39,7 / 65,4 % | 47,9 / 53,1 % | 51,3 / 48,1 % | 53,8 / 44,4 % | 52,5 / 46,3 % | **49,2 / 51,3 %** |
+
+Amb el nivell 0, les taules baixen per sota del comportament anterior i les partides són més
+curtes i decisives, amb **menys errors i menys errors greus que abans** (que venien sobretot
+del defalliment programat i del soroll dels motors) i equitat entre motors. Per baixar encara
+més el nivell caldria ampliar `LEVEL_CAP_WIDEN`. Mesurat només amb 100 partides: una tanda de
+1.000 donaria xifres més fermes.
+
 ## Limitacions i pendent
 
 - La simulació no reprodueix el temps de càlcul de l'app (900 ms/profunditat 16 d'anàlisi);

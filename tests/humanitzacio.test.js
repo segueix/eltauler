@@ -228,7 +228,16 @@ describe('Humanització · selecció natural de jugades', () => {
     }
     expect(cls.bona).toBeGreaterThan(cls.imprecisio);
     expect(cls.imprecisio).toBeGreaterThan(cls.error);
-    expect(cls.errorGreu / 1500).toBeLessThan(0.02);
+    // Errors greus excepcionals: com a molt un 6 % al nivell de l'espectacle (el més baix),
+    // en aquesta posició complexa i amb una alternativa que perd 220 cp; i menys amb més nivell.
+    expect(cls.errorGreu / 1500).toBeLessThan(0.06);
+    const saved = H.CONFIG.LEVEL;
+    H.CONFIG.LEVEL = 1;
+    let big = 0;
+    for (let s = 0; s < 1500; s++) if (decideOnce('d' + s, 'fischer', { lines: lines([0, 35, 100, 220]), extra: { features: () => ({}) } }).cls === 'errorGreu') big++;
+    H.CONFIG.LEVEL = saved;
+    expect(big / 1500).toBeLessThan(0.02);
+    expect(big).toBeLessThan(cls.errorGreu);
   });
 
   test('els errors greus només són possibles en posicions realment complexes', () => {
@@ -400,6 +409,7 @@ describe('Humanització · els errors reflecteixen la personalitat', () => {
   });
 
   test('un jugador defensiu també troba la combinació quan és l’única bona jugada', () => {
+    const run = () => {
     let found = 0;
     for (let s = 0; s < 300; s++) {
       const r = decideOnce('t' + s, 'karpov', { lines: [{ uci: MOVES.init, type: 'cp', value: 120, depth: 14 }, { uci: MOVES.best, type: 'cp', value: -140, depth: 14 },
@@ -407,7 +417,15 @@ describe('Humanització · els errors reflecteixen la personalitat', () => {
         extra: { engineUci: MOVES.init, features: fakeFeatures } });
       if (r.uci === MOVES.init) found++;
     }
-    expect(found).toBe(300);
+    return found;
+    };
+    // Al nivell màxim, sempre; al nivell de l'espectacle (més baix), en la gran majoria dels casos.
+    const saved = H.CONFIG.LEVEL;
+    H.CONFIG.LEVEL = 1;
+    const strong = run();
+    H.CONFIG.LEVEL = saved;
+    expect(strong).toBe(300);
+    expect(run()).toBeGreaterThan(225);
   });
 
   test('etiquetes de jugada: només fets comprovats', () => {
@@ -450,6 +468,27 @@ describe('Humanització · equitat entre jugadors i registre tècnic', () => {
     const sum = H.summarizeLog(game.log);
     expect(sum.moves).toBe(20);
     expect(sum.bona + sum.imprecisio + sum.error + sum.errorGreu + sum.bypass).toBe(20);
+  });
+});
+
+describe('Humanització · nivell de l’espectacle', () => {
+  test('un nivell més baix fa calcular menys i admet errors més grans, però mai un error greu en una posició senzilla', () => {
+    const per = {}; for (let d = 2; d <= 16; d++) per[d] = [{ uci: 'e2e4', type: 'cp', value: 0 }, { uci: 'd2d4', type: 'cp', value: 0 }];
+    const facts = { complexity: 0.5, tactical: false, closed: false, phase: 'migjoc' };
+    const saved = H.CONFIG.LEVEL;
+    const at = (lv, fn) => { H.CONFIG.LEVEL = lv; try { return fn(); } finally { H.CONFIG.LEVEL = saved; } };
+    const p = H.profileFor('carlsen');
+    expect(at(0.2, () => H.perceptionDepth(per, 0.7, p, facts, 0, 60))).toBeLessThan(at(1, () => H.perceptionDepth(per, 0.7, p, facts, 0, 60)));
+    expect(at(0.2, () => H.perceptionTau(0.7, facts, 60))).toBeGreaterThan(at(1, () => H.perceptionTau(0.7, facts, 60)));
+    // Posició senzilla (inici): una jugada que perd 250 cp no és mai candidata, sigui quin sigui el nivell.
+    const quiet = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+    const ls = [{ uci: 'e2e4', type: 'cp', value: 25 }, { uci: 'd2d4', type: 'cp', value: 24 }, { uci: 'a2a3', type: 'cp', value: -225 }];
+    at(0, () => {
+      for (let s = 0; s < 300; s++) {
+        const game = H.createGame({ seed: 'lv' + s, players: { w: { id: 'morphy' }, b: { id: 'karpov' } } });
+        expect(H.decide(game, 'w', { ChessCtor: Chess, fen: quiet, ply: 30, lines: ls, engineUci: 'e2e4', features: () => ({}) }).uci).not.toBe('a2a3');
+      }
+    });
   });
 });
 

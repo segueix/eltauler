@@ -35,11 +35,20 @@
 })(typeof self !== 'undefined' ? self : this, function () {
     'use strict';
 
-    const VERSION = '1.2.0';
+    const VERSION = '1.3.0';
 
     const CONFIG = {
         // Interruptor general (intern: l'espectador no el veu).
         ENABLED: true,
+        // Nivell de joc de l'espectacle (0–1; 1 = el més fort). Més baix: els jugadors
+        // calculen menys (veuen menys profunditat), jutgen amb més soroll i en posicions
+        // complexes poden fallar una mica més. Les proteccions (mats, finals elementals,
+        // posicions senzilles, victòries clares) no canvien. Igual per a tots dos jugadors.
+        LEVEL: 0,
+        // Quant s'amplia el límit de pèrdua admesa amb el nivell més baix (×(1 + W·(1 − LEVEL))).
+        LEVEL_CAP_WIDEN: 2,
+        // Per sota d'aquesta complexitat, una posició és senzilla: mai cap error greu.
+        SIMPLE_COMPLEXITY: 0.25,
         // Línies d'anàlisi (MultiPV) de les quals es tria.
         MULTIPV: 8,
         // Temperatura (cp) de la tria: amb precisió màxima s'acosta a TAU_MIN
@@ -101,11 +110,13 @@
         // A) Percepció: el jugador «veu» la posició a una fracció de la profunditat de l'anàlisi
         //    (més com més precís està i en el tipus de posició que domina) i tria la que li sembla
         //    millor. Els seus errors són d'horitzó: jugades bones a poca profunditat i pitjors a més.
-        PERC_MIN: 0.2,
-        PERC_RANGE: 0.5,
-        PERC_SKILL: 0.3,
+        //    Profunditat en semijugades (absoluta, perquè no depengui de la de l'anàlisi):
+        //    PERC_DEPTH_MIN + PERC_DEPTH_RANGE·q, ± l'habilitat en aquell tipus de posició.
+        PERC_DEPTH_MIN: 3,
+        PERC_DEPTH_RANGE: 7,
+        PERC_SKILL: 3,
         PERC_MIN_DEPTH: 3,
-        PERC_OPENING_BONUS: 0.3,
+        PERC_OPENING_BONUS: 3,
         TAU_P_MIN: 4,
         TAU_P_MAX: 30,
         // B) Ambició segons la classificació (0–1, 0,5 = neutra): multiplica l'ambició en
@@ -126,6 +137,9 @@
     function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
     function isNum(v) { return typeof v === 'number' && isFinite(v); }
     function smoothstep(x) { const t = clamp(x, 0, 1); return t * t * (3 - 2 * t); }
+    function levelOf() { return isNum(CONFIG.LEVEL) ? clamp(CONFIG.LEVEL, 0, 1) : 1; }
+    // Soroll de judici segons el nivell: 1 amb el nivell màxim, fins a ×2,5 amb el mínim.
+    function levelNoise() { return 1 + 1.5 * (1 - levelOf()); }
 
     // ------------------------------------------------------------------
     // Aleatorietat controlada per llavor
@@ -408,7 +422,7 @@
         tau *= 0.75 + 0.9 * facts.complexity;
         // Principi de partida: la teoria no es desvirtua (rampa suau).
         tau *= C.OPENING_MIN_SCALE + (1 - C.OPENING_MIN_SCALE) * smoothstep((ply - C.OPENING_PLIES) / C.OPENING_RAMP);
-        return Math.max(1, tau);
+        return Math.max(1, tau * levelNoise());
     }
 
     // ------------------------------------------------------------------
@@ -434,13 +448,15 @@
         if (depths.length < 2) return null;
         const deep = depths[depths.length - 1];
         const mean = (p.tactica + p.estrategica) / 2;
-        let frac = C.PERC_MIN + C.PERC_RANGE * q;
-        frac += C.PERC_SKILL * ((facts.tactical ? p.tactica : p.estrategica) - mean);
-        if (facts.phase === 'final') frac += 0.2 * (p.finals - 0.7);
-        if (isNum(evalMover) && evalMover <= -100) frac += 0.2 * (p.pressio - 0.7);
+        let d = C.PERC_DEPTH_MIN + C.PERC_DEPTH_RANGE * q;
+        d += C.PERC_SKILL * ((facts.tactical ? p.tactica : p.estrategica) - mean) * 2;
+        if (facts.phase === 'final') d += 2 * (p.finals - 0.7);
+        if (isNum(evalMover) && evalMover <= -100) d += 2 * (p.pressio - 0.7);
+        // Nivell de l'espectacle: com més baix, menys càlcul.
+        d *= 0.55 + 0.45 * levelOf();
         // A l'obertura es coneix la teoria: es veu més lluny (rampa suau).
-        frac += C.PERC_OPENING_BONUS * (1 - smoothstep((ply - C.OPENING_PLIES) / C.OPENING_RAMP));
-        const want = clamp(Math.round(deep * frac), C.PERC_MIN_DEPTH, deep - 1);
+        d += C.PERC_OPENING_BONUS * (1 - smoothstep((ply - C.OPENING_PLIES) / C.OPENING_RAMP));
+        const want = clamp(Math.round(d), C.PERC_MIN_DEPTH, deep - 1);
         const usable = depths.filter(d => d <= want && d >= C.PERC_MIN_DEPTH && d < deep);
         return usable.length ? usable[usable.length - 1] : null;
     }
@@ -450,7 +466,7 @@
         let t = C.TAU_P_MIN + (C.TAU_P_MAX - C.TAU_P_MIN) * Math.pow(1 - q, C.Q_EXPONENT);
         t *= 0.75 + 0.5 * facts.complexity;
         t *= C.OPENING_MIN_SCALE + (1 - C.OPENING_MIN_SCALE) * smoothstep((ply - C.OPENING_PLIES) / C.OPENING_RAMP);
-        return Math.max(1, t);
+        return Math.max(1, t * levelNoise());
     }
 
     // ------------------------------------------------------------------
@@ -553,7 +569,12 @@
         const p = side.profile;
         const tau = tauFor(q, p, facts, ply, bestVal);
         // Pèrdua màxima admesa (complexitat) i proteccions de resultat.
-        let cap = C.CAP_SIMPLE + (C.CAP_COMPLEX - C.CAP_SIMPLE) * Math.pow(facts.complexity, C.CAP_EXPONENT);
+        // Amb un nivell més baix s'admeten errors més grans (és el que fa baixar el nivell de
+        // debò): en una posició senzilla el límit no arriba mai a un error greu (200 cp).
+        const widen = 1 + C.LEVEL_CAP_WIDEN * (1 - levelOf());
+        let cap = Math.min(C.CAP_SIMPLE * widen, C.BLUNDER_CP - 1)
+            + (C.CAP_COMPLEX - C.CAP_SIMPLE) * Math.pow(facts.complexity, C.CAP_EXPONENT) * widen;
+        if (facts.complexity < C.SIMPLE_COMPLEXITY) cap = Math.min(cap, C.BLUNDER_CP - 1);
         if (isNum(i.windowCp)) cap = Math.max(cap, i.windowCp);
         const guarded = bestVal >= C.WIN_GUARD_CP;
         const safe = c => c.loss <= cap && (!guarded || c.value >= C.WIN_KEEP_CP) && !(bestVal >= -50 && c.value < C.LOST_FLOOR_CP);
