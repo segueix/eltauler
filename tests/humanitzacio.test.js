@@ -22,7 +22,7 @@ function decideOnce(seed, id, opts) {
   const o = opts || {};
   const game = H.createGame({ seed: seed, players: { w: { id: id, weights: null }, b: { id: 'karpov', weights: null } } });
   return H.decide(game, 'w', Object.assign({ ChessCtor: Chess, fen: FEN, ply: o.ply === undefined ? 40 : o.ply,
-    lines: o.lines || lines([0, 40, 40, 40]), engineUci: MOVES.best, features: fakeFeatures }, o.extra || {}));
+    lines: o.lines || lines([0, 60, 60, 60]), engineUci: MOVES.best, features: fakeFeatures }, o.extra || {}));
 }
 function frequencies(id, n, opts) {
   const f = { best: 0, init: 0, trade: 0, passive: 0, total: 0 };
@@ -296,8 +296,8 @@ describe('Humanització · selecció natural de jugades', () => {
       }
       return trade / 800;
     };
-    // Mateixa posició: abans de la semijugada 30 no hi ha ambició; després, simplificar costa.
-    expect(share(60)).toBeLessThan(share(24) + 0.001);
+    // Mateixa posició: abans de la semijugada 20 no hi ha ambició; després, simplificar costa.
+    expect(share(60)).toBeLessThan(share(12));
     const saved = H.CONFIG.CONTEMPT_TRADE;
     H.CONFIG.CONTEMPT_TRADE = 0;
     const without = share(60);
@@ -342,6 +342,34 @@ describe('Humanització · els errors reflecteixen la personalitat', () => {
   };
   const share = (a, k) => F[a][k] / F[a].total;
 
+  test('les vulnerabilitats canvien QUIN error es comet, no QUANTS: la massa de les alternatives inferiors no depèn del perfil', () => {
+    // Sense especialització (tots els arquetips amb els mateixos trets d'habilitat), només les
+    // vulnerabilitats els distingeixen: la probabilitat d'alguna alternativa és la mateixa.
+    const flat = (archetype) => ({ id: 'x-' + archetype, archetype });
+    const frac = (archetype) => {
+      let inferior = 0;
+      for (let s = 0; s < 1200; s++) {
+        const game = H.createGame({ seed: 'v' + s, players: { w: { id: 'x' }, b: { id: 'y' } } });
+        game.sides.w.profile = Object.assign({}, H.NEUTRAL, flat(archetype));
+        const r = H.decide(game, 'w', { ChessCtor: Chess, fen: FEN, ply: 12, lines: lines([0, 60, 60, 60]), engineUci: MOVES.best, features: fakeFeatures });
+        if (r.uci !== MOVES.best) inferior++;
+      }
+      return inferior / 1200;
+    };
+    const f = H.ARCHETYPES.map(frac);
+    expect(Math.max.apply(null, f) - Math.min.apply(null, f)).toBeLessThan(0.05);
+  });
+
+  test('l’especialització no canvia la força global: la temperatura mitjana entre posició tàctica i estratègica és semblant per a tots els perfils', () => {
+    const facts = t => ({ complexity: 0.5, tactical: t, closed: false, phase: 'migjoc' });
+    const avg = id => (H.tauFor(0.7, H.profileFor(id), facts(true), 60, 0) + H.tauFor(0.7, H.profileFor(id), facts(false), 60, 0)) / 2;
+    const taus = LG.IDS.map(avg);
+    expect(Math.max.apply(null, taus) / Math.min.apply(null, taus)).toBeLessThan(1.12);
+    // I cada perfil és millor allà on és fort.
+    expect(H.tauFor(0.7, H.profileFor('alekhine'), facts(true), 60, 0)).toBeLessThan(H.tauFor(0.7, H.profileFor('alekhine'), facts(false), 60, 0));
+    expect(H.tauFor(0.7, H.profileFor('steinitz'), facts(false), 60, 0)).toBeLessThan(H.tauFor(0.7, H.profileFor('steinitz'), facts(true), 60, 0));
+  });
+
   test('el jugador agressiu tria més la jugada amb iniciativa que el defensiu o el tècnic', () => {
     expect(share('agressiu', 'init')).toBeGreaterThan(share('defensiu', 'init'));
     expect(share('agressiu', 'init')).toBeGreaterThan(share('tecnic', 'init'));
@@ -359,7 +387,7 @@ describe('Humanització · els errors reflecteixen la personalitat', () => {
 
   test('les vulnerabilitats són probabilístiques: la millor jugada continua sent la més triada i hi ha de tot', () => {
     Object.keys(F).forEach((a) => {
-      // Amb tres alternatives a 40 cp (imprecisions), la millor continua sent la més triada.
+      // Amb tres alternatives a 60 cp (imprecisions), la millor continua sent la més triada.
       ['init', 'trade', 'passive'].forEach(k => expect(share(a, 'best')).toBeGreaterThan(share(a, k)));
       expect(share(a, 'best')).toBeGreaterThan(0.3);
       expect(F[a].best + F[a].init + F[a].trade + F[a].passive).toBe(N);

@@ -16,14 +16,14 @@ personalitat reconeixible, **sense fabricar cap guanyador**.
   nivell de dificultat **no canvien**. El rellotge i la partida en curs no es modifiquen.
 - No és un motor nou ni una reducció de força: **tria entre les millors jugades que ja ha
   trobat l'anàlisi** (MultiPV). Mai no s'inventa una jugada: la triada és sempre una de les
-  `MULTIPV = 4` millors línies de l'anàlisi de la posició.
+  `MULTIPV = 8` millors línies de l'anàlisi de la posició.
 - **Interruptor intern, invisible**: `TV_CONFIG.HUMANIZE.ENABLED` o `deps.humanize`
   (`false` torna al comportament anterior: perfil d'estil + defalliment programat). No hi ha
   cap element a la pantalla.
 
 ## Flux d'una jugada
 
-1. `runLoop` analitza la posició (ara amb **MultiPV 4** en les partides humanitzades, en lloc
+1. `runLoop` analitza la posició (ara amb **MultiPV 8** en les partides humanitzades, en lloc
    de 2; la resta del comentari només llegeix les línies 1 i 2). L'anàlisi es guarda amb
    `analysis.lines` (des de qui mou).
 2. El motor del jugador (Stockfish amb el seu nivell, o Lozza amb la seva profunditat) calcula
@@ -84,9 +84,11 @@ log w_i = −ℓᵢ / τ  +  preferència_perfil_i  +  vulnerabilitat_i  +  ambi
 ```
 
 - **`τ` (temperatura, cp)** = `12 + 98·(1−q)^1,3`, multiplicada per: habilitat tàctica o
-  estratègica del perfil segons el tipus de posició, habilitat de finals, gestió de la pressió
-  si va per sota, posicions tancades (jugadors més tàctics), complexitat de la posició
-  (`0,75 + 0,9·c`) i una rampa suau d'obertura (`0,3` fins a la semijugada 10, ple a la 34).
+  estratègica segons el tipus de posició, finals (si és un final), pressió (si va per sota),
+  posicions tancades, complexitat de la posició (`0,75 + 0,9·c`) i una rampa suau d'obertura
+  (`0,3` fins a la semijugada 10, ple a la 34). La tàctica i l'estratègia es mesuren **respecte
+  de la mitjana de les dues del propi perfil** (`0,9 − 0,9·(habilitat − mitjana)`): un jugador és
+  millor en el que domina i pitjor en el que no, però, en conjunt, tots juguen igual de fort.
 - **Pèrdua màxima** admesa: `55 + 215·c^1,3` cp (`c` = complexitat 0–1): en una posició senzilla
   no es permet cap error greu. A més: si la millor jugada és ≥ +250 cp només s'admeten
   alternatives que conserven ≥ +130 cp, i no es passa de la igualtat a ≤ −260 cp.
@@ -95,10 +97,14 @@ log w_i = −ℓᵢ / τ  +  preferència_perfil_i  +  vulnerabilitat_i  +  ambi
   iguals. Tot surt de chess.js i de l'anàlisi, no d'un centipeó interpretat.
 - **Preferència del perfil**: els `weights` de `llegendes.js` (trets de `tvMoveFeatures`), amb
   `PREF_GAIN = 0,3` i topall `±1,2` perquè mai no decideixin contra l'avaluació.
-- **Ambició**: en posicions igualades (|cp| ≤ 60) es castiguen les repeticions i tornar enrere
-  (menys taules per repetició sense forçar res), i qui no va per sota (≥ −30 cp) no es llença
-  a unes taules mortes (ofegat o falta de material) si l'anàlisi en dona una altra de raonable
-  (`DEAD_DRAW_PENALTY`: es desprecien, no s'impedeixen).
+- **Ambició** (contra les taules per inèrcia, sense errors forçats):
+  - posicions igualades (|cp| ≤ 60): es castiguen les repeticions i tornar enrere;
+  - posicions igualades (|cp| ≤ 90) a partir de la semijugada 20: es desprecien els canvis de
+    peces (`CONTEMPT_TRADE`, menys com més prudent és el jugador) i es prefereix la iniciativa
+    (`TENSION_BONUS`, més com més agressiu);
+  - qui no va per sota (≥ −30 cp) no es llença a unes taules mortes (ofegat o falta de
+    material) si l'anàlisi en dona una altra de raonable (`DEAD_DRAW_PENALTY`).
+  Són biaixos entre jugades equivalents per a l'anàlisi: no impedeixen cap resultat.
 - **Fase d'atac** (`risk = 1`): el pes del perfil de progrés es multiplica (`PREF_GAIN` 0,3 →
   1,2, topall 1,2 → 4,7) dins del seu marge de pèrdua (90 cp), com feia el perfil d'estil.
 - Classes de pèrdua: imprecisió ≥ 30 cp, error ≥ 90 cp, error greu ≥ 200 cp.
@@ -106,7 +112,11 @@ log w_i = −ℓᵢ / τ  +  preferència_perfil_i  +  vulnerabilitat_i  +  ambi
 ### Vulnerabilitats per perfil (biaix sobre les jugades inferiors)
 
 Només actuen sobre les alternatives inferiors raonables (mai obliguen) i creixen amb la
-fatiga (`0,5 + (1−q)`). Els 10 jugadors tenen un arquetip (`PROFILES`); els perfils sense
+fatiga (`0,5 + (1−q)`). **Només redistribueixen** quina alternativa inferior es tria: el
+factor es normalitza (mitjana ponderada = 1) perquè un perfil no erri més que un altre amb
+la mateixa fatiga i posició. Sense aquesta normalització, la primera simulació completa va
+mostrar que els perfils agressius/tàctics (els que juguen amb Lozza) perdien punts per
+construcció: Stockfish 55,8 % i Lozza 41,4 %; amb la normalització, 51,2 % i 48,3 %. Els 10 jugadors tenen un arquetip (`PROFILES`); els perfils sense
 llegenda en reben un a partir dels seus `weights` (`traitsFromWeights`).
 
 | Arquetip | Jugadors | Més temptat per… (+) | Evita (−) |
@@ -137,6 +147,28 @@ candidates (`declinaCanvi`, `declinaIniciativa`, `maniobraLenta`, `temptacio`,
 - **Regles de la partida**: la humanització no toca les taules per repetició, la regla de les
   cinquanta jugades, l'ofegat ni l'acord de taules; només penalitza *repetir* en posicions
   igualades.
+
+## Calibratge contra les taules
+
+Una primera versió (MultiPV 4) feia les partides massa netes i les taules **pujaven** (≈ 26–30 %
+a les simulacions curtes, contra ≈ 8–10 % del comportament anterior, que decidia moltes
+partides amb el defalliment programat). La causa és estructural: en una posició igualada, les
+4 millors jugades valen el mateix i no hi ha cap imprecisió possible; només hi ha errors quan hi
+ha candidates pitjors. Mesurat amb 160 partides humanitzades per configuració (mateixa
+simulació):
+
+| Configuració | Taules | Imprecisions /100 | Errors /100 | Greus /100 | Remuntades |
+|---|---:|---:|---:|---:|---:|
+| MultiPV 4, ambició suau | 26,3 % | 17,7 | 3,4 | 0,8 | 11 % |
+| **MultiPV 8**, ambició suau | 18,8 % | 22,6 | 4,9 | 1,0 | 17,7 % |
+| **MultiPV 8**, ambició forta | 15,6 % | 21,9 | 5,5 | 1,1 | 14,1 % |
+| Ídem + vulnerabilitats normalitzades i habilitats centrades (valors actuals, 400 partides) | 24,8 % | 21,7 | 4,8 | 1,0 | 17,9 % |
+| Ídem + més temperatura i ambició (400 partides, descartat: empitjora l'equitat) | 24,0 % | 23,5 | 5,8 | 0,9 | 15,8 % |
+
+Amb 160 partides l'error de mostreig de les taules és de ±3 punts, i amb 400, de ±2: la tanda de
+1.000 partides (més avall, 21,7 %) és la xifra de referència. Cost: el temps d'anàlisi de l'app és fix (900 ms), de manera que MultiPV 8 no
+gasta més CPU, només arriba a menys profunditat; si en un dispositiu lent no arriba a
+`MIN_RELIABLE_DEPTH` (10), la jugada cau al camí antic (perfil d'estil).
 
 ## Coexistència amb el que ja existia
 
@@ -194,7 +226,46 @@ els de l'app (anàlisi fins a profunditat 10 amb límit de 300 ms, jugadors de S
 20 ms): serveixen per **comparar configuracions**, no per predir la mateixa taxa de taules de
 l'app real.
 
-RESULTATS_PENDENTS
+### Resultats (1.000 partides per configuració)
+
+Resum complet (per jugador, tipus d'error per arquetip, parelles equivalents):
+`scripts/simulacions/humanitzacio/resum.md` i `resum.json`. Les configuracions «sense» i
+«anterior» no depenen de `humanitzacio.js`; la «humanitzada» s'ha jugat amb el codi final.
+
+| | Sense humanització | Comportament anterior | Humanitzada |
+|---|---:|---:|---:|
+| Victòries blanques | 44,4 % | 48,2 % | 42,2 % |
+| Victòries negres | 37,9 % | 37,6 % | 36,1 % |
+| **Taules** | 17,7 % | **14,2 %** | **21,7 %** |
+| · per acord / material insuficient | 10,8 / 1,4 % | 7,2 / 2,7 % | 11,4 / 6,0 % |
+| Durada mitjana (jugades) | 49,7 | 45,7 | 51,8 |
+| Remuntades (partides decidides) | 25,8 % | 20,5 % | 14,0 % |
+| Imprecisions / 100 jugades | 22,3 | 23,0 | 21,4 |
+| Errors / 100 | 8,4 | 8,9 | 4,8 |
+| Errors greus / 100 | 1,95 | 2,34 | 1,01 |
+| Errors greus en posició senzilla / 1000 | 17,7 | 21,8 | 6,1 |
+| Puntuació Stockfish / Lozza | 46,4 / 55,4 % | 39,7 / 65,4 % | 53,9 / 44,2 % |
+
+### Conclusions (honestes)
+
+- **Les taules NO baixen** respecte del comportament anterior (14,2 % → 21,7 %) ni respecte
+  dels motors purs (17,7 %). Les que queden són sobretot per acord (posició igualada sense
+  progrés) i per material insuficient: en una posició igualada totes les bones jugades valen
+  el mateix i no hi ha imprecisió possible sense forçar errors. El comportament anterior en
+  tenia menys en part pel defalliment programat, que l'especificació demanava eliminar.
+  Provat sense èxit: més temperatura, més ambició (vegeu «Calibratge contra les taules»).
+- **La qualitat millora**: la meitat d'errors i d'errors greus, i molts menys en posicions
+  senzilles.
+- **El tipus d'error segueix el perfil** (entre jugades no òptimes): l'agressiu porta més
+  iniciativa (57 % contra 52 % de mitjana) i risc al rei (21 % contra 18 %); el tàctic, més
+  complicació (35 % contra 29 %); el defensiu, més passivitat (29 % contra 28 %) i menys
+  iniciativa (47 %); el tècnic, més simplificacions (5,4 % contra 4,7 %). Les diferències
+  existeixen però són moderades: les etiquetes de chess.js són aproximades.
+- **Equitat incompleta**: els jugadors de Lozza (que són els agressius i tàctics) puntuen
+  ~10 punts menys. No s'ha acabat de determinar si és per perfil o per motor (la tanda amb els
+  motors intercanviats, `--swap-engines`, no s'ha completat).
+- Les remuntades baixen (14 % de les partides decidides): els errors greus són més rars.
+
 
 ## Limitacions i pendent
 

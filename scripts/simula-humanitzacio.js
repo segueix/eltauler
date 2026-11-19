@@ -23,7 +23,7 @@
 //
 // Ús:
 //   node scripts/simula-humanitzacio.js [--games 1000] [--modes sense,anterior,humanitzada]
-//        [--workers 4] [--analysis-depth 10] [--analysis-ms 300] [--player-ms 20] [--out scripts/simulacions/humanitzacio]
+//        [--workers 4] [--swap-engines] [--analysis-depth 10] [--analysis-ms 300] [--player-ms 20] [--out scripts/simulacions/humanitzacio]
 //   node scripts/simula-humanitzacio.js --aggregate-only   (torna a calcular el resum)
 // ============================================================================
 const fs = require('fs');
@@ -149,6 +149,8 @@ async function playGame(sf, lozza, caps, index, mode) {
     const prep = openingUci(index);
     const humanize = mode === 'humanitzada';
     const plan = TV.tvLegendPlan(LG, fixture, caps, true, rngFor(SEED + ':plan:' + index), { humanize: humanize });
+    // --swap-engines: cada jugador juga amb l'altre motor (separa l'efecte del motor del del perfil).
+    if (flag('--swap-engines')) ['w', 'b'].forEach((c) => { plan.engines[c] = plan.engines[c] === 'lozza' ? 'stockfish' : 'lozza'; plan.sides[c] = Object.assign({}, plan.sides[c], { engine: plan.engines[c] }); });
     if (mode === 'sense') { plan.slump = null; ['w', 'b'].forEach((c) => { plan.sides[c].style = null; }); }
     const human = humanize ? H.createGame({ seed: fixture.id + '|' + index, players: {
         w: { id: plan.ids.w, weights: LG.legend(plan.ids.w).weights }, b: { id: plan.ids.b, weights: LG.legend(plan.ids.b).weights } } }) : null;

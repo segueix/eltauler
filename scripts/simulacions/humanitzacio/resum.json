@@ -1,0 +1,653 @@
+{
+  "generated": "2026-11-19T16:18:31.545Z",
+  "version": "1.0.0",
+  "settings": {
+    "games": 1000,
+    "modes": [
+      "sense",
+      "anterior",
+      "humanitzada"
+    ],
+    "analysisMs": 300,
+    "analysisDepth": 10,
+    "playerMs": 20,
+    "seed": "humanitzacio-1"
+  },
+  "modes": {
+    "sense": {
+      "mode": "sense",
+      "games": 1000,
+      "whiteWins": 44.4,
+      "blackWins": 37.9,
+      "draws": 17.7,
+      "avgFullMoves": 49.67,
+      "reasons": {
+        "agreed": 10.8,
+        "checkmate": 2.9,
+        "insufficient": 1.4,
+        "length": 2.7,
+        "repetition": 2.7,
+        "resign": 79.4,
+        "stalemate": 0.1
+      },
+      "measuredMoves": 90610,
+      "per100": {
+        "bona": 67.32,
+        "imprecisio": 22.31,
+        "error": 8.42,
+        "errorGreu": 1.95
+      },
+      "simplePositions": 77449,
+      "bigInSimplePer1000": 17.66,
+      "mistakeInSimplePer1000": 100.04,
+      "elementaryMoves": 1314,
+      "elementaryMistakes": 139,
+      "players": {
+        "alekhine": {
+          "archetype": "tactic",
+          "games": 200,
+          "score": 55,
+          "impPer100": 20.1,
+          "errPer100": 7.42,
+          "bigPer100": 2.05
+        },
+        "botvinnik": {
+          "archetype": "posicional",
+          "games": 200,
+          "score": 46,
+          "impPer100": 24.5,
+          "errPer100": 9.76,
+          "bigPer100": 1.93
+        },
+        "capablanca": {
+          "archetype": "tecnic",
+          "games": 200,
+          "score": 47,
+          "impPer100": 23.63,
+          "errPer100": 8.9,
+          "bigPer100": 1.77
+        },
+        "carlsen": {
+          "archetype": "tecnic",
+          "games": 200,
+          "score": 43.75,
+          "impPer100": 22.66,
+          "errPer100": 9.18,
+          "bigPer100": 1.83
+        },
+        "fischer": {
+          "archetype": "tactic",
+          "games": 200,
+          "score": 47,
+          "impPer100": 25.22,
+          "errPer100": 8.97,
+          "bigPer100": 1.97
+        },
+        "karpov": {
+          "archetype": "defensiu",
+          "games": 200,
+          "score": 45.25,
+          "impPer100": 22.78,
+          "errPer100": 9.31,
+          "bigPer100": 1.81
+        },
+        "kasparov": {
+          "archetype": "agressiu",
+          "games": 200,
+          "score": 58,
+          "impPer100": 19.85,
+          "errPer100": 7.19,
+          "bigPer100": 2.41
+        },
+        "lasker": {
+          "archetype": "defensiu",
+          "games": 200,
+          "score": 50.75,
+          "impPer100": 19.76,
+          "errPer100": 7.23,
+          "bigPer100": 2.02
+        },
+        "morphy": {
+          "archetype": "agressiu",
+          "games": 200,
+          "score": 58,
+          "impPer100": 21.21,
+          "errPer100": 7.64,
+          "bigPer100": 1.94
+        },
+        "steinitz": {
+          "archetype": "posicional",
+          "games": 200,
+          "score": 49.25,
+          "impPer100": 23.66,
+          "errPer100": 8.78,
+          "bigPer100": 1.78
+        }
+      },
+      "errorTypes": {
+        "agressiu": {
+          "inferiorMoves": 5446,
+          "iniciativa": 51.36,
+          "riscRei": 16.98,
+          "materialSac": 0.79,
+          "simplifica": 6.52,
+          "passiva": 27.47,
+          "complicacio": 28.37,
+          "estructura": 2.81
+        },
+        "defensiu": {
+          "inferiorMoves": 5746,
+          "iniciativa": 49.27,
+          "riscRei": 16.05,
+          "materialSac": 0.77,
+          "simplifica": 5.95,
+          "passiva": 28.73,
+          "complicacio": 25.5,
+          "estructura": 2.25
+        },
+        "posicional": {
+          "inferiorMoves": 6223,
+          "iniciativa": 49.77,
+          "riscRei": 15.94,
+          "materialSac": 1.14,
+          "simplifica": 5.01,
+          "passiva": 29.05,
+          "complicacio": 26.05,
+          "estructura": 2.35
+        },
+        "tactic": {
+          "inferiorMoves": 6088,
+          "iniciativa": 49.62,
+          "riscRei": 16.33,
+          "materialSac": 0.87,
+          "simplifica": 5.9,
+          "passiva": 29.75,
+          "complicacio": 27,
+          "estructura": 2.18
+        },
+        "tecnic": {
+          "inferiorMoves": 6112,
+          "iniciativa": 50.52,
+          "riscRei": 16.26,
+          "materialSac": 1.16,
+          "simplifica": 4.97,
+          "passiva": 29.56,
+          "complicacio": 28.08,
+          "estructura": 2.08
+        },
+        "tots": {
+          "inferiorMoves": 29615,
+          "iniciativa": 50.09,
+          "riscRei": 16.3,
+          "materialSac": 0.95,
+          "simplifica": 5.65,
+          "passiva": 28.95,
+          "complicacio": 26.98,
+          "estructura": 2.32
+        }
+      },
+      "comebacks": 25.8,
+      "equivalentBalance": [
+        {
+          "pair": "alekhine–fischer",
+          "games": 22,
+          "firstScore": 50,
+          "whiteScore": 50
+        },
+        {
+          "pair": "botvinnik–steinitz",
+          "games": 22,
+          "firstScore": 68.18,
+          "whiteScore": 45.45
+        },
+        {
+          "pair": "capablanca–carlsen",
+          "games": 22,
+          "firstScore": 50,
+          "whiteScore": 40.91
+        },
+        {
+          "pair": "karpov–lasker",
+          "games": 22,
+          "firstScore": 29.55,
+          "whiteScore": 34.09
+        },
+        {
+          "pair": "kasparov–morphy",
+          "games": 22,
+          "firstScore": 54.55,
+          "whiteScore": 50
+        }
+      ],
+      "engineBalance": {
+        "stockfish": 46.38,
+        "lozza": 55.44
+      }
+    },
+    "anterior": {
+      "mode": "anterior",
+      "games": 1000,
+      "whiteWins": 48.2,
+      "blackWins": 37.6,
+      "draws": 14.2,
+      "avgFullMoves": 45.74,
+      "reasons": {
+        "agreed": 7.2,
+        "checkmate": 3.4,
+        "insufficient": 2.7,
+        "length": 1.3,
+        "repetition": 3,
+        "resign": 82.4
+      },
+      "measuredMoves": 82877,
+      "per100": {
+        "bona": 65.8,
+        "imprecisio": 23,
+        "error": 8.86,
+        "errorGreu": 2.34
+      },
+      "simplePositions": 70923,
+      "bigInSimplePer1000": 21.77,
+      "mistakeInSimplePer1000": 107.99,
+      "elementaryMoves": 1039,
+      "elementaryMistakes": 10,
+      "players": {
+        "alekhine": {
+          "archetype": "tactic",
+          "games": 200,
+          "score": 65.5,
+          "impPer100": 20.25,
+          "errPer100": 7.39,
+          "bigPer100": 2.15
+        },
+        "botvinnik": {
+          "archetype": "posicional",
+          "games": 200,
+          "score": 39,
+          "impPer100": 25.09,
+          "errPer100": 9.91,
+          "bigPer100": 2.35
+        },
+        "capablanca": {
+          "archetype": "tecnic",
+          "games": 200,
+          "score": 40.5,
+          "impPer100": 24.74,
+          "errPer100": 10.05,
+          "bigPer100": 2.56
+        },
+        "carlsen": {
+          "archetype": "tecnic",
+          "games": 200,
+          "score": 41.75,
+          "impPer100": 25.24,
+          "errPer100": 9.8,
+          "bigPer100": 2.29
+        },
+        "fischer": {
+          "archetype": "tactic",
+          "games": 200,
+          "score": 35.25,
+          "impPer100": 24.95,
+          "errPer100": 9.98,
+          "bigPer100": 2.62
+        },
+        "karpov": {
+          "archetype": "defensiu",
+          "games": 200,
+          "score": 41,
+          "impPer100": 25.64,
+          "errPer100": 10.42,
+          "bigPer100": 2.66
+        },
+        "kasparov": {
+          "archetype": "agressiu",
+          "games": 200,
+          "score": 68.5,
+          "impPer100": 20.19,
+          "errPer100": 7.6,
+          "bigPer100": 2.1
+        },
+        "lasker": {
+          "archetype": "defensiu",
+          "games": 200,
+          "score": 64.75,
+          "impPer100": 19.52,
+          "errPer100": 6.47,
+          "bigPer100": 2.18
+        },
+        "morphy": {
+          "archetype": "agressiu",
+          "games": 200,
+          "score": 63,
+          "impPer100": 20.25,
+          "errPer100": 7.28,
+          "bigPer100": 2.26
+        },
+        "steinitz": {
+          "archetype": "posicional",
+          "games": 200,
+          "score": 40.75,
+          "impPer100": 24.72,
+          "errPer100": 10.01,
+          "bigPer100": 2.3
+        }
+      },
+      "errorTypes": {
+        "agressiu": {
+          "inferiorMoves": 5075,
+          "iniciativa": 53.85,
+          "riscRei": 15.65,
+          "materialSac": 0.95,
+          "simplifica": 7.65,
+          "passiva": 25.14,
+          "complicacio": 31.13,
+          "estructura": 2.82
+        },
+        "defensiu": {
+          "inferiorMoves": 5604,
+          "iniciativa": 52.73,
+          "riscRei": 15.85,
+          "materialSac": 0.86,
+          "simplifica": 6.64,
+          "passiva": 26.25,
+          "complicacio": 28.21,
+          "estructura": 2.68
+        },
+        "posicional": {
+          "inferiorMoves": 6126,
+          "iniciativa": 52.27,
+          "riscRei": 16.49,
+          "materialSac": 0.93,
+          "simplifica": 6.63,
+          "passiva": 24.53,
+          "complicacio": 28.21,
+          "estructura": 2.53
+        },
+        "tactic": {
+          "inferiorMoves": 5496,
+          "iniciativa": 55.44,
+          "riscRei": 15.37,
+          "materialSac": 1.56,
+          "simplifica": 6.77,
+          "passiva": 23.98,
+          "complicacio": 32.79,
+          "estructura": 2.71
+        },
+        "tecnic": {
+          "inferiorMoves": 6040,
+          "iniciativa": 53.28,
+          "riscRei": 14.95,
+          "materialSac": 1.04,
+          "simplifica": 6.77,
+          "passiva": 25.55,
+          "complicacio": 29.74,
+          "estructura": 2.47
+        },
+        "tots": {
+          "inferiorMoves": 28341,
+          "iniciativa": 53.47,
+          "riscRei": 15.67,
+          "materialSac": 1.07,
+          "simplifica": 6.87,
+          "passiva": 25.09,
+          "complicacio": 29.95,
+          "estructura": 2.63
+        }
+      },
+      "comebacks": 20.5,
+      "equivalentBalance": [
+        {
+          "pair": "alekhine–fischer",
+          "games": 22,
+          "firstScore": 90.91,
+          "whiteScore": 54.55
+        },
+        {
+          "pair": "botvinnik–steinitz",
+          "games": 22,
+          "firstScore": 63.64,
+          "whiteScore": 63.64
+        },
+        {
+          "pair": "capablanca–carlsen",
+          "games": 22,
+          "firstScore": 56.82,
+          "whiteScore": 47.73
+        },
+        {
+          "pair": "karpov–lasker",
+          "games": 22,
+          "firstScore": 27.27,
+          "whiteScore": 40.91
+        },
+        {
+          "pair": "kasparov–morphy",
+          "games": 22,
+          "firstScore": 68.18,
+          "whiteScore": 54.55
+        }
+      ],
+      "engineBalance": {
+        "stockfish": 39.71,
+        "lozza": 65.44
+      }
+    },
+    "humanitzada": {
+      "mode": "humanitzada",
+      "games": 1000,
+      "whiteWins": 42.2,
+      "blackWins": 36.1,
+      "draws": 21.7,
+      "avgFullMoves": 51.81,
+      "reasons": {
+        "agreed": 11.4,
+        "checkmate": 1.1,
+        "insufficient": 6,
+        "length": 1.4,
+        "repetition": 2.5,
+        "resign": 77.2,
+        "stalemate": 0.4
+      },
+      "measuredMoves": 93984,
+      "per100": {
+        "bona": 72.79,
+        "imprecisio": 21.37,
+        "error": 4.82,
+        "errorGreu": 1.01
+      },
+      "simplePositions": 31339,
+      "bigInSimplePer1000": 6.06,
+      "mistakeInSimplePer1000": 54.66,
+      "elementaryMoves": 2803,
+      "elementaryMistakes": 38,
+      "players": {
+        "alekhine": {
+          "archetype": "tactic",
+          "games": 200,
+          "score": 39.25,
+          "impPer100": 23.08,
+          "errPer100": 4.92,
+          "bigPer100": 1.23
+        },
+        "botvinnik": {
+          "archetype": "posicional",
+          "games": 200,
+          "score": 55.25,
+          "impPer100": 19.03,
+          "errPer100": 4.98,
+          "bigPer100": 0.92
+        },
+        "capablanca": {
+          "archetype": "tecnic",
+          "games": 200,
+          "score": 55,
+          "impPer100": 20.79,
+          "errPer100": 4.67,
+          "bigPer100": 0.88
+        },
+        "carlsen": {
+          "archetype": "tecnic",
+          "games": 200,
+          "score": 48.75,
+          "impPer100": 21.89,
+          "errPer100": 4.87,
+          "bigPer100": 0.98
+        },
+        "fischer": {
+          "archetype": "tactic",
+          "games": 200,
+          "score": 49.75,
+          "impPer100": 21.06,
+          "errPer100": 4.91,
+          "bigPer100": 0.93
+        },
+        "karpov": {
+          "archetype": "defensiu",
+          "games": 200,
+          "score": 58.25,
+          "impPer100": 20.88,
+          "errPer100": 5.11,
+          "bigPer100": 0.88
+        },
+        "kasparov": {
+          "archetype": "agressiu",
+          "games": 200,
+          "score": 44.75,
+          "impPer100": 22.27,
+          "errPer100": 4.98,
+          "bigPer100": 1.15
+        },
+        "lasker": {
+          "archetype": "defensiu",
+          "games": 200,
+          "score": 53.75,
+          "impPer100": 21.03,
+          "errPer100": 3.89,
+          "bigPer100": 0.9
+        },
+        "morphy": {
+          "archetype": "agressiu",
+          "games": 200,
+          "score": 39,
+          "impPer100": 23.93,
+          "errPer100": 5.08,
+          "bigPer100": 1.16
+        },
+        "steinitz": {
+          "archetype": "posicional",
+          "games": 200,
+          "score": 56.25,
+          "impPer100": 19.9,
+          "errPer100": 4.84,
+          "bigPer100": 1.1
+        }
+      },
+      "errorTypes": {
+        "agressiu": {
+          "inferiorMoves": 5396,
+          "iniciativa": 57.43,
+          "riscRei": 21.15,
+          "materialSac": 1.69,
+          "simplifica": 4.37,
+          "passiva": 26.35,
+          "complicacio": 31.23,
+          "estructura": 1.78
+        },
+        "defensiu": {
+          "inferiorMoves": 5062,
+          "iniciativa": 46.84,
+          "riscRei": 16.93,
+          "materialSac": 0.89,
+          "simplifica": 4.72,
+          "passiva": 29.22,
+          "complicacio": 26.37,
+          "estructura": 1.98
+        },
+        "posicional": {
+          "inferiorMoves": 4776,
+          "iniciativa": 49.33,
+          "riscRei": 18.28,
+          "materialSac": 1.13,
+          "simplifica": 4.48,
+          "passiva": 28.04,
+          "complicacio": 26.59,
+          "estructura": 1.63
+        },
+        "tactic": {
+          "inferiorMoves": 5330,
+          "iniciativa": 55.83,
+          "riscRei": 18.07,
+          "materialSac": 1.31,
+          "simplifica": 4.73,
+          "passiva": 27.35,
+          "complicacio": 34.63,
+          "estructura": 2.01
+        },
+        "tecnic": {
+          "inferiorMoves": 5009,
+          "iniciativa": 51.17,
+          "riscRei": 16.99,
+          "materialSac": 0.92,
+          "simplifica": 5.41,
+          "passiva": 28.55,
+          "complicacio": 26.67,
+          "estructura": 2.1
+        },
+        "tots": {
+          "inferiorMoves": 25573,
+          "iniciativa": 52.26,
+          "riscRei": 18.32,
+          "materialSac": 1.2,
+          "simplifica": 4.74,
+          "passiva": 27.87,
+          "complicacio": 29.22,
+          "estructura": 1.9
+        }
+      },
+      "comebacks": 14,
+      "human": {
+        "decisions": 94388,
+        "changedPct": 52.1,
+        "bypassPct": 17.1,
+        "qMean": 0.64
+      },
+      "equivalentBalance": [
+        {
+          "pair": "alekhine–fischer",
+          "games": 22,
+          "firstScore": 43.18,
+          "whiteScore": 43.18
+        },
+        {
+          "pair": "botvinnik–steinitz",
+          "games": 22,
+          "firstScore": 47.73,
+          "whiteScore": 61.36
+        },
+        {
+          "pair": "capablanca–carlsen",
+          "games": 22,
+          "firstScore": 56.82,
+          "whiteScore": 61.36
+        },
+        {
+          "pair": "karpov–lasker",
+          "games": 22,
+          "firstScore": 61.36,
+          "whiteScore": 52.27
+        },
+        {
+          "pair": "kasparov–morphy",
+          "games": 22,
+          "firstScore": 65.91,
+          "whiteScore": 43.18
+        }
+      ],
+      "engineBalance": {
+        "stockfish": 53.88,
+        "lozza": 44.19
+      }
+    }
+  }
+}

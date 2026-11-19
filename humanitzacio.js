@@ -35,13 +35,13 @@
 })(typeof self !== 'undefined' ? self : this, function () {
     'use strict';
 
-    const VERSION = '1.0.0';
+    const VERSION = '1.1.0';
 
     const CONFIG = {
         // Interruptor general (intern: l'espectador no el veu).
         ENABLED: true,
         // Línies d'anàlisi (MultiPV) de les quals es tria.
-        MULTIPV: 4,
+        MULTIPV: 8,
         // Temperatura (cp) de la tria: amb precisió màxima s'acosta a TAU_MIN
         // (gairebé sempre la millor); amb precisió baixa, a TAU_MAX.
         TAU_MIN: 12,
@@ -92,11 +92,11 @@
         BACKTRACK_PENALTY: 0.7,
         // Ambició en posicions igualades (≤ AMBITION_CP) a partir d'AMBITION_FROM_PLY.
         AMBITION_CP: 90,
-        AMBITION_FROM_PLY: 30,
-        CONTEMPT_TRADE: 0.8,
-        TENSION_BONUS: 0.25,
+        AMBITION_FROM_PLY: 20,
+        CONTEMPT_TRADE: 1.6,
+        TENSION_BONUS: 0.45,
         // Taules mortes (ofegat, falta de material): es dispreuen si no es va per sota.
-        DEAD_DRAW_PENALTY: 2.5,
+        DEAD_DRAW_PENALTY: 4,
         DEAD_DRAW_FROM_CP: -30,
         // Classes d'error (pèrdua en cp respecte de la millor).
         IMPRECISION_CP: 30,
@@ -378,12 +378,17 @@
     function tauFor(q, p, facts, ply, evalMover) {
         const C = CONFIG;
         let tau = C.TAU_MIN + (C.TAU_MAX - C.TAU_MIN) * Math.pow(1 - q, C.Q_EXPONENT);
-        // Habilitat segons el tipus de posició.
-        if (facts.tactical) tau *= 1.45 - 0.8 * p.tactica;
-        else tau *= 1.45 - 0.8 * p.estrategica;
-        if (facts.closed) tau *= 1 + 0.8 * Math.max(0, p.tactica - p.estrategica);
-        if (facts.phase === 'final') tau *= 1.5 - 0.9 * p.finals;
-        if (isNum(evalMover) && evalMover <= -100) tau *= 1.5 - 0.8 * p.pressio;
+        // Habilitat segons el tipus de posició. La tàctica i l'estratègia es mesuren respecte de la
+        // mitjana de les dues del PROPI perfil: un jugador és millor en el que domina i pitjor en el
+        // que no, però en conjunt tots juguen igual de fort (només canvia ON s'equivoquen). Els
+        // finals i la pressió només actuen en una part de les posicions i amb pes més petit.
+        // 0,9 manté el nivell global calibrat.
+        const mean = (p.tactica + p.estrategica) / 2;
+        const rel = v => clamp(0.9 - 0.9 * (v - mean), 0.55, 1.5);
+        tau *= facts.tactical ? rel(p.tactica) : rel(p.estrategica);
+        if (facts.closed) tau *= clamp(1 + 0.6 * (p.tactica - p.estrategica), 0.75, 1.3);
+        if (facts.phase === 'final') tau *= clamp(1.0 - 0.6 * (p.finals - 0.7), 0.7, 1.3);
+        if (isNum(evalMover) && evalMover <= -100) tau *= clamp(1.0 - 0.6 * (p.pressio - 0.7), 0.7, 1.3);
         // Posicions senzilles → menys errors; complexes → més.
         tau *= 0.75 + 0.9 * facts.complexity;
         // Principi de partida: la teoria no es desvirtua (rampa suau).
@@ -485,16 +490,13 @@
         // pes al perfil de progrés dins del seu marge de pèrdua.
         const risk = clamp(i.risk || 0, 0, 1);
         const prefGain = C.PREF_GAIN + C.RISK_PREF_GAIN * risk, prefMax = C.PREF_MAX + C.RISK_PREF_MAX * risk;
+        // 1) Pes de cada candidata sense vulnerabilitats (pèrdua, preferències, ambició, àncora).
         cands.forEach((c, idx) => {
             let logw = -c.loss / tau;
             // Preferències de jugada del perfil (mateixa fórmula per a tothom).
             if (weights && c.f) {
                 const s = Object.keys(weights).reduce((sum, k) => sum + weights[k] * (c.f[k] || 0), 0);
                 logw += clamp(prefGain * s, -prefMax, prefMax);
-            }
-            // Vulnerabilitats: només sobre les alternatives inferiors.
-            if (idx > 0) {
-                Object.keys(vul).forEach((k) => { if (c.flags[k]) logw += vul[k] * vulnScale; });
             }
             // Ambició: en una posició igualada es castiguen les repeticions i tornar enrere.
             if (equal && c.f) {
@@ -513,7 +515,18 @@
             if (bestVal >= C.DEAD_DRAW_FROM_CP && c.dead) logw -= C.DEAD_DRAW_PENALTY;
             if (c.uci === i.engineUci) logw += C.ENGINE_ANCHOR;
             c.logw = logw;
+            c.vuln = 0;
+            // Vulnerabilitats: biaix cap a les alternatives inferiors que encaixen amb el perfil.
+            if (idx > 0) Object.keys(vul).forEach((k) => { if (c.flags[k]) c.vuln += vul[k] * vulnScale; });
         });
+        // 2) Les vulnerabilitats NOMÉS redistribueixen quina alternativa inferior es tria: el
+        //    factor es normalitza (mitjana ponderada = 1) perquè un perfil no erri més que un altre
+        //    amb la mateixa fatiga i la mateixa posició (mateixes oportunitats per a tothom).
+        const maxPre = Math.max.apply(null, cands.map(c => c.logw));
+        let wSum = 0, wfSum = 0;
+        cands.forEach((c, idx) => { if (idx > 0) { const w = Math.exp(c.logw - maxPre); wSum += w; wfSum += w * Math.exp(c.vuln); } });
+        const norm = wSum > 0 && wfSum > 0 ? Math.log(wfSum / wSum) : 0;
+        cands.forEach((c, idx) => { if (idx > 0) c.logw += c.vuln - norm; });
         const maxLog = Math.max.apply(null, cands.map(c => c.logw));
         let total = 0;
         cands.forEach((c) => { c.w = Math.exp(c.logw - maxLog); total += c.w; });
