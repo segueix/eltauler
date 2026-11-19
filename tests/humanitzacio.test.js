@@ -452,3 +452,69 @@ describe('Humanització · equitat entre jugadors i registre tècnic', () => {
     expect(sum.bona + sum.imprecisio + sum.error + sum.errorGreu + sum.bypass).toBe(20);
   });
 });
+
+describe('Humanització · A) percepció per profunditat i B) ambició segons la classificació', () => {
+  const info = (d, k, uci, v) => ({ depth: d, multipv: k, type: 'cp', value: v, pv: [uci] });
+
+  test('només es fan servir les profunditats completes de la mateixa anàlisi', () => {
+    const byDepth = { 4: { 1: info(4, 1, 'e2e4', 30), 2: info(4, 2, 'd2d4', 25) }, 8: { 1: info(8, 1, 'd2d4', 28), 2: info(8, 2, 'e2e4', 20) }, 9: { 1: info(9, 1, 'd2d4', 27) } };
+    const p = H.perceptionFromDepths(byDepth);
+    expect(Object.keys(p).map(Number)).toEqual([4, 8]);
+    expect(p[4][0].uci).toBe('e2e4');
+  });
+
+  test('el jugador veu més lluny com més precís està, i més en el tipus de posició que domina', () => {
+    const per = {}; for (let d = 2; d <= 16; d++) per[d] = [{ uci: 'e2e4', type: 'cp', value: 0 }, { uci: 'd2d4', type: 'cp', value: 0 }];
+    const facts = t => ({ complexity: 0.5, tactical: t, closed: false, phase: 'migjoc' });
+    const tal = H.profileFor('alekhine'), ste = H.profileFor('steinitz');
+    expect(H.perceptionDepth(per, 0.9, tal, facts(true), 0, 60)).toBeGreaterThan(H.perceptionDepth(per, 0.3, tal, facts(true), 0, 60));
+    expect(H.perceptionDepth(per, 0.7, tal, facts(true), 0, 60)).toBeGreaterThanOrEqual(H.perceptionDepth(per, 0.7, ste, facts(true), 0, 60));
+    expect(H.perceptionDepth(per, 0.7, ste, facts(false), 0, 60)).toBeGreaterThanOrEqual(H.perceptionDepth(per, 0.7, tal, facts(false), 0, 60));
+    // Mai no veu tan lluny com l'anàlisi (si no, no hi hauria horitzó).
+    expect(H.perceptionDepth(per, 1, tal, facts(true), 0, 60)).toBeLessThan(16);
+  });
+
+  test('error d’horitzó: tria el que veu a poca profunditat, però mai un regal que l’anàlisi descarta', () => {
+    const deep = [{ uci: MOVES.best, type: 'cp', value: 40, depth: 16 }, { uci: MOVES.init, type: 'cp', value: 5, depth: 16 },
+      { uci: MOVES.trade, type: 'cp', value: -400, depth: 16 }];
+    const per = {}; for (let d = 2; d <= 16; d++) per[d] = d < 12
+      ? [{ uci: MOVES.init, type: 'cp', value: 60 }, { uci: MOVES.trade, type: 'cp', value: 55 }, { uci: MOVES.passive, type: 'cp', value: 10 }]
+      : deep;
+    let init = 0, trade = 0;
+    for (let s = 0; s < 300; s++) {
+      const game = H.createGame({ seed: 'hz' + s, players: { w: { id: 'carlsen' }, b: { id: 'karpov' } } });
+      const r = H.decide(game, 'w', { ChessCtor: Chess, fen: FEN, ply: 60, lines: deep, perception: per, engineUci: MOVES.best, features: () => ({}) });
+      if (r.uci === MOVES.init) init++;
+      if (r.uci === MOVES.trade) trade++;
+    }
+    expect(init).toBeGreaterThan(0);
+    expect(trade).toBe(0);
+  });
+
+  test('ambició: qui pot atrapar el líder vol guanyar; el líder amb marge accepta taules', () => {
+    const table = [{ id: 'a', points: 10 }, { id: 'b', points: 8 }, { id: 'c', points: 4 }];
+    expect(H.ambitionFromStanding({ points: 10, played: 12, rank: 1 }, table, 18)).toBeLessThan(0.5);
+    expect(H.ambitionFromStanding({ points: 8, played: 12, rank: 2 }, table, 18)).toBeGreaterThan(0.7);
+    expect(H.ambitionFromStanding({ points: 4, played: 17, rank: 3 }, table, 18)).toBeLessThan(0.6);
+    const game = H.createGame({ seed: 1, players: { w: { id: 'carlsen' }, b: { id: 'karpov' } } });
+    H.applyStakes(game, { table: table, w: { points: 8, played: 12, rank: 2 }, b: { points: 10, played: 12, rank: 1 } }, 18);
+    const equal = { best: { type: 'cp', value: 0 } };
+    expect(H.acceptsDraw(game, 'w', equal)).toBe(false);
+    expect(H.acceptsDraw(game, 'b', equal)).toBe(true);
+    // Qui va clarament per sota sempre les accepta.
+    expect(H.acceptsDraw(game, 'w', { best: { type: 'cp', value: -80 } })).toBe(true);
+  });
+
+  test('l’acord de taules de la TV necessita que tots dos el vulguin', () => {
+    const C = TV.TV_CONFIG;
+    const level = TV.tvBuildAnalysis('8/5k2/8/8/8/8/5K2/R7 w - - 30 90', { 1: { depth: 16, multipv: 1, type: 'cp', value: 0, pv: ['a1a2'] } }, 'a1a2');
+    const run = (accepts) => {
+      let st = null, end = null;
+      for (let k = 0; k < C.DRAW_PLIES; k++) ({ state: st, end } = TV.tvAgreedDrawStep(st, level, C.DRAW_FROM_PLY + k, '8/5k2/8/8/8/8/5K2/R7 w - - 30 90', accepts));
+      return end;
+    };
+    expect(run(undefined)).toMatchObject({ reason: 'agreed' });
+    expect(run(() => true)).toMatchObject({ reason: 'agreed' });
+    expect(run(c => c === 'b')).toBeNull();
+  });
+});

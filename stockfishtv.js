@@ -1100,14 +1100,17 @@
 
     // Taules per acord: la posició és igualada des de fa estona i no avança.
     // Com tvResignStep: { state, end }.
-    function tvAgreedDrawStep(state, analysis, ply, fen) {
+    // `accepts(color)` (opcional): les taules només s'acorden si TOTS DOS les volen
+    // (humanitzacio.js, acceptsDraw: qui necessita guanyar continua jugant).
+    function tvAgreedDrawStep(state, analysis, ply, fen, accepts) {
         const prev = state && isNum(state.plies) ? state : { plies: 0 };
         if (!analysis || !analysis.reliable || !analysis.best) return { state: prev, end: null };
         const best = analysis.best;
         const level = best.type === 'cp' && Math.abs(best.value) <= TV_CONFIG.DRAW_CP;
         const next = { plies: level ? prev.plies + 1 : 0 };
         const halfmoves = parseInt(String(fen || '').split(' ')[4], 10) || 0;
-        const agreed = level && ply >= TV_CONFIG.DRAW_FROM_PLY && next.plies >= TV_CONFIG.DRAW_PLIES && halfmoves >= TV_CONFIG.DRAW_HALFMOVES;
+        const agreed = level && ply >= TV_CONFIG.DRAW_FROM_PLY && next.plies >= TV_CONFIG.DRAW_PLIES && halfmoves >= TV_CONFIG.DRAW_HALFMOVES
+            && (typeof accepts !== 'function' || (accepts('w') && accepts('b')));
         return { state: next, end: agreed ? { result: '½-½', winner: null, reason: 'agreed',
             text: 'Taules per acord: la posició fa estona que està igualada i cap dels dos no la pot fer avançar.' } : null };
     }
@@ -4370,16 +4373,21 @@
                     if (!ok || job.cancelled || gen !== generation) return null;
                     send(job.position);
                     const infos = {};
+                    // Les línies de cada profunditat (la humanització hi llegeix què «veu» el jugador).
+                    const byDepth = {};
                     const result = listen((line) => {
                         if (line.indexOf('info') === 0) {
                             const info = parseInfoLine(line);
-                            if (info && !info.bound && info.pv.length) infos[info.multipv] = info;
+                            if (info && !info.bound && info.pv.length) {
+                                infos[info.multipv] = info;
+                                if (isNum(info.depth)) (byDepth[info.depth] = byDepth[info.depth] || {})[info.multipv] = info;
+                            }
                             return undefined;
                         }
                         if (line.indexOf('bestmove') !== 0) return undefined;
                         const m = /^bestmove\s+(\S+)/.exec(line);
                         const best = m && /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(m[1]) ? m[1] : null;
-                        return { bestUci: best, infos: infos };
+                        return { bestUci: best, infos: infos, byDepth: byDepth };
                     }, (job.movetime || 1000) + 10000);
                     send(job.go);
                     return result.then((res) => {
@@ -4750,6 +4758,8 @@
                 // Lliga de llegendes: què hi ha en joc (lloc i punts ara i si guanyen),
                 // i una presentació en diàleg amb els noms, els colors i la jornada.
                 duel.stakes = typeof LG.stakes === 'function' ? LG.stakes(league, fixture.id) : null;
+                // Ambició de cada jugador segons la classificació (humanització).
+                if (S.game.human) getHumanitzacio().applyStakes(S.game.human, duel.stakes, (LG.CONFIG.PLAYERS - 1) * 2);
                 const presented = typeof LG.introDialogue === 'function'
                     ? LG.introDialogue({ white: duel.ids.w, black: duel.ids.b, season: league.season, round: duel.round,
                         rounds: LG.progress(league).rounds, seq: S.game.id, engines: duel.engines,
@@ -4896,7 +4906,11 @@
                 if (!res || !alive(epoch) || S.game !== g) return null;
                 const a = tvBuildAnalysis(fen, res.infos, res.bestUci);
                 // Línies candidates (des de qui mou) per a la humanització.
-                if (g.human) { const H = getHumanitzacio(); if (H) a.lines = H.linesFromInfos(res.infos); }
+                // i, per profunditat, el que «veu» cada jugador (mateixa anàlisi, sense cap cerca més).
+                if (g.human) {
+                    const H = getHumanitzacio();
+                    if (H) { a.lines = H.linesFromInfos(res.infos); a.perception = res.byDepth ? H.perceptionFromDepths(res.byDepth) : null; }
+                }
                 g.analyses[key] = a;
                 return a;
             });
@@ -4962,7 +4976,7 @@
                     engineUci: res.bestUci, features: tvMoveFeatures,
                     context: late ? late.context : tvMoveContext(d.ChessCtor, g.startFen, uciMoves),
                     weights: late ? late.style.weights : (humanStyle ? humanStyle.weights : null),
-                    windowCp: late ? late.windowCp : undefined, risk: late ? 1 : 0 });
+                    windowCp: late ? late.windowCp : undefined, risk: late ? 1 : 0, perception: humanAnalysis.perception || null });
                 if (dec && dec.uci) return dec.uci;
             }
             return style ? tvPickStyledMove(d.ChessCtor, fen, res.infos, res.bestUci, style,
@@ -5021,7 +5035,9 @@
                 const resign = S.control || (g.matchPlan && g.matchPlan.untilMate) ? null : tvResignStep(g.resign, after, ply + 1,
                     tvResignThresholdCp(S.caps, g.level.value), inLeague ? TV_CONFIG.LEAGUE_RESIGN_MIN_PLY : undefined);
                 // Lliga: taules per acord si la posició fa estona que està igualada i no avança.
-                const draw = inLeague && !S.control ? tvAgreedDrawStep(g.drawWatch, after, ply + 1, applied.fen) : null;
+                const H = g.human ? getHumanitzacio() : null;
+                const draw = inLeague && !S.control ? tvAgreedDrawStep(g.drawWatch, after, ply + 1, applied.fen,
+                    H ? (c) => H.acceptsDraw(g.human, c, after) : undefined) : null;
                 const plan = planMove(g, uci, fenBefore, prepared, before, after, resign, draw);
                 if (!plan) { fail('illegal'); return; }
                 if (plan.chosen && d.voice && typeof d.voice.prefetch === 'function') {

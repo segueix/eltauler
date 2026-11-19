@@ -120,6 +120,7 @@ class Engine {
         this.send('setoption name MultiPV value ' + (job.multipv || 1));
         await this.ready();
         const infos = {};
+        const byDepth = {};
         const got = [];
         this.collect = got;
         this.send(job.position);
@@ -129,10 +130,10 @@ class Engine {
         this.collect = null;
         got.forEach((l) => {
             const i = TV.parseInfoLine(l);
-            if (i && !i.bound && i.pv.length) infos[i.multipv] = i;
+            if (i && !i.bound && i.pv.length) { infos[i.multipv] = i; (byDepth[i.depth] = byDepth[i.depth] || {})[i.multipv] = i; }
         });
         const m = /^bestmove\s+(\S+)/.exec(bm);
-        return { bestUci: m && /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(m[1]) ? m[1] : null, infos };
+        return { bestUci: m && /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(m[1]) ? m[1] : null, infos, byDepth };
     }
     close() { try { this.p.stdin.write('quit\n'); this.p.kill(); } catch (e) { /* res */ } }
 }
@@ -141,6 +142,23 @@ class Engine {
 // Una partida
 // ---------------------------------------------------------------------------
 function rngFor(str) { return H.createRng(H.hashSeed(str)); }
+
+// Classificació versemblant a mitja lliga (llavor per partida): jornada, punts dels 10
+// jugadors i on queden els dos de la partida.
+function fakeStakes(index, plan) {
+    const r = rngFor(SEED + ':stakes:' + index);
+    const played = Math.floor((index % 90) / 5);
+    if (!played) return null;
+    const ids = LG.IDS.slice();
+    const table = ids.map((id) => {
+        let pts = 0;
+        for (let k = 0; k < played; k++) { const x = r(); pts += x < 0.4 ? 1 : x < 0.6 ? 0.5 : 0; }
+        return { id: id, points: pts, played: played };
+    }).sort((a, b) => b.points - a.points);
+    table.forEach((row, k) => { row.rank = k + 1; });
+    const side = id => Object.assign({}, table.find(x => x.id === id));
+    return { played: played * 5, table: table, w: side(plan.ids.w), b: side(plan.ids.b) };
+}
 
 async function playGame(sf, lozza, caps, index, mode) {
     const season = Math.floor(index / 90) + 1;
@@ -154,12 +172,17 @@ async function playGame(sf, lozza, caps, index, mode) {
     if (mode === 'sense') { plan.slump = null; ['w', 'b'].forEach((c) => { plan.sides[c].style = null; }); }
     const human = humanize ? H.createGame({ seed: fixture.id + '|' + index, players: {
         w: { id: plan.ids.w, weights: LG.legend(plan.ids.w).weights }, b: { id: plan.ids.b, weights: LG.legend(plan.ids.b).weights } } }) : null;
+    // Classificació simulada (la simulació no porta una lliga real): mateixa per a totes les
+    // configuracions; només la humanitzada en fa ús (ambició i acord de taules).
+    const stakes = fakeStakes(index, plan);
+    if (human) H.applyStakes(human, stakes, 18);
     const levelValue = TV.tvLegendLevel(caps, plan).value;
     const chess = new Chess();
     const uci = [];
     const analyses = [];
     const record = { index, mode, fixture: fixture.id, white: plan.ids.w, black: plan.ids.b, engines: plan.engines, plies: 0, result: null,
         reason: null, winner: null, moves: [] };
+    if (human) record.ambition = { w: human.sides.w.ambition, b: human.sides.b.ambition };
     let resign = { side: null, plies: 0 }, drawWatch = null, attack = {}, end = null;
     await sf.newGame(); await lozza.newGame();
 
@@ -167,7 +190,7 @@ async function playGame(sf, lozza, caps, index, mode) {
         const res = await sf.search({ position: TV.tvPositionCommand(upto), strength: TV.tvStrengthCommands(caps, 'analysis'),
             multipv: humanize ? H.CONFIG.MULTIPV : 2, go: 'go depth ' + ANALYSIS_DEPTH + ' movetime ' + ANALYSIS_MS });
         const a = TV.tvBuildAnalysis(fen, res.infos, res.bestUci);
-        if (humanize) a.lines = H.linesFromInfos(res.infos);
+        if (humanize) { a.lines = H.linesFromInfos(res.infos); a.perception = H.perceptionFromDepths(res.byDepth); }
         return a;
     };
 
@@ -200,7 +223,8 @@ async function playGame(sf, lozza, caps, index, mode) {
             if (useLines) {
                 human_dec = H.decide(human, color, { ChessCtor: Chess, fen, ply, lines: analyses[ply].lines, engineUci: res.bestUci,
                     features: TV.tvMoveFeatures, context: late ? late.context : TV.tvMoveContext(Chess, undefined, uci),
-                    weights: late ? late.style.weights : humanStyle.weights, windowCp: late ? late.windowCp : undefined, risk: late ? 1 : 0 });
+                    weights: late ? late.style.weights : humanStyle.weights, windowCp: late ? late.windowCp : undefined, risk: late ? 1 : 0,
+                    perception: analyses[ply].perception });
                 move = human_dec.uci || move;
             } else if (style) {
                 move = TV.tvPickStyledMove(Chess, fen, res.infos, res.bestUci, style, late ? late.windowCp : undefined, late ? late.context : undefined).uci;
@@ -211,7 +235,7 @@ async function playGame(sf, lozza, caps, index, mode) {
         uci.push(move);
         const fenAfter = chess.fen();
         record.moves.push({ ply, color, uci: move, prepared: ply < prep.length, fenBefore: fen, human: human_dec && human_dec.record ? {
-            q: human_dec.q, tau: human_dec.tau, cls: human_dec.cls, loss: human_dec.loss, tags: human_dec.tags, changed: human_dec.changed } : null,
+            q: human_dec.q, tau: human_dec.tau, cls: human_dec.cls, loss: human_dec.loss, tags: human_dec.tags, changed: human_dec.changed, depth: human_dec.depth || null, known: human_dec.record.lossKnown !== false } : null,
             flagsFeatures: null });
         end = TV.tvGameEnd(chess, TV.TV_CONFIG.MAX_PLIES);
         if (!end) {
@@ -220,7 +244,8 @@ async function playGame(sf, lozza, caps, index, mode) {
             resign = r.state;
             if (r.end) end = r.end;
             if (!end) {
-                const dr = TV.tvAgreedDrawStep(drawWatch, analyses[ply + 1], ply + 1, fenAfter);
+                const dr = TV.tvAgreedDrawStep(drawWatch, analyses[ply + 1], ply + 1, fenAfter,
+                    human ? (c) => H.acceptsDraw(human, c, analyses[ply + 1]) : undefined);
                 drawWatch = dr.state;
                 if (dr.end) end = dr.end;
             }

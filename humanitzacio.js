@@ -35,7 +35,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
     'use strict';
 
-    const VERSION = '1.1.0';
+    const VERSION = '1.2.0';
 
     const CONFIG = {
         // Interruptor general (intern: l'espectador no el veu).
@@ -98,6 +98,21 @@
         // Taules mortes (ofegat, falta de material): es dispreuen si no es va per sota.
         DEAD_DRAW_PENALTY: 4,
         DEAD_DRAW_FROM_CP: -30,
+        // A) Percepció: el jugador «veu» la posició a una fracció de la profunditat de l'anàlisi
+        //    (més com més precís està i en el tipus de posició que domina) i tria la que li sembla
+        //    millor. Els seus errors són d'horitzó: jugades bones a poca profunditat i pitjors a més.
+        PERC_MIN: 0.2,
+        PERC_RANGE: 0.5,
+        PERC_SKILL: 0.3,
+        PERC_MIN_DEPTH: 3,
+        PERC_OPENING_BONUS: 0.3,
+        TAU_P_MIN: 4,
+        TAU_P_MAX: 30,
+        // B) Ambició segons la classificació (0–1, 0,5 = neutra): multiplica l'ambició en
+        //    posicions igualades (0,4 + 1,2·a) i decideix si el jugador accepta unes taules.
+        AMBITION_DEFAULT: 0.5,
+        DRAW_ACCEPT_BELOW: 0.6,
+        DRAW_HAPPY_CP: -40,
         // Classes d'error (pèrdua en cp respecte de la millor).
         IMPRECISION_CP: 30,
         MISTAKE_CP: 90,
@@ -347,7 +362,7 @@
         const base = clamp(CONFIG.BASE_Q + 0.08 * (skill - 0.7), 0.6, 0.85);
         const sd = CONFIG.FLUCT_SIGMA;
         // L'estat inicial ja és una extracció de la distribució estacionària.
-        return { profile: p, rng: rng, base: base, x: gaussian(rng) * sd, wear: 0, dip: 0, lastPly: 0, moves: 0 };
+        return { profile: p, rng: rng, base: base, x: gaussian(rng) * sd, wear: 0, dip: 0, lastPly: 0, moves: 0, ambition: CONFIG.AMBITION_DEFAULT };
     }
 
     // Avança l'estat fins a la semijugada `ply` amb una posició de complexitat
@@ -397,6 +412,91 @@
     }
 
     // ------------------------------------------------------------------
+    // A) Percepció per profunditat
+    // ------------------------------------------------------------------
+    // Línies del motor per profunditat ({ profunditat: { multipv: info } }) → només les
+    // profunditats completes ({ profunditat: [línies] }). Surten de la mateixa anàlisi que ja
+    // es fa a cada jugada: no cal cap cerca més.
+    function perceptionFromDepths(byDepth) {
+        const out = {};
+        const depths = Object.keys(byDepth || {}).map(Number).filter(d => d >= 2).sort((a, b) => a - b);
+        const sets = depths.map(d => ({ d: d, lines: linesFromInfos(byDepth[d]) }));
+        const full = Math.max.apply(null, [0].concat(sets.map(x => x.lines.length)));
+        sets.forEach((x) => { if (full >= 2 && x.lines.length === full) out[x.d] = x.lines; });
+        return out;
+    }
+
+    // Profunditat a què el jugador veu la posició ara mateix (o null si no n'hi ha cap de
+    // prou diferent de la profunditat de l'anàlisi).
+    function perceptionDepth(perception, q, p, facts, evalMover, ply) {
+        const C = CONFIG;
+        const depths = Object.keys(perception || {}).map(Number).sort((a, b) => a - b);
+        if (depths.length < 2) return null;
+        const deep = depths[depths.length - 1];
+        const mean = (p.tactica + p.estrategica) / 2;
+        let frac = C.PERC_MIN + C.PERC_RANGE * q;
+        frac += C.PERC_SKILL * ((facts.tactical ? p.tactica : p.estrategica) - mean);
+        if (facts.phase === 'final') frac += 0.2 * (p.finals - 0.7);
+        if (isNum(evalMover) && evalMover <= -100) frac += 0.2 * (p.pressio - 0.7);
+        // A l'obertura es coneix la teoria: es veu més lluny (rampa suau).
+        frac += C.PERC_OPENING_BONUS * (1 - smoothstep((ply - C.OPENING_PLIES) / C.OPENING_RAMP));
+        const want = clamp(Math.round(deep * frac), C.PERC_MIN_DEPTH, deep - 1);
+        const usable = depths.filter(d => d <= want && d >= C.PERC_MIN_DEPTH && d < deep);
+        return usable.length ? usable[usable.length - 1] : null;
+    }
+
+    function perceptionTau(q, facts, ply) {
+        const C = CONFIG;
+        let t = C.TAU_P_MIN + (C.TAU_P_MAX - C.TAU_P_MIN) * Math.pow(1 - q, C.Q_EXPONENT);
+        t *= 0.75 + 0.5 * facts.complexity;
+        t *= C.OPENING_MIN_SCALE + (1 - C.OPENING_MIN_SCALE) * smoothstep((ply - C.OPENING_PLIES) / C.OPENING_RAMP);
+        return Math.max(1, t);
+    }
+
+    // ------------------------------------------------------------------
+    // B) Ambició segons la classificació de la lliga
+    // ------------------------------------------------------------------
+    // `stakes` és el de llegendes.js (rank, points, played de cada bàndol i la taula).
+    // Qui encara pot atrapar el líder juga per guanyar; el líder amb marge, menys.
+    function ambitionFromStanding(side, table, gamesPerPlayer) {
+        const C = CONFIG;
+        if (!side || !Array.isArray(table) || !table.length || !side.played) return C.AMBITION_DEFAULT;
+        const total = gamesPerPlayer || 18;
+        const left = Math.max(0, total - side.played);
+        const pts = table.map(r => r.points).sort((a, b) => b - a);
+        const leader = pts[0];
+        if (side.points >= leader) {
+            const second = pts.length > 1 ? pts[1] : leader;
+            return side.points - second >= 1.5 ? 0.3 : 0.6;
+        }
+        const gap = leader - side.points;
+        const reach = Math.max(1, left * 0.6);
+        if (gap <= reach) return clamp(0.75 + 0.25 * (1 - gap / reach), 0.75, 1);
+        return 0.45;
+    }
+
+    function applyStakes(game, stakes, gamesPerPlayer) {
+        if (!game || !game.sides) return game;
+        ['w', 'b'].forEach((c) => {
+            game.sides[c].ambition = stakes && stakes[c] ? ambitionFromStanding(stakes[c], stakes.table, gamesPerPlayer) : CONFIG.AMBITION_DEFAULT;
+        });
+        return game;
+    }
+
+    // Accepta unes taules el jugador `color`? Qui va per sota sempre; si no, només qui
+    // no necessita guanyar. `analysis.best` és la valoració (punt de vista blanc).
+    function acceptsDraw(game, color, analysis) {
+        const C = CONFIG;
+        const side = game && game.sides && game.sides[color];
+        if (!side || !game.enabled) return true;
+        const best = analysis && analysis.best;
+        const mover = best && best.type === 'cp' ? best.value * (color === 'w' ? 1 : -1) : 0;
+        if (mover <= C.DRAW_HAPPY_CP) return true;
+        const a = isNum(side.ambition) ? side.ambition : C.AMBITION_DEFAULT;
+        return a < C.DRAW_ACCEPT_BELOW;
+    }
+
+    // ------------------------------------------------------------------
     // La partida
     // ------------------------------------------------------------------
     // opts = { seed, players: { w: {id, weights}, b: {...} }, enabled }
@@ -428,7 +528,8 @@
     // Tria la jugada d'un jugador.
     // input = { ChessCtor, fen, ply, lines (des de qui mou), engineUci,
     //           features (fn: (Chess, fen, uci, evalCp, ctx) → trets),
-    //           context, weights (preferències de jugada), clock, windowCp, risk }
+    //           context, weights (preferències de jugada), clock, windowCp, risk,
+    //           perception (perceptionFromDepths de la mateixa anàlisi, opcional) }
     // Torna { uci, changed, loss, cls, tags, q, tau, bypass, record }.
     function decide(game, color, input) {
         const i = input || {};
@@ -455,10 +556,35 @@
         let cap = C.CAP_SIMPLE + (C.CAP_COMPLEX - C.CAP_SIMPLE) * Math.pow(facts.complexity, C.CAP_EXPONENT);
         if (isNum(i.windowCp)) cap = Math.max(cap, i.windowCp);
         const guarded = bestVal >= C.WIN_GUARD_CP;
-        let cands = cps.map(l => ({ uci: l.uci, value: l.value, loss: bestVal - l.value }))
-            .filter((c, idx) => idx === 0 || (c.loss <= cap
-                && (!guarded || c.value >= C.WIN_KEEP_CP)
-                && !(bestVal >= -50 && c.value < C.LOST_FLOOR_CP)));
+        const safe = c => c.loss <= cap && (!guarded || c.value >= C.WIN_KEEP_CP) && !(bestVal >= -50 && c.value < C.LOST_FLOOR_CP);
+        // Sense percepció: les candidates són les línies de l'anàlisi (pèrdua coneguda).
+        let cands = cps.map(l => ({ uci: l.uci, value: l.value, loss: bestVal - l.value, known: true }))
+            .filter((c, idx) => idx === 0 || safe(c));
+        cands.forEach((c) => { c.ploss = c.loss; });
+        let tauW = tau, depth = null;
+        // A) Amb percepció: el jugador tria entre el que VEU a la seva profunditat. La pèrdua
+        //    real surt de l'anàlisi profunda; si la jugada no hi és, se'n coneix una cota
+        //    inferior (la pitjor línia). Les proteccions (límit de pèrdua, victòria, derrota)
+        //    s'apliquen igualment: un error d'horitzó és possible, un regal evident no.
+        const seenDepth = i.perception ? perceptionDepth(i.perception, q, side.profile, facts, bestVal, ply) : null;
+        if (seenDepth) {
+            const deepVal = {};
+            cps.forEach((l) => { deepVal[l.uci] = l.value; });
+            const minDeep = Math.min.apply(null, cps.map(l => l.value));
+            const seen = (i.perception[seenDepth] || []).filter(l => l.type === 'cp').map((l) => {
+                const known = Object.prototype.hasOwnProperty.call(deepVal, l.uci);
+                const value = known ? deepVal[l.uci] : minDeep;
+                return { uci: l.uci, pvalue: l.value, value: value, loss: bestVal - value, known: known };
+            }).filter(c => c.known ? safe(c) : (c.loss <= cap && !guarded && !(bestVal >= -50 && minDeep < C.LOST_FLOOR_CP)));
+            if (seen.length >= 2) {
+                const top = Math.max.apply(null, seen.map(c => c.pvalue));
+                seen.forEach((c) => { c.ploss = top - c.pvalue; });
+                seen.sort((a, b) => a.ploss - b.ploss);
+                cands = seen;
+                tauW = perceptionTau(q, facts, ply);
+                depth = seenDepth;
+            }
+        }
         if (cands.length < 2) return decideBypass(game, color, ply, 'sense-alternatives', i.engineUci, { q: round(q), tau: round(tau) });
         // Fets i etiquetes de cada candidata.
         const featuresFn = typeof i.features === 'function' ? i.features : null;
@@ -489,10 +615,12 @@
         // `risk` (0–1): la fase d'atac de la lliga (desencallar la partida) dona molt més
         // pes al perfil de progrés dins del seu marge de pèrdua.
         const risk = clamp(i.risk || 0, 0, 1);
+        // B) Ambició segons la classificació: escala totes les preferències contra les taules.
+        const ambF = 0.4 + 1.2 * (isNum(side.ambition) ? side.ambition : C.AMBITION_DEFAULT);
         const prefGain = C.PREF_GAIN + C.RISK_PREF_GAIN * risk, prefMax = C.PREF_MAX + C.RISK_PREF_MAX * risk;
         // 1) Pes de cada candidata sense vulnerabilitats (pèrdua, preferències, ambició, àncora).
         cands.forEach((c, idx) => {
-            let logw = -c.loss / tau;
+            let logw = -c.ploss / tauW;
             // Preferències de jugada del perfil (mateixa fórmula per a tothom).
             if (weights && c.f) {
                 const s = Object.keys(weights).reduce((sum, k) => sum + weights[k] * (c.f[k] || 0), 0);
@@ -500,19 +628,19 @@
             }
             // Ambició: en una posició igualada es castiguen les repeticions i tornar enrere.
             if (equal && c.f) {
-                if (c.f.repeat) logw -= C.REPEAT_PENALTY;
-                if (c.f.backtrack) logw -= C.BACKTRACK_PENALTY;
+                if (c.f.repeat) logw -= C.REPEAT_PENALTY * ambF;
+                if (c.f.backtrack) logw -= C.BACKTRACK_PENALTY * ambF;
             }
             // Ambició en posicions igualades i ja avançada la partida: es prefereix mantenir
             // la tensió que simplificar cap a taules, i buscar la iniciativa (més com més
             // agressiu és el jugador). No és cap error: les jugades són equivalents per a l'anàlisi.
             if (ambitious && c.flags) {
-                if (c.flags.simplifica) logw -= C.CONTEMPT_TRADE * (1.2 - p.prudencia);
-                if (c.flags.iniciativa) logw += C.TENSION_BONUS * (0.5 + p.agressivitat);
+                if (c.flags.simplifica) logw -= C.CONTEMPT_TRADE * (1.2 - p.prudencia) * ambF;
+                if (c.flags.iniciativa) logw += C.TENSION_BONUS * (0.5 + p.agressivitat) * ambF;
             }
             // Qui no va per sota no es llença a unes taules mortes (ofegat o falta de material)
             // si l'anàlisi en dona una altra de raonable: no s'impedeixen, només es dispreuen.
-            if (bestVal >= C.DEAD_DRAW_FROM_CP && c.dead) logw -= C.DEAD_DRAW_PENALTY;
+            if (bestVal >= C.DEAD_DRAW_FROM_CP && c.dead) logw -= C.DEAD_DRAW_PENALTY * ambF;
             if (c.uci === i.engineUci) logw += C.ENGINE_ANCHOR;
             c.logw = logw;
             c.vuln = 0;
@@ -537,11 +665,11 @@
             if (target < acc) { chosen = cands[k]; break; }
         }
         const rec = { ply: ply, color: color, id: p.id, uci: chosen.uci, changed: chosen.uci !== i.engineUci, bypass: null,
-            q: round(q), tau: round(tau), complexity: round(facts.complexity), phase: facts.phase,
-            loss: chosen.loss, cls: classifyLoss(chosen.loss), tags: tagList(chosen.flags),
+            q: round(q), tau: round(tauW), complexity: round(facts.complexity), phase: facts.phase,
+            loss: chosen.loss, lossKnown: chosen.known !== false, depth: depth, cls: classifyLoss(chosen.loss), tags: tagList(chosen.flags),
             best: cands[0].uci, n: cands.length };
         if (game.log.length < C.LOG_MAX) game.log.push(rec);
-        return { uci: chosen.uci, changed: rec.changed, loss: rec.loss, cls: rec.cls, tags: rec.tags, q: rec.q, tau: rec.tau,
+        return { uci: chosen.uci, changed: rec.changed, loss: rec.loss, cls: rec.cls, tags: rec.tags, q: rec.q, tau: rec.tau, depth: depth,
             bypass: null, record: rec,
             candidates: cands.map(c => ({ uci: c.uci, loss: c.loss, p: c.w / total })) };
     }
@@ -583,6 +711,7 @@
         hashSeed, createRng, gaussian,
         profileFor, traitsFromWeights,
         linesFromInfos, positionFacts, elementaryEnding, endsInDeadDraw, pawnDelta, moveFlags, tagList, classifyLoss, styleLink,
-        createGame, decide, summarizeLog, tauFor, advance, createPlayer
+        createGame, decide, summarizeLog, tauFor, advance, createPlayer,
+        perceptionFromDepths, perceptionDepth, perceptionTau, ambitionFromStanding, applyStakes, acceptsDraw
     };
 });

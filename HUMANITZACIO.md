@@ -267,6 +267,48 @@ Resum complet (per jugador, tipus d'error per arquetip, parelles equivalents):
 - Les remuntades baixen (14 % de les partides decidides): els errors greus són més rars.
 
 
+## Versió 1.2: percepció per profunditat (A) i ambició segons la classificació (B)
+
+Per imitar millor com s'equivoca un humà (vegeu el raonament a la PR):
+
+- **A) Percepció.** El jugador no tria entre les millors línies de l'anàlisi profunda sinó entre
+  les que **veu** a la seva profunditat: una fracció de la de l'anàlisi
+  (`0,2 + 0,5·q`, més en el tipus de posició que domina i a l'obertura; mai la mateixa de
+  l'anàlisi). Les línies de cada profunditat surten de la **mateixa** anàlisi (Stockfish les emet
+  totes): no hi ha cap cerca més. Els errors són d'horitzó (bons a poca profunditat, pitjors
+  a més). La pèrdua real es mesura amb l'anàlisi profunda; si la jugada no hi surt, se'n coneix
+  una cota inferior, i les proteccions (límit de pèrdua, no llençar una victòria, no passar a
+  perdut) s'hi apliquen igualment. Sense línies per profunditat, es torna al mètode anterior.
+- **B) Ambició.** Cada jugador rep una ambició (0–1) segons la classificació
+  (`applyStakes`, amb el `stakes` de `llegendes.js`): qui encara pot atrapar el líder juga per
+  guanyar (0,75–1), el líder amb marge en té menys (0,3). L'ambició escala la resistència a
+  simplificar, a repetir i a les taules mortes, i **l'acord de taules de la TV ara necessita que
+  tots dos el vulguin** (`acceptsDraw`: qui va per sota sempre l'accepta; si no, només qui no
+  necessita guanyar).
+
+### Resultat (100 partides humanitzades, mateixa simulació)
+
+`scripts/simulacions/humanitzacio-ab/`. La simulació no porta una lliga real: la classificació
+de cada partida se simula amb una llavor (`fakeStakes`). L'error de mostreig de les taules amb
+100 partides és de ±4–5 punts.
+
+| | v1.1 (1.000 partides) | **v1.2, A+B (100 partides)** |
+|---|---:|---:|
+| Taules | 21,7 % | **26 %** |
+| · per acord | 11,4 % | 7 % |
+| · material insuficient / durada màxima / repetició | 6,0 / 1,4 / 2,5 % | 8 / 5 / 5 % |
+| Imprecisions / errors / greus per 100 | 21,4 / 4,8 / 1,0 | 17,0 / 3,7 / 1,0 |
+| Errors greus en posició senzilla / 1000 | 6,1 | 4,8 |
+| Remuntades | 14,0 % | 14,9 % |
+| Puntuació Stockfish / Lozza | 53,9 / 44,2 % | 47,9 / 53,1 % |
+
+**Lectura honesta:** B fa baixar les taules per acord (11 → 7 %), però les partides que no
+s'acorden acaben igualment en taules per altres vies (material insuficient, durada màxima,
+repetició): **el total no baixa**. A no ha generat més errors a la simulació perquè l'anàlisi
+de la simulació només arriba a profunditat 10 i el jugador veu a ~5–8: hi ha poc horitzó. A
+l'app (profunditat 16) l'horitzó és més gran i l'efecte d'A hauria de ser més fort, però **no
+s'ha pogut mesurar** aquí. L'equitat entre motors, en canvi, queda equilibrada.
+
 ## Limitacions i pendent
 
 - La simulació no reprodueix el temps de càlcul de l'app (900 ms/profunditat 16 d'anàlisi);
