@@ -174,6 +174,15 @@ decisives i el tram més llarg sense progrés de 21.
   *workers* dels motors substituïts per uns de falsos per veure el final de partida i el canvi
   de lliga (el Stockfish real és massa lent en aquest entorn).
 
+## Humanització dinàmica
+
+Les partides de la lliga es juguen amb la humanització de `humanitzacio.js` (vegeu
+`HUMANITZACIO.md`): els dos jugadors trien entre les millors línies de l'anàlisi (MultiPV) amb
+una precisió que fluctua, i cada perfil té jugades que li són més temptadores quan s'erra. Substitueix
+el defalliment programat (la semijugada fixa 30–60) i es pot apagar amb `deps.humanize = false`
+o `TV_CONFIG.HUMANIZE.ENABLED`. Els `weights` d'aquest fitxer són també les preferències de jugada
+de la humanització, per a Stockfish i per a Lozza.
+
 ## Pendent
 
 - **Calibrar** Lozza (profunditat 6) contra Stockfish (≈2500) amb partides reals: si un motor

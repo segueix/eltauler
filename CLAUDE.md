@@ -50,7 +50,7 @@ Per provar l'app al navegador real, fes servir la skill **`/verify`**
 |---|---|
 | Nucli pur | `core.js` (ELO, adaptació, qualitat de partida, trie d'obertures), `redactor.js` (corrector de català i redacció local), `gamestore.js` (historial en 2 nivells) |
 | Sync / sistema | `cloudsync.js`, `sw.js`, `rendiment.js` (feina en segon pla segons gamma), `pantallaactiva.js`, `fonscolors.js`, `canviapp.js` (pas a Remigi), `manifest.json` |
-| Lliga de llegendes TV (abans Stockfish vs Lozza) | `llegendes.js` (10 perfils, motor per jugador, calendari de lliga doble, classificació), `stockfishtv.js` (nucli), `tvintro.js`, `tvleague.js` + `tvleague-ui.js`, `visiograu.js` (visió d'en Grau), `narrativa.js`, `historytv.js` (partides desades), `gamebroadcast.js`, `expressivitat.js`, `artdelaguerra.js`, `estratagemes.js`, `maximesexercici.js` |
+| Lliga de llegendes TV (abans Stockfish vs Lozza) | `llegendes.js` (10 perfils, motor per jugador, calendari de lliga doble, classificació), `humanitzacio.js` (humanització dinàmica: tria entre candidates MultiPV, vegeu `HUMANITZACIO.md`), `stockfishtv.js` (nucli), `tvintro.js`, `tvleague.js` + `tvleague-ui.js`, `visiograu.js` (visió d'en Grau), `narrativa.js`, `historytv.js` (partides desades), `gamebroadcast.js`, `expressivitat.js`, `artdelaguerra.js`, `estratagemes.js`, `maximesexercici.js` |
 | Veu i so | `veuneural.js`, `prosodia.js`, `radioambient.js`, `musicafons.js`, `sons.js`, `matxa-*.js` |
 | Entrenament | `hieroclosure.js` + `jeropedagogia.js` + `jeroglifics-reserva.js` (jeroglífics), `patrons.js`, `tallerobertures.js`, `catalans.js` (partida col·lectiva), `bulletpractice.js` + `bulletbank.js`, `tutorial.js`, `reviewsacrifices.js`, `antidoteprogress.js`, `boardexperience.js` |
 | Lliga | `nomslliga.js`, `localitats.js` (vegeu `LLIGA.md`) |
@@ -59,7 +59,7 @@ Per provar l'app al navegador real, fes servir la skill **`/verify`**
 Documentació per tema (md a l'arrel): `TESTS.md`, `LLIGA.md`, `NARRATIVA-TV.md`,
 `STOCKFISH-19.md`, `LLEGENDES.md`, `PATRONS-VERIFICABLES.md`, `PEDAGOGIA-PROSODIA.md`,
 `CATALA-EXPRESSIU.md`, `ANALISI_RELLOTGE.md`, `ANTIDOT-*.md`, `AUDITORIA-QUALITAT.md`,
-`PLANIFICACIO-SEGON-PLA.md`, `MATXA-ONNX.md`, `GOOGLE-TTS-EMERGENCIA.md`.
+`PLANIFICACIO-SEGON-PLA.md`, `MATXA-ONNX.md`, `GOOGLE-TTS-EMERGENCIA.md`, `HUMANITZACIO.md`.
 Llegeix el md del tema abans de tocar-ne el codi.
 
 ## Mapa d'`app.js` (línies aproximades — ajusta-les amb grep)

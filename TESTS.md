@@ -883,6 +883,15 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   domini i localStorage), que `index.html` carrega el CSS i l'script després
   d'`app.js`, i que els oients del dit són passius (no frenen el desplaçament).
 
+- **`humanitzacio.test.js`, `humanitzacio-tv.test.js`, `humanitzacio-simulacio.test.js`** —
+  humanització dinàmica de la lliga de llegendes (`humanitzacio.js`, vegeu
+  `HUMANITZACIO.md`): llavors reproduïbles, estat de precisió independent per jugador i
+  correlat en el temps, selecció entre candidates (probabilitat decreixent amb la pèrdua,
+  errors greus només en posicions complexes, proteccions de mats i finals), vulnerabilitats per
+  arquetip, integració amb la TV (MultiPV 4, interruptor, comentaris que no revelen el
+  mecanisme) i una partida real amb els motors de l'app per configuració
+  (`scripts/simula-humanitzacio.js`, també per lots de 1.000 partides).
+
 ## Verificació al navegador
 
 ### Pas a Remigi lliscant el dit
