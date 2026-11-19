@@ -35,7 +35,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
     'use strict';
 
-    const VERSION = '1.3.0';
+    const VERSION = '1.4.0';
 
     const CONFIG = {
         // Interruptor general (intern: l'espectador no el veu).
@@ -47,6 +47,22 @@
         LEVEL: 0,
         // Quant s'amplia el límit de pèrdua admesa amb el nivell més baix (×(1 + W·(1 − LEVEL))).
         LEVEL_CAP_WIDEN: 2,
+        // Forma: el nivell EFECTIU de cada jugador puja i baixa al voltant del nominal (LEVEL).
+        //  · ratxa: AR(1) lent i independent per jugador (dura moltes jugades);
+        //  · confiança: qui guanya terreny s'enfila i qui en perd s'enfonsa (un de pujada,
+        //    l'altre de baixada); la resistència a la pressió esmorteeix la caiguda i, amb un
+        //    avantatge clar, l'autocomplaença la fa baixar (es pot girar).
+        FORM_RHO: 0.97,
+        FORM_SIGMA: 0.3,
+        FORM_GAIN: 0.6,
+        CONF_GAIN: 0.35,
+        CONF_MEMORY: 0.8,
+        CONF_IMPULSE: 0.5,
+        CONF_SCALE_CP: 100,
+        COMPLACENCY_CP: 250,
+        COMPLACENCY: 0.08,
+        LEVEL_EFF_MIN: -0.4,
+        LEVEL_EFF_MAX: 1.2,
         // Per sota d'aquesta complexitat, una posició és senzilla: mai cap error greu.
         SIMPLE_COMPLEXITY: 0.25,
         // Línies d'anàlisi (MultiPV) de les quals es tria.
@@ -138,8 +154,10 @@
     function isNum(v) { return typeof v === 'number' && isFinite(v); }
     function smoothstep(x) { const t = clamp(x, 0, 1); return t * t * (3 - 2 * t); }
     function levelOf() { return isNum(CONFIG.LEVEL) ? clamp(CONFIG.LEVEL, 0, 1) : 1; }
+    // Nivell efectiu d'un jugador (pot passar del nominal amunt i avall: la seva forma).
+    function lvOr(lv) { return isNum(lv) ? lv : levelOf(); }
     // Soroll de judici segons el nivell: 1 amb el nivell màxim, fins a ×2,5 amb el mínim.
-    function levelNoise() { return 1 + 1.5 * (1 - levelOf()); }
+    function levelNoise(lv) { return Math.max(0.4, 1 + 1.5 * (1 - lvOr(lv))); }
 
     // ------------------------------------------------------------------
     // Aleatorietat controlada per llavor
@@ -376,13 +394,15 @@
         const base = clamp(CONFIG.BASE_Q + 0.08 * (skill - 0.7), 0.6, 0.85);
         const sd = CONFIG.FLUCT_SIGMA;
         // L'estat inicial ja és una extracció de la distribució estacionària.
-        return { profile: p, rng: rng, base: base, x: gaussian(rng) * sd, wear: 0, dip: 0, lastPly: 0, moves: 0, ambition: CONFIG.AMBITION_DEFAULT };
+        const form = gaussian(rng) * CONFIG.FORM_SIGMA;
+        return { profile: p, rng: rng, base: base, x: gaussian(rng) * sd, wear: 0, dip: 0, lastPly: 0, moves: 0, ambition: CONFIG.AMBITION_DEFAULT,
+            form: form, conf: 0, lastEval: null, level: effectiveLevel(form, 0) };
     }
 
     // Avança l'estat fins a la semijugada `ply` amb una posició de complexitat
     // `complexity` i una avaluació `evalMover` (cp, des de qui mou; null si no
     // en sabem res). Retorna la precisió q (0–1). Consumeix SEMPRE les mateixes
-    // extraccions de l'RNG del jugador (2 per la fluctuació).
+    // extraccions de l'RNG del jugador (2 per la fluctuació i 2 per la forma).
     function advance(state, ply, complexity, evalMover, clock) {
         const p = state.profile, C = CONFIG;
         const steps = Math.max(1, ply - state.lastPly);
@@ -400,11 +420,28 @@
         const hard = (behind ? 0.6 : 0) + (complexity > 0.55 ? (complexity - 0.55) * 1.4 : 0);
         state.dip = Math.min(C.DIP_MAX, state.dip + C.DIP_GAIN * hard * (1.2 - p.pressio));
         state.dip *= 1 - (C.DIP_DECAY_MIN + C.DIP_DECAY_RANGE * p.recuperacio);
+        // Forma (escala lenta): ratxa pròpia + confiança segons com evoluciona la partida.
+        const rhoF = Math.pow(C.FORM_RHO, Math.min(steps, 6) / 2);
+        state.form = rhoF * state.form + Math.sqrt(Math.max(0, 1 - rhoF * rhoF)) * C.FORM_SIGMA * gaussian(state.rng);
+        if (isNum(evalMover)) {
+            let impulse = isNum(state.lastEval) ? clamp((evalMover - state.lastEval) / C.CONF_SCALE_CP, -1, 1) : 0;
+            if (impulse < 0) impulse *= 1.2 - p.pressio;
+            state.conf = C.CONF_MEMORY * state.conf + C.CONF_IMPULSE * impulse;
+            if (evalMover >= C.COMPLACENCY_CP) state.conf -= C.COMPLACENCY;
+            state.conf = clamp(state.conf, -1, 1);
+            state.lastEval = evalMover;
+        } else state.conf *= C.CONF_MEMORY;
+        state.level = effectiveLevel(state.form, state.conf);
         const q = state.base + state.x - state.wear - state.dip - C.CLOCK_PENALTY * clamp(clock || 0, 0, 1);
         return clamp(q, 0.08, 1);
     }
 
-    function tauFor(q, p, facts, ply, evalMover) {
+    function effectiveLevel(form, conf) {
+        const C = CONFIG;
+        return clamp(levelOf() + C.FORM_GAIN * (form || 0) + C.CONF_GAIN * (conf || 0), C.LEVEL_EFF_MIN, C.LEVEL_EFF_MAX);
+    }
+
+    function tauFor(q, p, facts, ply, evalMover, lv) {
         const C = CONFIG;
         let tau = C.TAU_MIN + (C.TAU_MAX - C.TAU_MIN) * Math.pow(1 - q, C.Q_EXPONENT);
         // Habilitat segons el tipus de posició. La tàctica i l'estratègia es mesuren respecte de la
@@ -422,7 +459,7 @@
         tau *= 0.75 + 0.9 * facts.complexity;
         // Principi de partida: la teoria no es desvirtua (rampa suau).
         tau *= C.OPENING_MIN_SCALE + (1 - C.OPENING_MIN_SCALE) * smoothstep((ply - C.OPENING_PLIES) / C.OPENING_RAMP);
-        return Math.max(1, tau * levelNoise());
+        return Math.max(1, tau * levelNoise(lv));
     }
 
     // ------------------------------------------------------------------
@@ -442,7 +479,7 @@
 
     // Profunditat a què el jugador veu la posició ara mateix (o null si no n'hi ha cap de
     // prou diferent de la profunditat de l'anàlisi).
-    function perceptionDepth(perception, q, p, facts, evalMover, ply) {
+    function perceptionDepth(perception, q, p, facts, evalMover, ply, lv) {
         const C = CONFIG;
         const depths = Object.keys(perception || {}).map(Number).sort((a, b) => a - b);
         if (depths.length < 2) return null;
@@ -453,7 +490,7 @@
         if (facts.phase === 'final') d += 2 * (p.finals - 0.7);
         if (isNum(evalMover) && evalMover <= -100) d += 2 * (p.pressio - 0.7);
         // Nivell de l'espectacle: com més baix, menys càlcul.
-        d *= 0.55 + 0.45 * levelOf();
+        d *= Math.max(0.3, 0.55 + 0.45 * lvOr(lv));
         // A l'obertura es coneix la teoria: es veu més lluny (rampa suau).
         d += C.PERC_OPENING_BONUS * (1 - smoothstep((ply - C.OPENING_PLIES) / C.OPENING_RAMP));
         const want = clamp(Math.round(d), C.PERC_MIN_DEPTH, deep - 1);
@@ -461,12 +498,12 @@
         return usable.length ? usable[usable.length - 1] : null;
     }
 
-    function perceptionTau(q, facts, ply) {
+    function perceptionTau(q, facts, ply, lv) {
         const C = CONFIG;
         let t = C.TAU_P_MIN + (C.TAU_P_MAX - C.TAU_P_MIN) * Math.pow(1 - q, C.Q_EXPONENT);
         t *= 0.75 + 0.5 * facts.complexity;
         t *= C.OPENING_MIN_SCALE + (1 - C.OPENING_MIN_SCALE) * smoothstep((ply - C.OPENING_PLIES) / C.OPENING_RAMP);
-        return Math.max(1, t * levelNoise());
+        return Math.max(1, t * levelNoise(lv));
     }
 
     // ------------------------------------------------------------------
@@ -567,11 +604,13 @@
         if (lines.some(l => l.type === 'mate')) return decideBypass(game, color, ply, 'mat', i.engineUci, { q: round(q) });
         if (elementaryEnding(i.ChessCtor, i.fen)) return decideBypass(game, color, ply, 'final-elemental', i.engineUci, { q: round(q) });
         const p = side.profile;
-        const tau = tauFor(q, p, facts, ply, bestVal);
+        const lv = side.level;
+        const tau = tauFor(q, p, facts, ply, bestVal, lv);
         // Pèrdua màxima admesa (complexitat) i proteccions de resultat.
         // Amb un nivell més baix s'admeten errors més grans (és el que fa baixar el nivell de
         // debò): en una posició senzilla el límit no arriba mai a un error greu (200 cp).
-        const widen = 1 + C.LEVEL_CAP_WIDEN * (1 - levelOf());
+        // (La forma baixa el càlcul i el judici, però no amplia aquest límit per sota del nivell 0.)
+        const widen = Math.max(0.6, 1 + C.LEVEL_CAP_WIDEN * (1 - Math.max(0, lvOr(lv))));
         let cap = Math.min(C.CAP_SIMPLE * widen, C.BLUNDER_CP - 1)
             + (C.CAP_COMPLEX - C.CAP_SIMPLE) * Math.pow(facts.complexity, C.CAP_EXPONENT) * widen;
         if (facts.complexity < C.SIMPLE_COMPLEXITY) cap = Math.min(cap, C.BLUNDER_CP - 1);
@@ -587,7 +626,7 @@
         //    real surt de l'anàlisi profunda; si la jugada no hi és, se'n coneix una cota
         //    inferior (la pitjor línia). Les proteccions (límit de pèrdua, victòria, derrota)
         //    s'apliquen igualment: un error d'horitzó és possible, un regal evident no.
-        const seenDepth = i.perception ? perceptionDepth(i.perception, q, side.profile, facts, bestVal, ply) : null;
+        const seenDepth = i.perception ? perceptionDepth(i.perception, q, side.profile, facts, bestVal, ply, lv) : null;
         if (seenDepth) {
             const deepVal = {};
             cps.forEach((l) => { deepVal[l.uci] = l.value; });
@@ -602,7 +641,7 @@
                 seen.forEach((c) => { c.ploss = top - c.pvalue; });
                 seen.sort((a, b) => a.ploss - b.ploss);
                 cands = seen;
-                tauW = perceptionTau(q, facts, ply);
+                tauW = perceptionTau(q, facts, ply, lv);
                 depth = seenDepth;
             }
         }
@@ -686,7 +725,7 @@
             if (target < acc) { chosen = cands[k]; break; }
         }
         const rec = { ply: ply, color: color, id: p.id, uci: chosen.uci, changed: chosen.uci !== i.engineUci, bypass: null,
-            q: round(q), tau: round(tauW), complexity: round(facts.complexity), phase: facts.phase,
+            q: round(q), level: round(lv), tau: round(tauW), complexity: round(facts.complexity), phase: facts.phase,
             loss: chosen.loss, lossKnown: chosen.known !== false, depth: depth, cls: classifyLoss(chosen.loss), tags: tagList(chosen.flags),
             best: cands[0].uci, n: cands.length };
         if (game.log.length < C.LOG_MAX) game.log.push(rec);
@@ -733,6 +772,6 @@
         profileFor, traitsFromWeights,
         linesFromInfos, positionFacts, elementaryEnding, endsInDeadDraw, pawnDelta, moveFlags, tagList, classifyLoss, styleLink,
         createGame, decide, summarizeLog, tauFor, advance, createPlayer,
-        perceptionFromDepths, perceptionDepth, perceptionTau, ambitionFromStanding, applyStakes, acceptsDraw
+        effectiveLevel, perceptionFromDepths, perceptionDepth, perceptionTau, ambitionFromStanding, applyStakes, acceptsDraw
     };
 });

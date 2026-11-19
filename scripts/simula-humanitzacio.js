@@ -235,7 +235,7 @@ async function playGame(sf, lozza, caps, index, mode) {
         uci.push(move);
         const fenAfter = chess.fen();
         record.moves.push({ ply, color, uci: move, prepared: ply < prep.length, fenBefore: fen, human: human_dec && human_dec.record ? {
-            q: human_dec.q, tau: human_dec.tau, cls: human_dec.cls, loss: human_dec.loss, tags: human_dec.tags, changed: human_dec.changed, depth: human_dec.depth || null, known: human_dec.record.lossKnown !== false } : null,
+            q: human_dec.q, tau: human_dec.tau, cls: human_dec.cls, loss: human_dec.loss, tags: human_dec.tags, changed: human_dec.changed, depth: human_dec.depth || null, level: human_dec.record.level, known: human_dec.record.lossKnown !== false } : null,
             flagsFeatures: null });
         end = TV.tvGameEnd(chess, TV.TV_CONFIG.MAX_PLIES);
         if (!end) {

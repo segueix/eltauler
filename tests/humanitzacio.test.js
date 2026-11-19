@@ -419,12 +419,13 @@ describe('Humanització · els errors reflecteixen la personalitat', () => {
     }
     return found;
     };
-    // Al nivell màxim, sempre; al nivell de l'espectacle (més baix), en la gran majoria dels casos.
+    // Al nivell màxim, gairebé sempre; al nivell de l'espectacle (més baix), en la gran majoria dels casos.
     const saved = H.CONFIG.LEVEL;
     H.CONFIG.LEVEL = 1;
     const strong = run();
     H.CONFIG.LEVEL = saved;
-    expect(strong).toBe(300);
+    // (amb la forma, fins i tot al nivell màxim hi ha dies dolents: gairebé sempre)
+    expect(strong).toBeGreaterThanOrEqual(290);
     expect(run()).toBeGreaterThan(225);
   });
 
@@ -555,5 +556,82 @@ describe('Humanització · A) percepció per profunditat i B) ambició segons la
     expect(run(undefined)).toMatchObject({ reason: 'agreed' });
     expect(run(() => true)).toMatchObject({ reason: 'agreed' });
     expect(run(c => c === 'b')).toBeNull();
+  });
+});
+
+describe('Humanització · forma: per sobre i per sota del seu nivell', () => {
+  const nominal = () => Math.max(0, Math.min(1, H.CONFIG.LEVEL));
+  const levels = (seed, n, evals) => {
+    const game = H.createGame({ seed: seed, players: { w: { id: 'kasparov' }, b: { id: 'karpov' } } });
+    const out = { w: [], b: [] };
+    for (let k = 0; k < n; k++) {
+      ['w', 'b'].forEach((c, j) => {
+        const e = evals ? evals(k) * (c === 'w' ? 1 : -1) : 0;
+        H.advance(game.sides[c], 2 * k + j, 0.4, e, 0);
+        out[c].push(game.sides[c].level);
+      });
+    }
+    return out;
+  };
+
+  test('el nivell efectiu passa transitòriament per sobre i per sota del nominal', () => {
+    let above = 0, below = 0;
+    for (let s = 0; s < 100; s++) {
+      const L = levels('f' + s, 80).w;
+      if (L.some(v => v > nominal() + 0.2)) above++;
+      if (L.some(v => v < nominal() - 0.2)) below++;
+    }
+    expect(above).toBeGreaterThan(40);
+    expect(below).toBeGreaterThan(40);
+  });
+
+  test('és una ratxa: canvia lentament (molt correlada d’una jugada a la següent)', () => {
+    let ac = 0;
+    for (let s = 0; s < 40; s++) {
+      const L = levels('r' + s, 120).w;
+      const m = L.reduce((a, b) => a + b, 0) / L.length;
+      let num = 0, den = 0;
+      for (let k = 1; k < L.length; k++) num += (L[k] - m) * (L[k - 1] - m);
+      L.forEach(v => { den += (v - m) ** 2; });
+      ac += num / den;
+    }
+    expect(ac / 40).toBeGreaterThan(0.8);
+  });
+
+  test('qui guanya terreny s’enfila i qui en perd s’enfonsa (i es pot girar)', () => {
+    // Les blanques guanyen terreny a poc a poc durant 20 jugades i després el perden.
+    const up = k => (k < 20 ? 6 * k : 120 - 8 * (k - 20));
+    let wUp = 0, bDown = 0, turned = 0;
+    for (let s = 0; s < 100; s++) {
+      const base = levels('c' + s, 40);
+      const g = levels('c' + s, 40, up);
+      if (g.w[19] > base.w[19]) wUp++;
+      if (g.b[19] < base.b[19]) bDown++;
+      if (g.w[35] < base.w[35] && g.b[35] > base.b[35]) turned++;
+    }
+    expect(wUp).toBeGreaterThanOrEqual(95);
+    expect(bDown).toBeGreaterThanOrEqual(95);
+    expect(turned).toBeGreaterThanOrEqual(95);
+  });
+
+  test('un jugador en ratxa calcula més i jutja millor (i al revés)', () => {
+    const per = {}; for (let d = 2; d <= 16; d++) per[d] = [{ uci: 'e2e4', type: 'cp', value: 0 }, { uci: 'd2d4', type: 'cp', value: 0 }];
+    const facts = { complexity: 0.5, tactical: false, closed: false, phase: 'migjoc' };
+    const p = H.profileFor('carlsen');
+    expect(H.perceptionDepth(per, 0.7, p, facts, 0, 60, 1.1)).toBeGreaterThan(H.perceptionDepth(per, 0.7, p, facts, 0, 60, -0.3));
+    expect(H.perceptionTau(0.7, facts, 60, 1.1)).toBeLessThan(H.perceptionTau(0.7, facts, 60, -0.3));
+  });
+
+  test('la forma no afavoreix cap color ni cap jugador concret', () => {
+    const mean = (color, id) => {
+      let t = 0, n = 0;
+      for (let s = 0; s < 400; s++) {
+        const game = H.createGame({ seed: 'n' + s, players: { w: { id: id }, b: { id: id } } });
+        for (let k = 0; k < 60; k++) { H.advance(game.sides[color], k, 0.4, 0, 0); t += game.sides[color].level; n++; }
+      }
+      return t / n;
+    };
+    expect(Math.abs(mean('w', 'morphy') - mean('b', 'morphy'))).toBeLessThan(0.04);
+    expect(Math.abs(mean('w', 'morphy') - mean('w', 'carlsen'))).toBeLessThan(0.04);
   });
 });

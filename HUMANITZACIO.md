@@ -342,6 +342,46 @@ del defalliment programat i del soroll dels motors) i equitat entre motors. Per 
 més el nivell caldria ampliar `LEVEL_CAP_WIDEN`. Mesurat només amb 100 partides: una tanda de
 1.000 donaria xifres més fermes.
 
+## Versió 1.4: forma (per sobre i per sota del propi nivell)
+
+Cada jugador té un **nivell efectiu** que es mou al voltant del nominal (`LEVEL`) i que fan
+servir el càlcul (profunditat de percepció) i el judici (temperatures); el límit de pèrdua
+admesa no s'amplia per sota del nivell 0. Dues components, iguals per als dos jugadors:
+
+- **Ratxa**: AR(1) lent i independent per jugador (`FORM_RHO = 0,97`, `FORM_SIGMA = 0,3`,
+  `FORM_GAIN = 0,6`): un jugador pot passar moltes jugades inspirat o apagat.
+- **Confiança**: qui guanya terreny (l'avaluació millora des de la seva jugada anterior)
+  s'enfila i qui en perd s'enfonsa (`CONF_GAIN = 0,35`, memòria 0,8). Com que l'avaluació és la
+  mateixa vista des dels dos costats, **un queda de pujada i l'altre de baixada**. Es pot girar:
+  la ratxa és independent, la resistència a la pressió esmorteeix les caigudes i, amb un
+  avantatge clar (≥ 250 cp), l'autocomplaença fa baixar la confiança.
+
+El nivell efectiu queda entre −0,4 i 1,2. No es comenta mai (és del model, no del jugador real).
+
+### Resultat (100 partides, nivell 0, mateixa simulació)
+
+`scripts/simulacions/humanitzacio-forma/`.
+
+| | Nivell 0 sense forma | **Nivell 0 amb forma** |
+|---|---:|---:|
+| Taules | 10 % | **9 %** |
+| Durada (jugades) | 43,5 | 42,7 |
+| Imprecisions / errors / greus per 100 | 22,0 / 6,6 / 1,5 | 21,3 / 6,9 / 1,7 |
+| Errors greus en posició senzilla / 1000 | 6,3 | 12,4 |
+| Remuntades | 14,4 % | 11,0 % |
+| Stockfish / Lozza | 49,2 / 51,3 % | 50,0 / 50,0 % |
+
+- Jugades amb el nivell efectiu clarament per sobre del nominal (+0,2): 21 %; per sota (−0,2):
+  11 %. Està desplaçat cap amunt perquè les caigudes de confiança s'esmorteeixen i el nivell 0 ja
+  és el mínim de l'escala.
+- En el 96 % de les partides, en algun moment un jugador està clarament de pujada i l'altre
+  de baixada (diferència > 0,3); en el 18 %, això es gira i el que anava de baixada passa a
+  anar de pujada.
+- Guanya qui ha tingut més forma de mitjana en el 76 % de les partides decidides (en part,
+  perquè la confiança segueix l'avaluació).
+- Els errors greus en posicions senzilles pugen (6 → 12 per 1000), encara per sota del
+  comportament anterior (22). Amb 100 partides, totes aquestes diferències són orientatives.
+
 ## Limitacions i pendent
 
 - La simulació no reprodueix el temps de càlcul de l'app (900 ms/profunditat 16 d'anàlisi);
