@@ -26,11 +26,15 @@ jobs:
           path: site
 
       # Sempre incorpora l'última versió de main de Remigi al domini eltauler.cat/remigi/.
+      # Remigi és privat: el token per defecte d'aquest flux no el pot llegir, i
+      # cal una clau de només lectura (secret REMIGI_TOKEN, Contents: Read-only
+      # de segueix/remigi).
       - name: Baixa Remigi
         uses: actions/checkout@v4
         with:
           repository: segueix/remigi
           path: remigi-src
+          token: ${{ secrets.REMIGI_TOKEN }}
 
       - name: Prepara Node
         uses: actions/setup-node@v4
