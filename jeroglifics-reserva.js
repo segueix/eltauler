@@ -7,6 +7,285 @@
 // >>> RESERVA (generat) >>>
 const RESERVE = [
  {
+  "fen": "6k1/5ppp/p5q1/1p2r3/5p2/PP2Q3/4KRr1/R7 b - - 1 39",
+  "solutionMoves": [
+   "e5e3",
+   "g2f2",
+   "g6g1"
+  ],
+  "replyMoves": [
+   "e2d1",
+   "a3a4"
+  ],
+  "stepAlternatives": [],
+  "stepEvals": [],
+  "stepPvs": [],
+  "conclusion": {
+   "version": 1,
+   "fen": "6k1/5ppp/p5q1/1p2r3/5p2/PP2Q3/4KRr1/R7 b - - 1 39",
+   "line": [
+    "e5e3",
+    "e2d1",
+    "g2f2",
+    "a3a4",
+    "g6g1"
+   ],
+   "finalFen": "6k1/5ppp/p7/1p6/P4p2/1P2r3/5r2/R2K2q1 w - - 1 42",
+   "kind": "mate",
+   "finalSan": "Qg1#",
+   "gain": null,
+   "checkedReplies": 0,
+   "checkedAlternatives": 40,
+   "explanation": "Qg1# culmina un mat forçat en tres jugades, demostrat comprovant totes les defenses legals.",
+   "uniqueness": "Una única primera jugada força mat en tres; s’han comprovat exhaustivament les defenses possibles.",
+   "alternativeSan": null,
+   "alternativeLine": [],
+   "alternativeEval": null,
+   "minDepth": 0,
+   "requestedDepth": 0,
+   "sacrifices": [],
+   "proofMethod": "exhaustive_mate_tree",
+   "proofNodes": 16979
+  },
+  "id": "hgr_6k15pppp5q11p2r35p2PP2Q34KRr1R7b",
+  "source": "reserve",
+  "sideToMove": "b",
+  "line": [
+   "e5e3",
+   "e2d1",
+   "g2f2",
+   "a3a4",
+   "g6g1"
+  ],
+  "sanLine": [
+   "Rxe3+",
+   "Kd1",
+   "Rxf2",
+   "a4",
+   "Qg1#"
+  ],
+  "bestMove": "e5e3",
+  "bestMoveSan": "Rxe3+",
+  "finalType": "mate",
+  "finalMotif": "mate",
+  "finalMotifs": [
+   "mate"
+  ],
+  "theme": "mate",
+  "tacticKind": "escac i mat",
+  "difficulty": 75,
+  "difficultyPercent": 75,
+  "status": "new",
+  "attempts": 0,
+  "startedAt": null,
+  "solvedAt": null,
+  "deviceCreated": null,
+  "playerMove": null,
+  "origin": "stockfish19_lozza3_mate3",
+  "sourceGameId": null,
+  "sourceFen": "6k1/5ppp/p5q1/1p2r3/5p2/PP2Q3/4KRr1/R7 b - - 1 39",
+  "sourceMoveNumber": 39,
+  "adaptationNote": null,
+  "pv": [
+   "e5e3",
+   "e2d1",
+   "g2f2",
+   "a3a4",
+   "g6g1"
+  ],
+  "evalBefore": null,
+  "ratingEstimate": null,
+  "createdAt": 0,
+  "updatedAt": 0,
+  "publishedAt": 1795560025043
+ },
+ {
+  "fen": "r1k5/p1p2p2/2B2p2/1p5r/7R/P1N5/1PPB4/2Kn4 w - - 1 26",
+  "solutionMoves": [
+   "h4h5",
+   "c3d5",
+   "h5h8"
+  ],
+  "replyMoves": [
+   "c8d8",
+   "a8b8"
+  ],
+  "stepAlternatives": [],
+  "stepEvals": [],
+  "stepPvs": [],
+  "conclusion": {
+   "version": 1,
+   "fen": "r1k5/p1p2p2/2B2p2/1p5r/7R/P1N5/1PPB4/2Kn4 w - - 1 26",
+   "line": [
+    "h4h5",
+    "c8d8",
+    "c3d5",
+    "a8b8",
+    "h5h8"
+   ],
+   "finalFen": "1r1k3R/p1p2p2/2B2p2/1p1N4/8/P7/1PPB4/2Kn4 b - - 4 28",
+   "kind": "mate",
+   "finalSan": "Rh8#",
+   "gain": null,
+   "checkedReplies": 0,
+   "checkedAlternatives": 38,
+   "explanation": "Rh8# culmina un mat forçat en tres jugades, demostrat comprovant totes les defenses legals.",
+   "uniqueness": "Una única primera jugada força mat en tres; s’han comprovat exhaustivament les defenses possibles.",
+   "alternativeSan": null,
+   "alternativeLine": [],
+   "alternativeEval": null,
+   "minDepth": 0,
+   "requestedDepth": 0,
+   "sacrifices": [],
+   "proofMethod": "exhaustive_mate_tree",
+   "proofNodes": 23022
+  },
+  "id": "hgr_r1k5p1p2p22B2p21p5r7RP1N51PPB42Kn4w",
+  "source": "reserve",
+  "sideToMove": "w",
+  "line": [
+   "h4h5",
+   "c8d8",
+   "c3d5",
+   "a8b8",
+   "h5h8"
+  ],
+  "sanLine": [
+   "Rxh5",
+   "Kd8",
+   "Nd5",
+   "Rb8",
+   "Rh8#"
+  ],
+  "bestMove": "h4h5",
+  "bestMoveSan": "Rxh5",
+  "finalType": "mate",
+  "finalMotif": "mate",
+  "finalMotifs": [
+   "mate"
+  ],
+  "theme": "mate",
+  "tacticKind": "escac i mat",
+  "difficulty": 75,
+  "difficultyPercent": 75,
+  "status": "new",
+  "attempts": 0,
+  "startedAt": null,
+  "solvedAt": null,
+  "deviceCreated": null,
+  "playerMove": null,
+  "origin": "stockfish19_lozza3_mate3",
+  "sourceGameId": null,
+  "sourceFen": "r1k5/p1p2p2/2B2p2/1p5r/7R/P1N5/1PPB4/2Kn4 w - - 1 26",
+  "sourceMoveNumber": 26,
+  "adaptationNote": null,
+  "pv": [
+   "h4h5",
+   "c8d8",
+   "c3d5",
+   "a8b8",
+   "h5h8"
+  ],
+  "evalBefore": null,
+  "ratingEstimate": null,
+  "createdAt": 0,
+  "updatedAt": 0,
+  "publishedAt": 1795559850261
+ },
+ {
+  "fen": "8/6R1/8/1B5k/5p2/P2NBp2/1PP5/2K5 w - - 0 40",
+  "solutionMoves": [
+   "e3f4",
+   "g7h7",
+   "b5d7"
+  ],
+  "replyMoves": [
+   "h5h4",
+   "h4g4"
+  ],
+  "stepAlternatives": [],
+  "stepEvals": [],
+  "stepPvs": [],
+  "conclusion": {
+   "version": 1,
+   "fen": "8/6R1/8/1B5k/5p2/P2NBp2/1PP5/2K5 w - - 0 40",
+   "line": [
+    "e3f4",
+    "h5h4",
+    "g7h7",
+    "h4g4",
+    "b5d7"
+   ],
+   "finalFen": "8/3B3R/8/8/5Bk1/P2N1p2/1PP5/2K5 b - - 4 42",
+   "kind": "mate",
+   "finalSan": "Bd7#",
+   "gain": null,
+   "checkedReplies": 0,
+   "checkedAlternatives": 41,
+   "explanation": "Bd7# culmina un mat forçat en tres jugades, demostrat comprovant totes les defenses legals.",
+   "uniqueness": "Una única primera jugada força mat en tres; s’han comprovat exhaustivament les defenses possibles.",
+   "alternativeSan": null,
+   "alternativeLine": [],
+   "alternativeEval": null,
+   "minDepth": 0,
+   "requestedDepth": 0,
+   "sacrifices": [],
+   "proofMethod": "exhaustive_mate_tree",
+   "proofNodes": 35056
+  },
+  "id": "hgr_86R181B5k5p2P2NBp21PP52K5w",
+  "source": "reserve",
+  "sideToMove": "w",
+  "line": [
+   "e3f4",
+   "h5h4",
+   "g7h7",
+   "h4g4",
+   "b5d7"
+  ],
+  "sanLine": [
+   "Bxf4",
+   "Kh4",
+   "Rh7+",
+   "Kg4",
+   "Bd7#"
+  ],
+  "bestMove": "e3f4",
+  "bestMoveSan": "Bxf4",
+  "finalType": "mate",
+  "finalMotif": "mate",
+  "finalMotifs": [
+   "mate"
+  ],
+  "theme": "mate",
+  "tacticKind": "escac i mat",
+  "difficulty": 75,
+  "difficultyPercent": 75,
+  "status": "new",
+  "attempts": 0,
+  "startedAt": null,
+  "solvedAt": null,
+  "deviceCreated": null,
+  "playerMove": null,
+  "origin": "stockfish19_lozza3_mate3",
+  "sourceGameId": null,
+  "sourceFen": "8/6R1/8/1B5k/5p2/P2NBp2/1PP5/2K5 w - - 0 40",
+  "sourceMoveNumber": 40,
+  "adaptationNote": null,
+  "pv": [
+   "e3f4",
+   "h5h4",
+   "g7h7",
+   "h4g4",
+   "b5d7"
+  ],
+  "evalBefore": null,
+  "ratingEstimate": null,
+  "createdAt": 0,
+  "updatedAt": 0,
+  "publishedAt": 1795559783908
+ },
+ {
   "id": "hgr_5k21p6p72n2r23B44K3PP4R18w",
   "createdAt": 0,
   "updatedAt": 0,
